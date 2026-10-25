@@ -33,6 +33,7 @@ def test_login_pages_and_proxy(tmp_path):
     seen = {}
 
     async def upstream(request):
+        seen.setdefault("xff", {})[request.path] = request.headers.get("X-Forwarded-For")
         seen["cookie"] = request.headers.get("Cookie")
         seen["path"] = request.path_qs
         return web.Response(text="PREVIEW", content_type="text/html")
@@ -63,6 +64,10 @@ def test_login_pages_and_proxy(tmp_path):
             assert "开发" in await (await c.get("/_x/")).text()
             r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
             assert await r.text() == "PREVIEW" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
+            await c.get("/workspace/a/course.json", headers={"X-Forwarded-For": "1.2.3.4"})
+            await c.get("/api/teacher/answers", headers={"X-Forwarded-For": "1.2.3.4"})
+            assert seen["xff"]["/workspace/a/course.json"] is None          # 课件当本机直连
+            assert seen["xff"]["/api/teacher/answers"] == "1.2.3.4"         # 教师接口照旧当外来
             assert (await c.get("/teacher.html")).status == 403
             assert (await c.get("/api/teacher/classes")).status == 403
             c.session.cookie_jar.clear()

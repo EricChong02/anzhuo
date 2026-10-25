@@ -30,6 +30,10 @@ PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
                "/api/ping", "/api/logs", "/api/fault")
 PREVIEW_PAGES = {"/studio-preview.html", "/lecture-preview.html"}
+# CyberScope 只让“本机直连”读做课工作区（/workspace/ 课件、判题、草稿课列表），带代理来源头的一律当外来（auth.is_trusted_local）。
+# 进得了这里的人已经过了小E 的一次性链接登录，所以只对这三类请求去掉来源头；其余（含教师接口）照旧带着，后端照旧当外来。
+LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
+PROXY_SOURCE = {"x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
 
@@ -263,7 +267,8 @@ class Web:
             return self._page("不开放", "<h1>这个地址不开放</h1><p class='meta'>外网只能打开课程预览。</p>", 403)
         if self._client is None:
             self._client = aiohttp.ClientSession(auto_decompress=False, timeout=aiohttp.ClientTimeout(total=120))
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
+        drop = HOP | (PROXY_SOURCE if request.path.startswith(LOCAL_ONLY) else set())
+        headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}
         try:
             async with self._client.request(request.method, self.preview_upstream + request.rel_url.path_qs,
                                             headers=headers, data=await request.read(), allow_redirects=False) as up:
