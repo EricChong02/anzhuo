@@ -34,6 +34,7 @@ def busy(path: Path) -> bool:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rename", nargs=2, metavar=("NUM", "NAME"), help="重启时顺便给某个对话改名")
+    ap.add_argument("--add", nargs=3, metavar=("CLAUDE_ID", "CWD", "NAME"), help="重启时顺便把一个桌面端对话登记进来并设为当前对话")
     a = ap.parse_args()
     path = DATA_DIR / "sessions.json"
     quiet_since = None
@@ -52,6 +53,14 @@ def main() -> None:
         d = json.loads(path.read_text())
         if a.rename[0] in d["sessions"]:
             d["sessions"][a.rename[0]]["name"] = a.rename[1]
+            path.write_text(json.dumps(d, ensure_ascii=False, indent=1))
+    if a.add:
+        d = json.loads(path.read_text())
+        if not any(s.get("claude_id") == a.add[0] for s in d["sessions"].values()):
+            num = d.get("next_num", 1)
+            d["sessions"][str(num)] = {"num": num, "name": a.add[2], "cwd": a.add[1], "claude_id": a.add[0],
+                                       "from_desktop": True, "updated": time.time(), "created": time.time()}
+            d["next_num"], d["current"] = num + 1, num
             path.write_text(json.dumps(d, ensure_ascii=False, indent=1))
     subprocess.run([str(Path(__file__).parent / "install_launchd.sh")], capture_output=True)
     time.sleep(15)
