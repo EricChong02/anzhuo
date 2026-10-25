@@ -127,6 +127,8 @@ def test_thread_history():
         M(type="assistant", message={"content": [{"type": "tool_use", "name": "Edit"}]}),
         M(type="assistant", message={"content": [{"type": "text", "text": "改好了"}]}),
         M(type="user", message={"content": "好的"}),
+        M(type="user", message={"content": "[SYSTEM NOTIFICATION - NOT USER INPUT] 后台任务结束"}),
+        M(type="assistant", message={"content": [{"type": "text", "text": "No response requested."}]}),
     ]
     items = thread.history(msgs)
     assert items == [{"who": "note", "text": "（更早的对话内容已压缩）"},

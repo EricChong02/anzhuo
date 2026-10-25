@@ -2,7 +2,9 @@
 中间的工具调用不逐条列，只记步数；完整过程另有过程页。"""
 from __future__ import annotations
 
-_SKIP_PREFIX = ("<command-", "<local-command", "<system-reminder", "Caveat:", "<bash-")
+_SKIP_PREFIX = ("<command-", "<local-command", "<system-reminder", "Caveat:", "<bash-", "<task-notification",
+                "[SYSTEM NOTIFICATION")
+_SKIP_REPLY = {"No response requested.", "No response requested"}  # 系统通知那一轮的自动回复，不是给你的
 
 
 def _user_text(content) -> str | None:
@@ -29,7 +31,7 @@ def history(messages, limit: int = 60) -> list[dict]:
 
     def flush():
         nonlocal reply, steps
-        if reply:
+        if reply and reply.strip() not in _SKIP_REPLY:
             items.append({"who": "claude", "text": reply, "steps": steps})
         reply, steps = "", 0
 

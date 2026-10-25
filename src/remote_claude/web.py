@@ -203,14 +203,22 @@ class Web:
         return target if target.startswith("/") and not target.startswith("//") else f"{PREFIX}/"
 
     def _login_form(self, nxt: str, msg: str = "", status: int = 200) -> web.Response:
-        note = f"<p style='color:#d33'>{html.escape(msg)}</p>" if msg else ""
-        return self._page("登录 · 小E", f"""<h1>小E · 登录</h1>{note}
-<form method="post" action="{PREFIX}/login" class="card">
+        note = f'<p class="err">{html.escape(msg)}</p>' if msg else ""
+        body = f"""<style>
+main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}}
+.login{{width:100%;max-width:360px}} .login h1{{font-size:26px;margin:0 0 6px}} .login .sub{{color:var(--mute);margin:0 0 24px}}
+.login input{{width:100%;font:inherit;font-size:17px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px;outline:none}}
+.login input:focus{{border-color:var(--acc)}}
+.login button{{width:100%;font:inherit;font-size:17px;font-weight:600;color:#fff;background:var(--acc);border:0;border-radius:12px;padding:12px;margin-top:4px}}
+.err{{color:#c2410c;margin:0 0 12px}}
+</style>
+<form class="login" method="post" action="{PREFIX}/login">
+<h1>小E</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
-<p><label>账号<br><input name="username" autocomplete="username" required style="width:100%;font-size:17px;padding:8px"></label></p>
-<p><label>密码<br><input name="password" type="password" autocomplete="current-password" required style="width:100%;font-size:17px;padding:8px"></label></p>
-<p><button class="btn" style="border:0;font-size:17px">登录</button></p>
-<p class="meta">登录一次，这台设备 30 天内免登录。</p></form>""", status)
+<input name="username" placeholder="账号" autocomplete="username" inputmode="numeric" required>
+<input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
+<button>登录</button></form>"""
+        return self._page("登录 · 小E", body, status)
 
     async def _login_get(self, request: web.Request) -> web.Response:
         nxt = self._safe_next(request.query.get("next", f"{PREFIX}/"))
@@ -418,7 +426,7 @@ class Web:
             else:
                 status, detail = "idle", s.last_title or "空闲"
             rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status,
-                         "detail": detail, "updated": s.updated,
+                         "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
