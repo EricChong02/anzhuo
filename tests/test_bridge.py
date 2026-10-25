@@ -1,6 +1,7 @@
 """不连钉钉、不调 Claude，走一遍：开对话、选文件夹、引用回复、列表、报告推送。"""
 import asyncio
 import sqlite3
+from pathlib import Path
 
 from remote_claude.app import Bridge
 from remote_claude.config import Config
@@ -228,3 +229,41 @@ def test_hide_and_delete(tmp_path, monkeypatch):
     asyncio.run(go())
     assert offered == [[3]]
     assert seen == [(3, "帮我看看这一节的封面"), (2, "其实还要接着做")]
+
+
+def test_desktop_resume(tmp_path, monkeypatch):
+    """“接着桌面”接上最近的桌面端对话；小E 自己开的、临时文件夹、家目录里的不算；回编号换一段。"""
+    from types import SimpleNamespace as NS
+    from remote_claude import app as app_mod
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
+    home = str(Path.home())
+
+    def info(sid, cwd, title, t):
+        return NS(session_id=sid, cwd=cwd, custom_title=title, summary="", first_prompt="", last_modified=t)
+
+    infos = [
+        info("router", home, "分派", 900),
+        info("mine", str(tmp_path / "课"), "小E 开的", 800),
+        info("scratch", str(tmp_path / "scratch" / "1"), "临时", 700),
+        info("desk-a", str(tmp_path / "平台"), "远程开发课程工具", 600),
+        info("desk-b", str(tmp_path / "课"), "做第二课", 500),
+    ]
+    monkeypatch.setattr(app_mod, "list_sessions", lambda *a: infos)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.registry.add(Session(num=b.registry.reserve_num(), name="小E 开的", cwd=str(tmp_path / "课"), claude_id="mine"))
+        await b.on_raw(msg("接着桌面"))
+        s = b.registry.get(b.registry.current)
+        assert (s.claude_id, s.from_desktop) == ("desk-a", True)
+        assert "接上了" in dt.sent[-1][1] and "做第二课" in dt.sent[-1][1]
+        await b.on_raw(msg("2"))  # 换成第二段，刚接错的那段收起
+        assert b.registry.get(b.registry.current).claude_id == "desk-b"
+        assert b.registry.get(2).hidden
+        await b.on_raw(msg("接着桌面"))  # 再接同一段：沿用原编号，不重复登记
+        assert b.registry.current == 2 and not b.registry.get(2).hidden
+        assert len(b.registry.sessions) == 3
+
+    asyncio.run(go())

@@ -29,6 +29,8 @@ def test_parse_commands():
     assert parse("额度").kind == "quota"
     assert (parse("删 7").kind, parse("删 #7").num) == ("delete", 7)
     assert parse("删掉第二段").kind == "message"
+    assert (parse("接着桌面").kind, parse("接着桌面").num, parse("接着桌面 2").num) == ("desktop", None, 2)
+    assert parse("接着 课程根 2").kind == "resume"
 
 
 def test_folder_candidates(tmp_path):
@@ -142,6 +144,6 @@ def test_needs_translation():
 
 
 def test_translated_footer():
-    t = report.Turn(started=0, ended=60, request="改标题", final_text="改好了", translated=True,
+    t = report.Turn(started=0, ended=60, request="改标题", final_text="改好了", translated="DeepSeek",
                     changed_files=["/w/a.html"])
-    assert "英文已由 Haiku 译成中文" in report.build("#1 测试", t, "/w")[1]
+    assert "英文已由 DeepSeek 译成中文" in report.build("#1 测试", t, "/w")[1]

@@ -31,7 +31,7 @@ def _num(s: str) -> int | None:
 
 def parse(text: str) -> Cmd:
     t = text.strip()
-    if t in ("帮助", "help", "?", "？"):
+    if t in ("帮助", "用法", "help", "?", "？"):
         return Cmd("help")
     if t in ("列表", "对话", "列表 全部"):
         return Cmd("list", text=t)
@@ -59,6 +59,8 @@ def parse(text: str) -> Cmd:
                    num=_num(m.group(2)) if m.group(2) else None, name=m.group(3) or "")
     if m := re.fullmatch(r"最近\s+(\S+)", t):
         return Cmd("recent", folders=[m.group(1)])
+    if m := re.fullmatch(r"接着桌面(?:\s*(\d+))?", t):
+        return Cmd("desktop", num=int(m.group(1)) if m.group(1) else None)
     if m := re.fullmatch(r"接着\s+(\S+)\s+(\d+)", t):
         return Cmd("resume", folders=[m.group(1)], num=int(m.group(2)))
     if m := re.match(r"#(\d{1,4})\s+(.+)", t, re.S):
@@ -77,5 +79,6 @@ HELP = """**小E 用法**
 - `删 7` 收起 #7：不再出现在列表里，小E 也不再把话交给它；聊天记录还在，发 `#7 …` 就接着聊
 - `模型 sonnet` / `模型 7 opus` 换当前或 #7 的模型（opus、sonnet、haiku、fable、默认）　`深度 高`（低、中、高、很高、最高、默认）
 - `额度` 看 5 小时和本周额度用了多少
+- `接着桌面` 接上你最近在桌面端聊的那段（接上后桌面端那边先别再说话）
 - `最近 课程根` 看这个文件夹里最近的对话（含桌面端开的）　`接着 课程根 2` 接着其中第 2 个聊
 """

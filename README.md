@@ -21,9 +21,10 @@
 | `删 7` | 收起 #7：不进列表、小E 不再把话交给它；聊天记录还在，发 `#7 …` 就找回。7 天没动的对话自动收起，`列表 全部` 连收起的一起看 |
 | `模型 sonnet`、`深度 高`（可加编号） | 换某个对话的模型（opus/sonnet/haiku/fable/默认）、思考深度（低/中/高/很高/最高/默认） |
 | `额度` | 现查 5 小时与本周额度（用本机 Claude Code 的 /usage，不耗额度） |
+| `接着桌面`（`接着桌面 2` 换第二段） | 接上你最近在桌面端聊的那段，不用记文件夹和编号；接上后桌面端那段先别再说话 |
 | `最近 课程根`、`接着 课程根 2` | 列出某文件夹最近的对话（含桌面端开的）并接着聊 |
 
-小E 直接回答过的话记 30 分钟，你接着追问（哪怕只回“好的”）还由它结合前文回答。Claude 的回复里如果有大段英文（连着 8 个以上英文单词，代码、命令、路径不算），发钉钉前先用 Haiku 译成中文，专有名词保持原样，底部注明“英文已由 Haiku 译成中文”。
+小E 直接回答过的话记 30 分钟，你接着追问（哪怕只回“好的”）还由它结合前文回答。Claude 的回复里如果有大段英文（连着 8 个以上英文单词，代码、命令、路径不算），发钉钉前先译成中文，专有名词与五段小标题保持原样，底部注明谁译的：优先 DeepSeek-V4.1-Flash（不思考，约 1 秒，密钥在钥匙串 `remote-claude.deepseek`），没密钥或调用失败改用 Haiku（中档；低档常把英文原样抄回来）。
 
 图片：只发图时等 15 秒，你接着说的话会和图合成一件；文件存到 `~/.local/share/remote-claude/inbox/` 后把路径告诉 Claude；语音直接用钉钉转好的文字。几秒内答完的不发“收到”。
 
@@ -36,6 +37,7 @@ uv sync                                   # 装依赖
 cp config.example.toml ~/.config/remote-claude/config.toml   # 然后填 client_id、短名
 scripts/save_secret.sh                    # 钉钉 Client Secret 存进钥匙串
 scripts/claude_login.sh                   # 给小E用的 Claude Code 登录一次
+security add-generic-password -U -s remote-claude.deepseek -a api -w   # 可选：DeepSeek 密钥（翻译英文用），回车后粘贴
 .venv/bin/remote-claude whoami            # 给小E发句话，拿到自己的钉钉 ID，填进 allowed_user_ids
 .venv/bin/remote-claude check             # 核对配置、钥匙串、钉钉、Claude 登录
 scripts/install_launchd.sh                # 开机自启并立即运行；改了代码再运行一次即重启

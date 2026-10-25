@@ -95,6 +95,7 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
         model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫小E，是用户钉钉里的助手，背后是用户 Mac 上的 Claude Code。称呼用户时用“你”。用法说明：\n" + HELP,
         tools=[], max_turns=1,
         setting_sources=[], cwd=str(Path.home()),
+        extra_args={"no-session-persistence": None},  # 不落盘，免得混进“最近的对话”
     )
     out = []
 

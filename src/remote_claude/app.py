@@ -81,8 +81,8 @@ class Bridge:
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         if translate.needs_translation(turn.final_text):
-            if zh := await translate.to_chinese(turn.final_text):
-                turn.final_text, turn.translated = zh, True
+            if done := await translate.to_chinese(turn.final_text):
+                turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
         s.last_title = title
         self.registry.save()
@@ -164,6 +164,8 @@ class Bridge:
             return await self._quota()
         if cmd.kind == "recent":
             return await self._recent(cmd.folders[0])
+        if cmd.kind == "desktop":
+            return await self._desktop(cmd.num)
         if cmd.kind == "resume":
             return await self._recent(cmd.folders[0], pick=cmd.num)
         if cmd.kind == "new":
@@ -298,6 +300,8 @@ class Bridge:
                 return await self.say("选文件夹", "编号不对，这次先取消了，重新发一次“新开 …”吧。")
             await self._new(p["tokens"], p["text"], p["inc"], resolved=p["resolved"] + [p["cands"][n - 1]],
                             note=p.get("note", ""), kind=p.get("task_kind"))
+        elif p["kind"] == "desktop":
+            await self._desktop(n, p["infos"], replace=p["num"])
         elif p["kind"] == "recent":
             await self._recent(p["folder"], pick=n)
         elif p["kind"] == "route":
@@ -329,8 +333,46 @@ class Bridge:
         x = infos[pick - 1]
         num = self.registry.reserve_num()
         name = report.brief(x.custom_title or x.summary or x.first_prompt or "接着聊", 16)
-        s = self.registry.add(Session(num=num, name=name, cwd=str(d), claude_id=x.session_id))
+        s = self.registry.add(Session(num=num, name=name, cwd=str(d), claude_id=x.session_id, from_desktop=True))
         await self.say("接上了", f"{s.label} 接上了，之后直接说的话交给它。")
+
+    async def _desktop(self, pick: int | None, infos: list | None = None, replace: int | None = None) -> None:
+        """接上你最近在桌面端聊的那段：不用记文件夹和编号。小E 自己新开的、临时文件夹里的不算。"""
+        if infos is None:
+            mine = {s.claude_id for s in self.registry.sessions.values() if not s.from_desktop}
+            skip = (str(Path.home()), str(Path(self.cfg.scratch_root).expanduser()))
+            everything = await asyncio.to_thread(list_sessions, None, 150, 0, False)
+            infos = [x for x in everything
+                     if x.session_id not in mine and x.cwd and x.cwd != skip[0] and not x.cwd.startswith(skip[1])][:5]
+        if not infos:
+            return await self.say("接着桌面", "没找到桌面端最近的对话。")
+        pick = pick or 1
+        if not 1 <= pick <= len(infos):
+            return await self.say("接着桌面", f"编号不对，只有 1—{len(infos)}。")
+        if replace and (old := self.registry.get(replace)) and old.status == "idle" and not old.hidden:
+            old.hidden = True  # 刚才接错的那段收起来
+        x = infos[pick - 1]
+        title = (x.custom_title or x.summary or x.first_prompt or "接着聊").replace("\n", " ")
+        s = next((v for v in self.registry.sessions.values() if v.claude_id == x.session_id), None)
+        new = s is None
+        if s:
+            s.hidden = False
+            self.registry.current = s.num
+            self.registry.save()
+        else:
+            s = self.registry.add(Session(num=self.registry.reserve_num(), name=report.brief(title, 16),
+                                          cwd=x.cwd, claude_id=x.session_id, from_desktop=True))
+        when = datetime.fromtimestamp(x.last_modified / 1000 if x.last_modified > 1e12 else x.last_modified)
+        lines = [f"{s.label} 接上了，之后直接说的话交给它。",
+                 f"文件夹：{folders.display(Path(x.cwd))}　桌面端最后说话：{when:%m-%d %H:%M}",
+                 "**注意**：桌面端那段先别再说话，两边同时说会乱；回到电脑前想在桌面端接着聊，先等这边做完。"]
+        others = [(i, y) for i, y in enumerate(infos, 1) if i != pick]
+        if others:
+            self.pending = {"kind": "desktop", "infos": infos, "num": s.num if new else None}
+            lines.append("不是这段？回编号换：\n\n" + "\n".join(
+                f"{i}. {(y.custom_title or y.summary or y.first_prompt or '').replace(chr(10), ' ')[:24]}"
+                f"（{folders.display(Path(y.cwd))}）" for i, y in others))
+        await self.say("接着桌面", "\n\n".join(lines))
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None) -> None:
