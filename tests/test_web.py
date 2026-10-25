@@ -307,3 +307,19 @@ def test_files_delivered_and_uploaded(tmp_path):
             await c.close()
 
     asyncio.run(go())
+
+
+def test_process_translation_no_flip(tmp_path):
+    """工作过程里还在译的英文先不给（显示“翻译中…”），译好直接给中文；译不出的给原文、不再反复试。"""
+    import hashlib
+    w = Web("http://x.example", 0, tmp_path)
+    en = "Let me check the file first and then run the tests to see what fails here"
+    k = hashlib.sha1(en.encode()).hexdigest()
+    w._zh_busy.add(k)
+    assert w._zh_proc({"k": "think", "text": en}) == {"k": "think", "text": "", "wait": True}
+    w._zh_busy.discard(k)
+    w._zh[k] = "我先看看文件"
+    assert w._zh_proc({"k": "think", "text": en})["text"] == "我先看看文件"
+    del w._zh[k]
+    w._zh_failed.add(k)
+    assert w._zh_proc({"k": "think", "text": en}) == {"k": "think", "text": en}

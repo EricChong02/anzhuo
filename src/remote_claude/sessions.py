@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from claude_agent_sdk import (
-    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage, TextBlock,
+    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, SystemMessage, TextBlock,
     ThinkingBlock, ToolUseBlock, create_sdk_mcp_server, tool,
 )
 
+from . import guard
 from .folders import blocked, display
 from .cards import step_label
 from .report import Turn, brief
@@ -127,12 +128,14 @@ class Job:
 
 Notify = Callable[[Session, Turn], Awaitable[None]]
 Started = Callable[[Session, Turn, Job], Awaitable[None]]
+CONFIRM_WAIT = 20 * 60  # 等你确认危险操作最多多久，过了当你不同意
 
 
 class Runner:
     def __init__(self, registry: Registry, on_done: Notify, max_parallel: int = 3, default_effort: str | None = None,
-                 on_start: Started | None = None):
+                 on_start: Started | None = None, on_confirm: Notify | None = None):
         self.registry = registry
+        self.on_confirm = on_confirm  # 有危险操作等你点头时（发通知、按钮卡）
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
@@ -170,6 +173,42 @@ class Runner:
             log.warning("插话给 #%s 失败，排到下一轮", s.num, exc_info=True)
             q = self.queues.setdefault(s.num, asyncio.Queue())
             q.put_nowait(job)
+
+    def answer_confirm(self, num: int, allow: bool) -> bool:
+        """你在手机 / 钉钉 / 网页上点了允许或不允许。"""
+        turn = self.turns.get(num)
+        if not turn or not turn.confirm or turn.confirm["fut"].done():
+            return False
+        turn.confirm["fut"].set_result(allow)
+        return True
+
+    def _guard(self, s: Session, turn: Turn):
+        async def hook(data, tool_use_id, context):
+            cmd = str((data.get("tool_input") or {}).get("command") or "")
+            what = guard.danger(cmd)
+            if not what:
+                return {}
+            fut = asyncio.get_running_loop().create_future()
+            turn.confirm = {"what": what, "cmd": cmd[:600], "fut": fut}
+            turn.timeline.append({"t": round(time.time() - turn.started, 1), "kind": "do", "text": f"等你确认：{what}",
+                                  "detail": cmd[:400]})
+            if self.on_confirm:
+                asyncio.create_task(self.on_confirm(s, turn))
+            try:
+                allow = await asyncio.wait_for(asyncio.shield(fut), CONFIRM_WAIT)
+            except asyncio.TimeoutError:
+                allow = False
+            finally:
+                turn.confirm = None
+            out = {"hookEventName": "PreToolUse"}
+            if allow:
+                out.update(permissionDecision="allow", permissionDecisionReason="用户确认可以执行")
+            else:
+                out.update(permissionDecision="deny", permissionDecisionReason=(
+                    "用户没有同意这一步（或 20 分钟没回）。不要执行它，也不要换个写法绕过去；"
+                    "能不做就用别的办法完成，必须做就在回复里说明为什么要这样做，等用户明确同意。"))
+            return {"hookSpecificOutput": out}
+        return hook
 
     async def stop(self, num: int) -> bool:
         q = self.queues.get(num)
@@ -305,6 +344,8 @@ class Runner:
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
+            # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
+            hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]},
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:

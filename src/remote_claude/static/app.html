@@ -81,6 +81,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pi.do .pt{color:var(--mute)} .pi.do b{font-weight:500;color:var(--ink)}
 .pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.pt.wait{color:var(--mute)}
 .live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
 .cl .md table{border-collapse:collapse;margin:8px 0;white-space:normal;font-size:15px;display:block;overflow-x:auto}
 .cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:6px 12px 6px 0;text-align:left;vertical-align:top}
@@ -106,6 +107,11 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .stop:hover{border-color:var(--red);color:var(--red)} .stop svg{width:14px;height:14px}
 .ask{display:flex;flex-direction:column;gap:8px}
 .ask .q{font-weight:600}
+.confirm{background:var(--panel);border:1px solid var(--amber);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
+.confirm .q{font-weight:600;font-size:16px}
+.confirm pre{margin:8px 0 12px;white-space:pre-wrap;word-break:break-all;font:13.5px/1.5 ui-monospace,Menlo,monospace;background:var(--bg);border-radius:10px;padding:8px 10px;max-height:160px;overflow:auto}
+.confirm .cb{display:flex;gap:8px} .confirm .cb button{flex:1;height:44px;border-radius:12px;font-size:16px;background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;gap:6px}
+.confirm .cb .ok{background:var(--acc);color:#fff} .confirm .tip{margin-top:8px;font-size:14px;color:var(--mute)}
 .opt{display:flex;align-items:center;gap:12px;text-align:left;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .opt:hover{border-color:var(--acc)} .opt.rec{border-color:var(--acc)}
 .opt .k{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accsoft);color:var(--acc);font-weight:600;font-size:14px;flex:none}
@@ -225,11 +231,15 @@ const ICON = {
   say: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
 };
 let openProc = new Set();
-function procHTML(list) {
-  return `<div class="plist">${list.map(e => e.k === 'think'
-    ? `<div class="pi think">${ICON.bulb}<span class="pt clamp">${esc(e.text)}</span></div>`
+// 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
+const unclamp = new Set();
+function procHTML(list, pid) {
+  const ck = t => esc(String(t).slice(0, 80));
+  return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait
+    ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
+    : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
     : e.k === 'say' ? `<div class="pi say">${ICON.say}<span class="pt">${md(e.text)}</span></div>`
-    : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd clamp">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
+    : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
 }
 let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
 
@@ -529,7 +539,7 @@ function renderThread(d) {
     const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" download>${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
-      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process) : ''}`;
+      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid) : ''}`;
     })() : '';
     return `<div class="cl ${fold ? 'fold' : ''}">${proc}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
@@ -539,15 +549,26 @@ function renderThread(d) {
     const L = d.live, first = L.total - L.steps.length + 1;
     h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · ${L.minutes} 分钟${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
-      ${(L.process || []).length ? procHTML(L.process.slice(-14)) : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
+      ${(L.process || []).length ? procHTML(L.process.slice(-14), 'live') : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }
+  if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>
+      <pre>${esc(d.live.confirm.cmd)}</pre><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
+      <div class="tip">20 分钟不回就当不允许，它会换别的办法或问你</div></div>`;
   if (d.decision) h += `<div class="ask"><div class="q">${esc(d.decision.question)}</div>${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
+  const pos = {};
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.scrollHeight - x.scrollTop - x.clientHeight < 24}; });
   $('#col').innerHTML = h;
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid]; if (p && !p.end) x.scrollTop = p.top; else x.scrollTop = x.scrollHeight; });
+  document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {
+    const allow = b.dataset.allow === '1'; b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
+    b.innerHTML = '<i class="spin"></i>' + (allow ? '允许' : '不允许');
+    await api('confirm/' + sel, {allow}).catch(() => {}); lastKey = ''; loadThread();
+  });
   document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
   document.querySelectorAll('.ptog').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k); lastKey = ''; renderThread(d); });
-  document.querySelectorAll('.clamp').forEach(c => c.onclick = () => c.classList.toggle('clamp'));
-  const lp = document.querySelector('.live .plist'); if (lp) lp.scrollTop = lp.scrollHeight;
+  document.querySelectorAll('.pt[data-c], .pd[data-c]').forEach(c => c.onclick = () => {
+    const k = c.dataset.c; c.classList.toggle('clamp') ? unclamp.delete(k) : unclamp.add(k); });
   const q = $('#quick');
   const quick = d.live ? [] : d.decision ? [] : d.awaiting ? ['好的', '就按你推荐的', '先不做'] : [];
   q.hidden = !quick.length;
@@ -578,7 +599,8 @@ async function loadThread() {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
-    if (key !== lastKey) { lastKey = key; renderThread(d); }
+    const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
+    if (key !== lastKey && !reading) { lastKey = key; renderThread(d); }
   } catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 

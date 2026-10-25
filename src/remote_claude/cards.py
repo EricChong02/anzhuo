@@ -134,6 +134,17 @@ def decision_data(label: str, d: Decision, picked: str | None = None) -> dict:
             "sys_full_json_obj": _buttons(buttons)}
 
 
+def confirm_data(label: str, what: str, cmd: str, num: int, result: str = "") -> dict:
+    """危险操作等你点头的卡片：允许 / 不允许；点过了显示结果、按钮收起。"""
+    md = f"**{what}**  \n要执行：`{_short(cmd, 120)}`"
+    if result:
+        md += f"  \n\n**{result}**"
+    buttons = [] if result else [{"text": "允许", "color": "blue", "id": f"allow:{num}", "request": True},
+                                 {"text": "不允许", "color": "gray", "id": f"deny:{num}", "request": True}]
+    return {"title": f"等你确认 · {label}", "markdown": md,
+            "tips": "" if result else "20 分钟不回就当不允许", "sys_full_json_obj": _buttons(buttons)}
+
+
 def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
     """小E 直接回答的卡片：附“交给 #N”按钮，判断错了一点就把原话转给那个对话。"""
     tips = f"已转给 {label}" if forwarded else "小E 直接回的（Haiku），没占用对话。这句其实是说给对话的？点下面"
@@ -141,7 +152,7 @@ def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
     return {"title": "小E 回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
 
 
-_OUR_ID = re.compile(r"^(stop(?::\d+)?|fwd|pick:[A-D])$")
+_OUR_ID = re.compile(r"^(stop(?::\d+)?|fwd|pick:[A-D]|allow:\d+|deny:\d+)$")
 
 
 def _strings(x):

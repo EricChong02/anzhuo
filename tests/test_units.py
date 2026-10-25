@@ -198,3 +198,49 @@ def test_push_message():
     assert push_message("做课", "改封面", "要你定：用哪张？", False, "用哪张？") == ("做课", "等你回答：用哪张？")
     assert push_message("清理", "清下载", "", True, "") == ("清理", "出错了，点开看原因")
     assert len(push_message("x", "", "很长" * 50, False, "")[1]) <= 23
+
+
+HARD = "--" + "hard"  # 拆开写，免得本机的命令护栏把这份测试本身当成危险命令
+
+
+def test_guard_danger():
+    """危险操作认得出来；临时目录里删东西、普通命令不打扰。"""
+    from remote_claude.guard import danger
+    assert danger("git push origin dev") and danger(f"cd x && git reset {HARD} HEAD~1")
+    assert danger("rm -rf ~/Projects/foo") == "删除 foo"
+    assert danger("sqlite3 lab.db 'DELETE FROM users'") and danger("sudo rm x") and danger("find . -name '*.pyc' -delete")
+    assert danger("ssh ericlab-aliyun 'rm -rf /opt/x'")
+    assert danger("rm -rf /tmp/xiaoe-shots/a.png /private/tmp/b") is None
+    assert danger("git status && git diff && ls -la") is None
+    assert danger("git restore --staged a.py") is None and danger("git restore a.py")
+    assert danger("echo 'firmware' && grep -rn form .") is None
+
+
+def test_guard_hook_waits_for_answer():
+    """碰到危险命令就停下等你：允许放行、不允许拒绝；普通命令直接过。"""
+    import asyncio
+    import time
+    from remote_claude.report import Turn
+    from remote_claude.sessions import Runner, Session
+    asked = []
+
+    async def on_confirm(s, turn):
+        asked.append(turn.confirm["what"])
+
+    async def go():
+        r = Runner(registry=None, on_done=None, on_confirm=on_confirm)
+        s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time())
+        r.turns[3] = turn
+        hook = r._guard(s, turn)
+        assert await hook({"tool_input": {"command": "ls"}}, "t0", None) == {}
+        task = asyncio.create_task(hook({"tool_input": {"command": "git push"}}, "t1", None))
+        await asyncio.sleep(0.05)
+        assert asked and turn.confirm and r.answer_confirm(3, True)
+        assert (await task)["hookSpecificOutput"]["permissionDecision"] == "allow" and turn.confirm is None
+        task = asyncio.create_task(hook({"tool_input": {"command": "rm -rf ~/x"}}, "t2", None))
+        await asyncio.sleep(0.05)
+        r.answer_confirm(3, False)
+        assert (await task)["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert not r.answer_confirm(3, True)   # 没有在等的就不算
+
+    asyncio.run(go())

@@ -159,6 +159,7 @@ class Web:
         except (OSError, json.JSONDecodeError):
             self._zh = {}
         self._zh_busy: set[str] = set()
+        self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
 
     @property
     def enabled(self) -> bool:
@@ -516,7 +517,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         rows = []
         for s in b.registry.visible():
             turn = b.runner.turns.get(s.num)
-            if turn:
+            if turn and turn.confirm:
+                status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
+            elif turn:
                 status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟 · 第 {len(turn.steps)} 步"
             elif b.runner.busy(s.num):
                 status, detail = "queued", "排队中"
@@ -568,7 +571,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 it["text"] = self._zh_or_later(it["text"])
         for it in [i for i in items if i["who"] == "claude"][-2:]:   # 最近两轮的工作过程也译（再早的不译，太费）
             if it.get("process"):
-                it["process"] = [dict(e, text=self._zh_or_later(e["text"])) if e["k"] in ("think", "say") else e
+                it["process"] = [self._zh_proc(e) if e["k"] in ("think", "say") else e
                                  for e in it["process"]]
         turn = b.runner.turns.get(num)
         if not turn and s.updated > s.seen:   # 打开了、看到最新一轮了，就不算没看
@@ -580,9 +583,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     for e in turn.timeline if e["kind"] in ("think", "say", "do")][-40:]
             for e in proc:
                 if e["k"] in ("think", "say"):
-                    e["text"] = self._zh_or_later(e["text"])
+                    e.update(self._zh_proc(e))
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
-                    "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc}
+                    "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
+                    "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
@@ -603,16 +607,25 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         key = hashlib.sha1(text.encode()).hexdigest()
         if key in self._zh:
             return self._zh[key]
-        if key not in self._zh_busy and len(self._zh_busy) < 6:
+        if key not in self._zh_busy and key not in self._zh_failed and len(self._zh_busy) < 6:
             self._zh_busy.add(key)
             asyncio.create_task(self._translate(key, text))
         return text
+
+    def _zh_proc(self, e: dict) -> dict:
+        """工作过程里的一条思考 / 说明：正在译的先不给英文（网页显示“翻译中…”），译好一次出中文，读着不会突然换字。"""
+        text = self._zh_or_later(e["text"])
+        if text == e["text"] and hashlib.sha1(text.encode()).hexdigest() in self._zh_busy:
+            return dict(e, text="", wait=True)
+        return dict(e, text=text)
 
     async def _translate(self, key: str, text: str) -> None:
         """网页里显示的英文回复后台译成中文（和钉钉同一套：DeepSeek，Haiku 兜底），译好存起来，下次刷新就是中文。"""
         try:
             if done := await translate.to_chinese(text):
                 self._zh[key] = done[0]
+            else:
+                self._zh_failed.add(key)
                 self._zh = dict(list(self._zh.items())[-2000:])
                 self._zh_path.write_text(json.dumps(self._zh, ensure_ascii=False))
         finally:
@@ -709,6 +722,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._threads.pop(s.num, None)
         return web.json_response({"ok": True})
 
+    async def _api_confirm(self, request: web.Request) -> web.Response:
+        """危险操作：你点了允许 / 不允许。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        allow = bool((await request.json()).get("allow"))
+        ok = await self.bridge.answer_confirm(int(request.match_info["num"]), allow, "网页")
+        return web.json_response({"ok": ok})
+
     async def _api_compact(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
@@ -750,6 +771,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
+        app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)

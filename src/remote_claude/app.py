@@ -78,7 +78,8 @@ class Bridge:
         self.dt = dt
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
-        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
+        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
+                             self._confirm_asked)
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
@@ -304,6 +305,40 @@ class Bridge:
         self._save_cards()
         await self._board_follow()
 
+    async def _confirm_asked(self, s: Session, turn: Turn) -> None:
+        """有危险操作等你点头：手机通知 + 钉钉按钮卡（网页对话里也会出现允许 / 不允许）。"""
+        c = turn.confirm
+        if not c:
+            return
+        self.record("确认", c["what"], num=s.num)
+        if self.web.enabled:
+            asyncio.create_task(self.web.push.send(s.name, "等你确认：" + c["what"], s.num))
+        try:
+            oid = f"c{s.num}-{int(time.time() * 1000)}"
+            await self.dt.create_card(self.user_id, oid, cards.confirm_data(s.label, c["what"], c["cmd"], s.num))
+            self.cards[oid] = {"kind": "confirm", "num": s.num, "what": c["what"], "cmd": c["cmd"]}
+            self._save_cards()
+        except Exception:  # noqa: BLE001 - 钉钉发不出去，网页和手机通知照样能点
+            log.exception("发确认卡失败")
+
+    async def answer_confirm(self, num: int, allow: bool, where: str) -> bool:
+        """不管在哪点的（网页 / 钉钉），都走这里：交给对话，把钉钉卡改成结果。"""
+        if not self.runner.answer_confirm(num, allow):
+            return False
+        result = ("你允许了" if allow else "你没允许") + f"（{where}）"
+        self.record("你", f"确认 #{num}：{result}")
+        for oid, info in self.cards.items():
+            if info.get("kind") == "confirm" and info["num"] == num and not info.get("done"):
+                info["done"] = True
+                s = self.registry.get(num)
+                try:
+                    await self.dt.update_card(oid, cards.confirm_data(s.label if s else f"#{num}", info["what"],
+                                                                      info["cmd"], num, result))
+                except Exception:  # noqa: BLE001
+                    log.exception("改确认卡失败")
+        self._save_cards()
+        return True
+
     async def on_card(self, data: dict) -> None:
         """卡片上的按钮被点了：停下，或把选择交回那个对话。"""
         if data.get("userId") not in self.cfg.allowed_user_ids:
@@ -315,6 +350,11 @@ class Bridge:
         self.record("你", f"点了卡片按钮 {action}", card=oid, raw=json.dumps(data, ensure_ascii=False)[:1500])
         if not info:
             return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
+        if action.startswith(("allow:", "deny:")):
+            num = int(action.split(":")[1])
+            if not await self.answer_confirm(num, action.startswith("allow"), "钉钉"):
+                await self.say("确认", f"#{num} 这一步已经过去了（点过了或超时了）。")
+            return
         if action.startswith("stop:"):
             num = int(action.split(":")[1])
             if not await self.runner.stop(num):

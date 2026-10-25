@@ -33,6 +33,7 @@ class Turn:
     context_pct: float | None = None
     compacted: bool = False
     translated: str = ""  # 原文有大段英文时，谁译成了中文（DeepSeek / Haiku）
+    confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
 
 
 SECTIONS = ("要你定", "要你做的", "做了什么", "改了哪些", "自查结果", "截图")
