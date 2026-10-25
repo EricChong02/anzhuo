@@ -178,10 +178,12 @@ A. 64px，最醒目
     nested = {"outTrackId": "d4-1", "content": '{"cardPrivateData":{"actionIds":["single_button_node_x"],"params":{"id":"pick:B"}}}'}
     assert cards.action_of(nested) == "pick:B"
     assert cards.action_of({"content": '{"cardPrivateData":{"actionIds":["single_button_node_x"]}}'}) is None
-    t = report.Turn(started=0, request="改封面", steps=[f"看 {i}.py" for i in range(9)])
-    p = cards.progress_data("#2 封面", t)
-    assert "4. 看 3.py" in p["markdown"] and "9. 看 8.py" in p["markdown"] and "看 2.py" not in p["markdown"]
-    assert json.loads(p["sys_full_json_obj"])["msgButtons"][0]["id"] == "stop"
-    t.ended = 120
-    f = cards.progress_data("#2 封面", t, final="做完了")
-    assert f["title"].startswith("做完了") and "共 9 步" in f["markdown"]
+    import time as _t
+    t = report.Turn(started=_t.time() - 130, request="改封面", steps=[f"看 {i}.py" for i in range(9)])
+    b = cards.board_data([("#2 封面", 2, t), ("#3 清理", 3, None)])
+    assert b["title"] == "工作台 · 1 件在做" and "2 分钟 · 第 9 步" in b["markdown"] and "最新：看 8.py" in b["markdown"]
+    assert "#3 清理**　排队中" in b["markdown"]
+    assert [x["id"] for x in json.loads(b["sys_full_json_obj"])["msgButtons"]] == ["stop:2"]
+    assert cards.board_data([])["title"].endswith("都做完了")
+    assert cards.board_data([], moved=True)["markdown"].startswith("进展挪到下面了")
+    assert cards.action_of('{"cardPrivateData":{"params":{"id":"stop:12"}}}') == "stop:12"

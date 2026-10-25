@@ -306,10 +306,9 @@ def test_cards_flow(tmp_path, monkeypatch):
         b.registry.add(Session(num=1, name="封面", cwd=str(tmp_path)))
         await b.on_raw(msg("把封面标题改大"))
         await asyncio.sleep(0.4)
-        prog = [v for k, v in dt.cards.items() if k.startswith("p1-")]
-        assert len(prog) == 1 and len(prog[0]) >= 3
-        assert prog[0][-1]["title"].startswith("等你定") and "共 3 步" in prog[0][-1]["markdown"]
-        assert any("跑命令：测试" in d["markdown"] for d in prog[0])
+        boards = [v for k, v in dt.cards.items() if k.startswith("b-")]
+        assert boards and any("跑命令：测试" in d["markdown"] for d in boards[0])
+        assert boards[-1][-1]["title"].endswith("都做完了")  # 做完了就收尾
         oid = next(k for k in dt.cards if k.startswith("d1-"))
         assert "选 B（推荐）" in dt.cards[oid][0]["sys_full_json_obj"]
         await b.on_card({"userId": "stranger", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
@@ -443,3 +442,50 @@ def test_unsent_carried_over(tmp_path, monkeypatch):
 
     asyncio.run(go())
     assert seen == ["清理下载文件夹\n\n权限开好了"]
+
+
+def test_board_follows(tmp_path, monkeypatch):
+    """两件同时做：一件做完发报告后，工作台挪到报告下面、旧的缩成一行；点“停 #N”停对应那件；都完了收尾。"""
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    gate = asyncio.Event()
+
+    async def fake_run(self, s, job, turn):
+        turn.steps.append("看 a.py")
+        if s.num == 2:
+            await gate.wait()
+        turn.changed_files.append(str(tmp_path / "a.py"))
+        turn.final_text = "做完了"
+
+    async def no_usage(self, force=False):
+        pass
+
+    stopped = []
+
+    async def fake_stop(self, num):
+        stopped.append(num)
+        gate.set()
+        return True
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(Runner, "stop", fake_stop)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay, b.progress_every = 0.05, (0.02, 0.02)
+        b.registry.add(Session(num=1, name="甲", cwd=str(tmp_path)))
+        b.registry.add(Session(num=2, name="乙", cwd=str(tmp_path)))
+        await b.on_raw(msg("#2 做乙"))
+        await asyncio.sleep(0.15)
+        first = b.board
+        assert first and "#2 乙" in dt.cards[first][-1]["markdown"]
+        await b.on_raw(msg("#1 做甲"))  # 甲很快做完 → 报告 → 工作台挪下来
+        await asyncio.sleep(0.15)
+        assert b.board != first and dt.cards[first][-1]["markdown"].startswith("进展挪到下面了")
+        await b.on_card({"userId": "me", "outTrackId": b.board, "content": '{"cardPrivateData":{"params":{"id":"stop:2"}}}'})
+        await asyncio.sleep(0.2)
+        assert stopped == [2] and b.board is None
+
+    asyncio.run(go())

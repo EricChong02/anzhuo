@@ -63,8 +63,11 @@ class Bridge:
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
-        self.progress: dict[int, str] = {}  # 对话编号 → 正在更新的进度卡
-        self.progress_every = (15.0, 45.0)  # 进度卡多久更新一次：前 5 分钟 / 之后（省钉钉调用次数）
+        self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
+        self.board_task: asyncio.Task | None = None
+        self.board_lock = asyncio.Lock()
+        self.board_shown = ""
+        self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root)
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -94,10 +97,12 @@ class Bridge:
         except OSError:
             log.debug("记最近来往失败", exc_info=True)
 
-    async def say(self, title: str, text: str) -> None:
+    async def say(self, title: str, text: str, board: bool = True) -> None:
         self.record("小E", text, title=title)
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
+        if board:
+            await self._board_follow()
 
     def _load_cards(self) -> dict[str, dict]:
         try:
@@ -111,38 +116,85 @@ class Bridge:
         self.cards_path.parent.mkdir(parents=True, exist_ok=True)
         self.cards_path.write_text(json.dumps(keep, ensure_ascii=False))
 
+    def _active(self) -> list[tuple[str, int, Turn | None]]:
+        """在做的和排队的对话，给工作台用。"""
+        items = []
+        for num, s in sorted(self.registry.sessions.items()):
+            if num in self.runner.turns:
+                items.append((s.label, num, self.runner.turns[num]))
+            elif self.runner.busy(num):
+                items.append((s.label, num, None))
+        return items
+
+    async def _board_post(self) -> None:
+        """在聊天最下面发一张新的工作台，旧的那张缩成一行“挪到下面了”。"""
+        async with self.board_lock:
+            old, oid = self.board, f"b-{int(time.time() * 1000)}"
+            data = cards.board_data(self._active())
+            await self.dt.create_card(self.user_id, oid, data)
+            self.board, self.board_shown = oid, data["markdown"]
+            self.cards[oid] = {"kind": "board", "num": 0}
+            self._save_cards()
+            if old:
+                try:
+                    await self.dt.update_card(old, cards.board_data([], moved=True))
+                except Exception:  # noqa: BLE001
+                    log.debug("旧工作台收起失败", exc_info=True)
+        if not self.board_task or self.board_task.done():
+            self.board_task = asyncio.create_task(self._board_loop())
+
+    async def _board_follow(self) -> None:
+        """小E 刚发了别的消息：还有活在做，就把工作台挪到它下面，免得被顶上去看不到；都做完了就当场收尾。"""
+        if not self.board:
+            return
+        try:
+            if self._active():
+                await self._board_post()
+            else:
+                async with self.board_lock:
+                    oid, self.board = self.board, None
+                    if oid:
+                        await self.dt.update_card(oid, cards.board_data([]))
+        except Exception:  # noqa: BLE001
+            log.debug("挪工作台失败", exc_info=True)
+
+    async def _board_loop(self) -> None:
+        """原地更新工作台；都做完了就改成“都做完了”，不再跟着挪。"""
+        while self.board:
+            items = self._active()
+            long = any(t and time.time() - t.started > 300 for _, _, t in items)
+            if not items:
+                async with self.board_lock:
+                    oid, self.board = self.board, None
+                    if oid:
+                        try:
+                            await self.dt.update_card(oid, cards.board_data([]))
+                        except Exception:  # noqa: BLE001
+                            log.debug("工作台收尾失败", exc_info=True)
+                return
+            data = cards.board_data(items)
+            if data["markdown"] != self.board_shown and self.board:
+                try:
+                    await self.dt.update_card(self.board, data)
+                    self.board_shown = data["markdown"]
+                except Exception:  # noqa: BLE001
+                    log.debug("更新工作台失败", exc_info=True)
+            await asyncio.sleep(self.progress_every[long])
+
     async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
-        """几秒内答完的不发卡；做得久的发一张进度卡，同一张卡原地更新。"""
+        """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。"""
         await asyncio.sleep(self.receipt_delay)
         if job.finished or turn.ended:
             return
-        oid = f"p{s.num}-{int(turn.started * 1000)}"
+        if self.board:
+            return  # 工作台自己会刷新出这一件
         try:
-            await self.dt.create_card(self.user_id, oid, cards.progress_data(s.label, turn))
+            await self._board_post()
         except Exception:  # noqa: BLE001 - 卡片发不出就退回一句文字
-            log.warning("发进度卡失败", exc_info=True)
-            return await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}")
-        self.progress[s.num] = oid
-        self.cards[oid] = {"kind": "progress", "num": s.num}
-        self._save_cards()
-        shown = -1
-        while self.progress.get(s.num) == oid:
-            if len(turn.steps) != shown:
-                shown = len(turn.steps)
-                try:
-                    await self.dt.update_card(oid, cards.progress_data(s.label, turn))
-                except Exception:  # noqa: BLE001
-                    log.debug("更新进度卡失败", exc_info=True)
-            await asyncio.sleep(self.progress_every[time.time() - turn.started > 300])
+            log.warning("发工作台失败", exc_info=True)
+            await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}", board=False)
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
-        if oid := self.progress.pop(s.num, None):
-            final = "停下了" if turn.interrupted else "出错了" if turn.is_error else \
-                "等你定" if report.needs_decision(turn.final_text) else "做完了"
-            try:
-                await self.dt.update_card(oid, cards.progress_data(s.label, turn, final=final))
-            except Exception:  # noqa: BLE001
-                log.debug("收尾进度卡失败", exc_info=True)
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
@@ -160,7 +212,7 @@ class Bridge:
         s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
         self.registry.save()
         try:
-            await self.say(title, body)
+            await self.say(title, body, board=False)
             for img in turn.images:
                 await self.dt.send_image(self.user_id, Path(img))
             if not turn.is_error and (d := cards.parse_decision(turn.final_text)):
@@ -171,6 +223,7 @@ class Bridge:
                 self._save_cards()
         except Exception:
             log.exception("推送 #%s 的结果失败", s.num)
+        await self._board_follow()
 
     async def _reply(self, answer: str, text: str, inc: Incoming) -> None:
         """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
@@ -186,6 +239,7 @@ class Bridge:
         self.record("小E", answer, title="回复卡", forward_to=cur.num)
         self.cards[oid] = {"kind": "reply", "num": cur.num, "text": text, "answer": answer}
         self._save_cards()
+        await self._board_follow()
 
     async def on_card(self, data: dict) -> None:
         """卡片上的按钮被点了：停下，或把选择交回那个对话。"""
@@ -198,6 +252,11 @@ class Bridge:
         self.record("你", f"点了卡片按钮 {action}", card=oid, raw=json.dumps(data, ensure_ascii=False)[:1500])
         if not info:
             return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
+        if action.startswith("stop:"):
+            num = int(action.split(":")[1])
+            if not await self.runner.stop(num):
+                await self.say("停", f"#{num} 已经做完了，不用停。")
+            return
         if not action:
             return await self.say("按钮没认出来", "这个按钮我没认出来（已记下来排查），先直接回字告诉我选哪个吧。")
         s = self.registry.get(info["num"])

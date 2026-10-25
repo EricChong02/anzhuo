@@ -51,22 +51,28 @@ def _buttons(buttons: list[dict]) -> str:
     return json.dumps({"msgButtons": buttons}, ensure_ascii=False)
 
 
-def progress_data(label: str, turn: Turn, final: str = "") -> dict:
-    """进度卡的内容。final 为空表示还在做；否则是结束时的标题（做完了 / 出错了 / 停下了 / 等你定）。"""
-    mins = max(0, int(((turn.ended or time.time()) - turn.started) // 60))
-    steps = turn.steps[-SHOW_STEPS:]
-    first = len(turn.steps) - len(steps) + 1
-    lines = [f"**{turn.request or label}**"]
-    if final:
-        lines.append(f"共 {len(turn.steps)} 步，用时 {max(1, mins)} 分钟，结果见下面的报告。")
-    elif steps:
-        lines += [f"{first + i}. {s}" for i, s in enumerate(steps)]
-    else:
-        lines.append("刚开始，正在看情况……")
-    tips = "" if final else f"已用 {mins} 分钟 · {time.strftime('%H:%M')} 更新"
-    stop = [] if final else [{"text": "停下", "color": "gray", "id": "stop", "request": True}]
-    return {"title": f"{final or '在做'} · {label}", "markdown": "  \n".join(lines), "tips": tips,
-            "sys_full_json_obj": _buttons(stop)}
+def board_data(items: list[tuple[str, int, Turn | None]], moved: bool = False) -> dict:
+    """工作台卡：所有在做、排队的对话一张卡列全，每件带“停”按钮。items 是 (标签, 编号, 这一轮；排队的为 None)。
+    moved=True 是被挪到下面后留下的那张旧卡；items 为空表示都做完了。"""
+    now = time.strftime("%H:%M")
+    if moved:
+        return {"title": "工作台", "markdown": "进展挪到下面了 ↓", "tips": "", "sys_full_json_obj": _buttons([])}
+    if not items:
+        return {"title": "工作台 · 都做完了", "markdown": f"现在没有在做的活（{now}）", "tips": "",
+                "sys_full_json_obj": _buttons([])}
+    lines, buttons = [], []
+    for label, num, turn in items:
+        if turn is None:
+            lines.append(f"**{_short(label, 18)}**　排队中")
+            continue
+        mins = int((time.time() - turn.started) // 60)
+        last = turn.steps[-1] if turn.steps else "刚开始，正在看情况"
+        lines.append(f"**{_short(label, 18)}**　{mins} 分钟 · 第 {len(turn.steps)} 步  \n"
+                     f"在做：{_short(turn.request or '看图', 24)}  \n最新：{last}")
+        buttons.append({"text": f"停 #{num}", "color": "gray", "id": f"stop:{num}", "request": True})
+    running = sum(1 for _, _, t in items if t is not None)
+    return {"title": f"工作台 · {running} 件在做", "markdown": "\n\n".join(lines), "tips": f"{now} 更新",
+            "sys_full_json_obj": _buttons(buttons)}
 
 
 @dataclass
@@ -120,7 +126,7 @@ def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
     return {"title": "小E 回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
 
 
-_OUR_ID = re.compile(r"^(stop|fwd|pick:[A-D])$")
+_OUR_ID = re.compile(r"^(stop(?::\d+)?|fwd|pick:[A-D])$")
 
 
 def _strings(x):
