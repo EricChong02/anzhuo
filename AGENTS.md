@@ -8,6 +8,8 @@
 
 ## 改小E 本身
 
+只改网页界面（`src/remote_claude/static/app.html`）不用重启：每次打开都重新读这个文件，刷新就生效。改 Python 才要按下面的办法重启。
+
 在钉钉里改本仓库时，跑着的对话就在小E 里面：不要直接跑 `scripts/install_launchd.sh` 或重启小E，会把自己打断。改完用 `scripts/restart_when_idle.py` 在后台等所有对话空闲再重启（用 `start_new_session` 脱离当前进程）。
 
 ## 网页（第二期）

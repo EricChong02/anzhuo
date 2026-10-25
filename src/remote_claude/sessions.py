@@ -58,6 +58,7 @@ class Session:
     context_pct: float | None = None
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
     unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
+    seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
     awaiting: str = ""  # 上一轮最后在等你回答（问了什么）；你回了话就清掉
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）

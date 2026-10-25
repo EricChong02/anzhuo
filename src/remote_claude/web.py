@@ -298,8 +298,8 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         return web.json_response({"detail": "需要先登录小E 网页"}, status=401)
 
     async def _app_page(self, request: web.Request) -> web.Response:
-        from .webui import APP_HTML
-        return web.Response(text=APP_HTML, content_type="text/html", headers={"Cache-Control": "no-store"})
+        from .webui import app_html
+        return web.Response(text=app_html(), content_type="text/html", headers={"Cache-Control": "no-store"})
 
     async def _icon(self, request: web.Request) -> web.StreamResponse:
         return web.FileResponse(Path(__file__).parent / "static" / "icon.png", headers={"Cache-Control": "max-age=86400"})
@@ -464,7 +464,8 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 status, detail = "error", "上次出错了"
             else:
                 status, detail = "idle", s.last_title or "空闲"
-            rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status,
+            unread = status in ("idle", "awaiting", "error") and bool(s.claude_id) and s.updated > s.seen + 1
+            rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
@@ -509,6 +510,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                     self._zh_busy.add(key)
                     asyncio.create_task(self._translate(key, it["text"]))
         turn = b.runner.turns.get(num)
+        if not turn and s.updated > s.seen:   # 打开了、看到最新一轮了，就不算没看
+            s.seen = time.time()
+            b.registry.save()
         live = None
         if turn:
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),

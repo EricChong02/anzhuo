@@ -159,10 +159,10 @@ def test_chat_api(tmp_path, monkeypatch):
 
     class FakeBridge:
         def __init__(self):
-            s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？")
+            s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？", claude_id="sid6")
             s7 = Session(num=7, name="清理", cwd=str(tmp_path))
             self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda: [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
-                               current=6, next_num=8)
+                               current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
             self.cfg = NS(folders={"课程根": "/x"})
@@ -193,6 +193,10 @@ def test_chat_api(tmp_path, monkeypatch):
             await c.post("/_x/login", data={"username": "u", "password": "p"})
             d = await (await c.get("/_x/api/sessions")).json()
             assert [r["num"] for r in d["sessions"]] == [6, 7]                 # 等你回答的排最前
+            assert d["sessions"][0]["unread"] is True                          # 做完了还没看
+            await c.get("/_x/api/thread/6")
+            d = await (await c.get("/_x/api/sessions")).json()
+            assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
             assert d["limits"] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "小E" in await (await c.get("/_x/")).text()
