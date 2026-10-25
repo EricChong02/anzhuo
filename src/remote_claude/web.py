@@ -213,7 +213,18 @@ class Web:
             pv = "".join(f' · <a href="{html.escape(u)}">试课 {html.escape(n)}</a>' for n, u in r.get("previews", []))
             rows.append(f'<div class="card"><a href="{PREFIX}/t/{r["id"]}">{html.escape(r["label"])} · '
                         f'{html.escape(r["request"] or "")}</a><div class="meta">{when} · {html.escape(r["title"])}{pv}</div></div>')
-        return self._page("小E · 最近的活", "<h1>最近的活</h1>" + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
+        drafts = []
+        root = Path(self.preview_root).expanduser() if self.preview_root else None
+        if root and (root / "_drafts").is_dir():
+            for cj in sorted((root / "_drafts").glob("*/course.json"), key=lambda p: p.parent.stat().st_mtime, reverse=True):
+                try:
+                    title = json.loads(cj.read_text()).get("title") or cj.parent.name
+                except (OSError, json.JSONDecodeError):
+                    title = cj.parent.name
+                url = f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"
+                drafts.append(f'<a class="btn" href="{html.escape(url)}">试课：{html.escape(title)}</a>')
+        top = f"<h1>在做的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
+        return self._page("小E · 最近的活", top + "<h1>最近的活</h1>" + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
     async def _turn_page(self, request: web.Request) -> web.Response:
         r = self._turn(request.match_info["tid"])

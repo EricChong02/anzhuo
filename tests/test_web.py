@@ -62,6 +62,11 @@ def test_login_pages_and_proxy(tmp_path):
             assert (await c.get(f"/_x/t/{tid}/img/0")).status == 200
             assert (await c.get(f"/_x/t/{tid}/img/5")).status == 404
             assert "开发" in await (await c.get("/_x/")).text()
+            w.preview_root = str(tmp_path / "root")
+            (tmp_path / "root" / "_drafts" / "l9").mkdir(parents=True)
+            (tmp_path / "root" / "_drafts" / "l9" / "course.json").write_text('{"title": "淘宝 2003"}')
+            idx = await (await c.get("/_x/")).text()
+            assert "试课：淘宝 2003" in idx and "/workspace/_drafts/l9/course.json" in idx
             r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
             assert await r.text() == "PREVIEW" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
             await c.get("/workspace/a/course.json", headers={"X-Forwarded-For": "1.2.3.4"})
