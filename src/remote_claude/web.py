@@ -24,6 +24,7 @@ import aiohttp
 from aiohttp import web
 
 from . import thread, translate
+from .push import Push
 from .cards import parse_decision
 from .commands import Cmd
 from .dingtalk import Incoming
@@ -143,6 +144,7 @@ class Web:
         self.preview_root = preview_root
         self.turns_dir = data_dir / "turns"
         self.store_path = data_dir / "web.json"
+        self.push = Push(data_dir / "push.json", self.base or "https://localhost")
         self.store = self._load()
         self._client: aiohttp.ClientSession | None = None
         self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
@@ -308,6 +310,37 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         return web.json_response({"name": "小E", "short_name": "小E", "start_url": f"{PREFIX}/", "display": "standalone",
                                   "background_color": "#fafaf9", "theme_color": "#fafaf9",
                                   "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"}]})
+
+    async def _sw(self, request: web.Request) -> web.Response:
+        # 手机通知的后台脚本：收到推送就弹通知，点通知打开那个对话
+        js = """self.addEventListener('push', e => {
+  const d = e.data ? e.data.json() : {};
+  e.waitUntil(self.registration.showNotification(d.title || '小E', {body: d.body || '', tag: d.tag || undefined, data: {url: d.url || '/_x/'}, icon: '/_x/icon.png'}));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/_x/';
+  e.waitUntil(clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => {
+    for (const c of cs) { if ('focus' in c) { c.navigate(url); return c.focus(); } }
+    return clients.openWindow(url);
+  }));
+});
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+"""
+        return web.Response(text=js, content_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+    async def _api_push_key(self, request: web.Request) -> web.Response:
+        return web.json_response({"key": await asyncio.to_thread(self.push.public_key)})
+
+    async def _api_push(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        try:
+            self.push.add(await request.json())
+        except ValueError:
+            return web.json_response({"ok": False}, status=400)
+        return web.json_response({"ok": True})
 
     async def _to_index(self, request: web.Request) -> web.Response:
         raise web.HTTPFound(f"{PREFIX}/")
@@ -662,7 +695,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json"):
+        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js"):
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
@@ -677,6 +710,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         app.router.add_get(f"{PREFIX}/history", self._index)
         app.router.add_get(f"{PREFIX}/icon.png", self._icon)
         app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
+        app.router.add_get(f"{PREFIX}/sw.js", self._sw)
+        app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
+        app.router.add_post(f"{PREFIX}/api/push", self._api_push)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)

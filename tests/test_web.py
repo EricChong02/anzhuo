@@ -242,6 +242,13 @@ def test_chat_api(tmp_path, monkeypatch):
             assert (b.registry.sessions[7].model, b.registry.sessions[7].effort) == ("claude-haiku-5-5", "xhigh")
             u = (await (await c.get("/_x/api/thread/7")).json())["usage"]
             assert (u["mkey"], u["ekey"]) == ("haiku", "xhigh")
+            # 手机通知：后台脚本不登录也能取；订阅要像样（https 地址 + keys）才收
+            assert "showNotification" in await (await c.get("/_x/sw.js")).text()
+            sub = {"endpoint": "https://web.push.apple.com/abc", "keys": {"p256dh": "x", "auth": "y"}}
+            assert (await c.post("/_x/api/push", json=sub)).status == 200
+            assert (await c.post("/_x/api/push", json=sub)).status == 200
+            assert (await c.post("/_x/api/push", json={"endpoint": "http://evil"})).status == 400
+            assert w.push.subs == [sub]
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
             assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
         finally:

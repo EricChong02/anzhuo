@@ -259,6 +259,10 @@ class Bridge:
         s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
         s.awaiting = "" if turn.is_error else asks_user(turn.final_text)
         self.registry.save()
+        if self.web.enabled:  # 手机通知：主屏幕上的小E 直接弹
+            what = "出错了" if turn.is_error else (f"等你回答：{s.awaiting}" if s.awaiting else
+                                                  "做完了：" + report.brief(turn.final_text, 60))
+            asyncio.create_task(self.web.push.send(s.name, what, f"/_x/#s{s.num}", tag=f"s{s.num}"))
         try:
             await self.say(title, body, board=False)
             for img in turn.images:

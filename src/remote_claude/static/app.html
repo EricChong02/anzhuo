@@ -183,7 +183,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><b>小E</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
-    <div class="scroll"><div id="courses"></div><div id="list"></div>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
       <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
     </div>
     <div class="quota" id="quota" hidden></div>
@@ -376,6 +376,31 @@ function openSession(num, fromPop) {
 }
 
 function goList() { sel = null; if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+// 点手机通知进来：地址变成 #s编号，打开那个对话
+addEventListener('hashchange', () => { const m = location.hash.match(/^#s(\d+)/); if (m) openSession(+m[1], true); });
+
+// 手机通知：只有加到主屏幕后打开（全屏模式）iPhone 才允许；第一次要点一下“开启通知”，之后每次打开悄悄续上订阅
+async function setupPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.register('/_x/sw.js', {scope: '/_x/'});
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const subscribe = async () => {
+    const {key} = await api('push/key');
+    const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice(0, (4 - key.length % 4) % 4)), c => c.charCodeAt(0));
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: raw});
+    await api('push', sub.toJSON());
+  };
+  if (Notification.permission === 'granted') return subscribe().catch(() => {});
+  if (!standalone || Notification.permission === 'denied') return;
+  const b = $('#pushBtn'); b.hidden = false;
+  b.onclick = async () => {
+    b.querySelector('.nm').textContent = '正在开启…';
+    if (await Notification.requestPermission() === 'granted') { await subscribe().catch(() => {}); b.hidden = true; }
+    else b.querySelector('.nm').textContent = '没允许通知，可到 设置 → 通知 → 小E 里打开';
+  };
+}
+setupPush().catch(() => {});
+
 addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
 
 function renderThread(d) {
