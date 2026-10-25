@@ -180,3 +180,51 @@ def test_chat_follow_up(tmp_path, monkeypatch):
     assert calls[1][1] == [("见到洪老师的老公怎么称呼", "叫“洪老师的先生”就好。")]
     assert len(calls[2][1]) == 2
     assert all(t == "回复" for t, _ in dt.sent)
+
+
+def test_hide_and_delete(tmp_path, monkeypatch):
+    """7 天没动的自动收起；“删 N”收起；收起的不进列表、不给小E 分派；点名“#N …”找回。"""
+    import time
+    from remote_claude import router
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
+    seen, offered = [], []
+
+    async def fake_run(self, s, job, turn):
+        seen.append((s.num, job.text))
+        turn.final_text = "好的"
+
+    async def no_usage(self, force=False):
+        pass
+
+    async def fake_route(text, sessions, *a, **k):
+        offered.append(sorted(x.num for x in sessions))
+        return router.Route("continue", target=3)
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(router, "route", fake_route)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 0
+        old = time.time() - 8 * 86400
+        for n, upd in [(1, old), (2, time.time()), (3, time.time())]:
+            b.registry.add(Session(num=n, name=f"事{n}", cwd=str(tmp_path), updated=upd))
+        await b.on_raw(msg("删 2"))
+        assert "收起了" in dt.sent[-1][1] and b.registry.current == 3
+        await b.on_raw(msg("列表"))
+        listing = dt.sent[-1][1]
+        assert "#3" in listing and "#1" not in listing and "#2" not in listing and "另有 2 个收起了" in listing
+        await b.on_raw(msg("列表 全部"))
+        assert "#1" in dt.sent[-1][1] and "（收起）" in dt.sent[-1][1]
+        await b.on_raw(msg("帮我看看这一节的封面"))
+        await asyncio.sleep(0.05)
+        await b.on_raw(msg("#2 其实还要接着做"))
+        await asyncio.sleep(0.05)
+        assert not b.registry.sessions[2].hidden
+
+    asyncio.run(go())
+    assert offered == [[3]]
+    assert seen == [(3, "帮我看看这一节的封面"), (2, "其实还要接着做")]

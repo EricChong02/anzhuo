@@ -22,6 +22,8 @@ from .report import Turn, brief
 
 log = logging.getLogger(__name__)
 
+STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，小E 分派时也不考虑
+
 APPEND = """回复一律用简体中文；专有名词、代码、命令、路径保持原样。
 这一轮如果只是聊天、打招呼或直接回答问题，没有动手做事，就直接自然地回答，不写下面的五段。
 这一轮如果动手做了事（改文件、跑命令、查资料、做截图等），最后一段回复按下面五段写，用简体中文，写给不看代码的读者：
@@ -51,6 +53,7 @@ class Session:
     model: str | None = None  # None = 用 ~/.claude/settings.json 里的默认
     effort: str | None = None
     context_pct: float | None = None
+    hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
 
     @property
     def label(self) -> str:
@@ -95,6 +98,12 @@ class Registry:
 
     def get(self, num: int | None) -> Session | None:
         return self.sessions.get(num) if num is not None else None
+
+    def visible(self) -> list[Session]:
+        """没被收起的对话：没删、7 天内动过（正在做或排队的总算在内）。"""
+        now = time.time()
+        return [s for s in self.sessions.values()
+                if not s.hidden and (now - s.updated < STALE or s.status in ("running", "queued"))]
 
 
 @dataclass

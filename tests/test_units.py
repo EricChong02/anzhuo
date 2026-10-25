@@ -27,6 +27,8 @@ def test_parse_commands():
     c = parse("深度 高")
     assert (c.kind, c.num, c.name) == ("effort", None, "高")
     assert parse("额度").kind == "quota"
+    assert (parse("删 7").kind, parse("删 #7").num) == ("delete", 7)
+    assert parse("删掉第二段").kind == "message"
 
 
 def test_folder_candidates(tmp_path):

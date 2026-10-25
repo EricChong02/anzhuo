@@ -48,6 +48,8 @@ def parse(text: str) -> Cmd:
         return Cmd("switch", num=_num(m.group(1)))
     if m := re.fullmatch(r"停(?:\s*(#?\d+))?", t):
         return Cmd("stop", num=_num(m.group(1)) if m.group(1) else None)
+    if m := re.fullmatch(r"(?:删|删除|收起)\s*(#?\d+)", t):
+        return Cmd("delete", num=_num(m.group(1)))
     if m := re.fullmatch(r"改名\s*(#?\d+)\s+(.+)", t, re.S):
         return Cmd("rename", num=_num(m.group(1)), name=m.group(2).strip())
     if t in ("额度", "用量"):
@@ -71,7 +73,8 @@ HELP = """**小E 用法**
 - `新开：…` 不指定文件夹，用一个临时文件夹
 - `新建 personal/菜谱整理：…` 先建文件夹再开工
 - 直接说话：交给当前对话；引用某条消息再说：交给那条消息的对话；`#7 …` 交给 #7
-- `列表` 看所有对话　`切到 7` 换当前对话　`停 7` 让 #7 停下　`改名 7 新名字`
+- `列表` 看对话（7 天没动的自动收起，`列表 全部` 连收起的一起看）　`切到 7` 换当前对话　`停 7` 让 #7 停下　`改名 7 新名字`
+- `删 7` 收起 #7：不再出现在列表里，小E 也不再把话交给它；聊天记录还在，发 `#7 …` 就接着聊
 - `模型 sonnet` / `模型 7 opus` 换当前或 #7 的模型（opus、sonnet、haiku、fable、默认）　`深度 高`（低、中、高、很高、最高、默认）
 - `额度` 看 5 小时和本周额度用了多少
 - `最近 课程根` 看这个文件夹里最近的对话（含桌面端开的）　`接着 课程根 2` 接着其中第 2 个聊

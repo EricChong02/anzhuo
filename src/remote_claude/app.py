@@ -134,7 +134,9 @@ class Bridge:
         if cmd.kind == "help":
             return await self.say("用法", HELP)
         if cmd.kind == "list":
-            return await self._list()
+            return await self._list(show_all="全部" in cmd.text)
+        if cmd.kind == "delete":
+            return await self._delete(cmd.num)
         if cmd.kind == "switch":
             s = self.registry.get(cmd.num)
             if not s:
@@ -177,14 +179,35 @@ class Bridge:
             await self._message(Cmd("message"), inc)
 
     # ---------- 指令 ----------
-    async def _list(self) -> None:
+    async def _list(self, show_all: bool = False) -> None:
         if not self.registry.sessions:
             return await self.say("对话列表", "还没有对话。发“新开 文件夹：要做的事”开一个，发“帮助”看用法。")
+        visible = self.registry.visible()
+        shown = list(self.registry.sessions.values()) if show_all else visible
         rows = []
-        for s in sorted(self.registry.sessions.values(), key=lambda x: -x.updated)[:15]:
+        for s in sorted(shown, key=lambda x: -x.updated)[:30 if show_all else 15]:
             mark = "（当前）" if s.num == self.registry.current else ""
+            mark += "（收起）" if s not in visible else ""
             rows.append(f"- {describe(s, s.num in self.runner.turns)}{mark}")
+        hidden = len(self.registry.sessions) - len(visible)
+        if not rows:
+            rows.append("最近 7 天没有在动的对话。")
+        if hidden and not show_all:
+            rows.append(f"\n另有 {hidden} 个收起了（7 天没动或删掉的），发“列表 全部”看；发“#编号 …”可以接着聊。")
         await self.say("对话列表", "\n".join(rows))
+
+    async def _delete(self, num: int | None) -> None:
+        s = self.registry.get(num)
+        if not s:
+            return await self.say("没有这个对话", f"没有 #{num}。发“列表”看看有哪些。")
+        if s.num in self.runner.turns or s.status in ("running", "queued"):
+            return await self.say("还在做", f"{s.label} 还在做，先发“停 {s.num}”，停下后再删。")
+        s.hidden = True
+        if self.registry.current == s.num:
+            self.registry.current = None
+        self.registry.save()
+        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，小E 也不会再把话交给它。"
+                                  f"聊天记录还在，要找回发“#{s.num} 接着说的话”。")
 
     async def _set_model(self, cmd: Cmd) -> None:
         s = self.registry.get(cmd.num or self.registry.current)
@@ -336,7 +359,7 @@ class Bridge:
         chatting = self.chat_at > self.work_at and time.time() - self.chat_at < CHAT_MEMORY
         if num is None and cmd.text and not routed and self.cfg.auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
-            r = await router.route(cmd.text, list(self.registry.sessions.values()), self.registry.current,
+            r = await router.route(cmd.text, self.registry.visible(), self.registry.current,
                                    list(self.cfg.folders), chat=recent)
             if r and r.action == "reply":
                 self.chat = [*self.chat[-5:], (time.time(), cmd.text, r.answer)]
@@ -358,6 +381,7 @@ class Bridge:
             return await self.say("先开一个对话", "还没有对话。发“新开 文件夹：要做的事”，文件夹可以写 "
                                   + "、".join(self.cfg.folders) + "，或不写。发“帮助”看全部用法。")
         self.registry.current = s.num
+        s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
         if said_model or said_effort:
             s.model = said_model or s.model
