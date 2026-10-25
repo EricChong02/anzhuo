@@ -47,6 +47,16 @@ scripts/install_launchd.sh                # 开机自启并立即运行；改了
 
 停用：双击 `scripts/停用小E.command`。日志在 `~/Library/Logs/remote-claude/`，只记消息类型和长度，不记内容。最近的来往原文（你发的、小E 回的、分给了哪个对话）另存在本机 `~/.local/share/remote-claude/recent.jsonl`，只留最近 100 行，排查“小E 为什么这么答”时看。
 
+## 文件夹权限（下载、桌面、文稿）
+
+这三个文件夹受 macOS 隐私保护。小E 在后台（开机自启）头一次用到时，Mac 会弹窗问“允许访问吗”，没人点就一直卡着；小E 会先试 5 秒，打不开就直接告诉你，不再干等。授权一次即可，在 Mac 前做：
+
+1. 系统设置 → 隐私与安全性 → 完全磁盘访问权限，点左下角“+”。
+2. 按 Cmd+Shift+G，粘贴 `~/.local/share/uv/python/cpython-3.13.11-macos-aarch64-none/bin/python3.13`，选中后打开，并确认开关打开。
+3. 回到仓库运行 `scripts/install_launchd.sh` 让小E 重启。
+
+只想给某几个文件夹，也可以等弹窗出现时点“允许”（下载、桌面、文稿各一次）。uv 换了 Python 版本后路径会变，要按新路径再加一次。
+
 ## 安全边界
 
 - 只认 `allowed_user_ids` 里的钉钉账号发来的单聊消息，其余一律忽略并记日志。

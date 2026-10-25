@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -14,13 +16,37 @@ def _expand(p: str) -> Path:
     return Path(p).expanduser()
 
 
+_READABLE: dict[str, tuple[float, bool]] = {}
+
+
+def readable(path: Path, timeout: float = 5) -> bool:
+    """能不能打开这个文件夹。下载、桌面、文稿受 macOS 隐私保护：后台程序头一次碰会弹窗等人点“允许”，
+    没人点就一直卡着。所以用一个可以杀掉的子进程去试，超时或被拒都算打不开；结果记 10 分钟。"""
+    key = str(path)
+    if key in _READABLE and time.time() - _READABLE[key][0] < 600:
+        return _READABLE[key][1]
+    p = subprocess.Popen(["/bin/ls", key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        ok = p.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        p.kill()
+        ok = False
+    _READABLE[key] = (time.time(), ok)
+    return ok
+
+
+def blocked(paths: list[Path]) -> list[Path]:
+    """这些文件夹里哪些打不开（在受保护的位置里、又没授权）。"""
+    return [p for p in paths if not readable(p)]
+
+
 def search(keyword: str, roots: list[str], skip_names: list[str], max_depth: int = 4, limit: int = 8) -> list[Path]:
     """按目录名找：完全相同排最前，其次开头相同，再次包含；同档里浅的在前。"""
     kw = keyword.lower()
     hits: list[tuple[int, int, str, Path]] = []
     for root in roots:
         base = _expand(root)
-        if not base.is_dir():
+        if not base.is_dir() or not readable(base):  # 没授权的受保护文件夹跳过，免得小E 自己卡住
             continue
         stack = [(base, 0)]
         while stack:

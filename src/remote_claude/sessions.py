@@ -17,7 +17,7 @@ from claude_agent_sdk import (
     ToolUseBlock, create_sdk_mcp_server, tool,
 )
 
-from .folders import display
+from .folders import blocked, display
 from .cards import step_label
 from .report import Turn, brief
 
@@ -110,6 +110,10 @@ class Registry:
                 if not s.hidden and (now - s.updated < STALE or s.status in ("running", "queued"))]
 
 
+class FolderBlocked(Exception):
+    """要用的文件夹打不开：多半是 macOS 隐私保护在等你点“允许”。"""
+
+
 @dataclass
 class Job:
     text: str
@@ -178,10 +182,16 @@ class Runner:
                     asyncio.create_task(self.on_start(s, turn, job))
                 try:
                     await self._run(s, job, turn)
+                except FolderBlocked as e:
+                    turn.is_error = True
+                    turn.error = (f"打不开 {e}。下载、桌面、文稿这几个文件夹受 macOS 隐私保护，小E 在后台头一次用时，"
+                                  "Mac 会弹窗等人点“允许”，没人点就卡住。回到电脑前给小E 授权一次就好（做法见说明的“文件夹权限”）。")
                 except Exception as e:  # noqa: BLE001 - 任何失败都要报给用户
                     log.exception("对话 #%s 运行失败", num)
                     turn.is_error = True
                     turn.error = f"{type(e).__name__}: {str(e)[:300]}"
+                    if "initialize" in turn.error:
+                        turn.error = "Claude 一分钟内没启动起来（常见原因：Mac 在等权限弹窗，或网络不通）。原始信息：" + turn.error
                 finally:
                     turn.ended = time.time()
                     self.turns.pop(num, None)
@@ -237,6 +247,8 @@ class Runner:
         yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
 
     async def _run(self, s: Session, job: Job, turn: Turn) -> None:
+        if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
+            raise FolderBlocked("、".join(display(p) for p in stuck))
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,

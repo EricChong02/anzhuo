@@ -375,3 +375,28 @@ def test_recent_record(tmp_path):
         b.record("你", f"第{i}句")
     rows = [_json.loads(x) for x in (tmp_path / "data" / "recent.jsonl").read_text().splitlines()]
     assert len(rows) == app_mod.RECENT_KEEP and rows[-1]["text"] == f"第{app_mod.RECENT_KEEP + 19}句"
+
+
+def test_folder_blocked(tmp_path, monkeypatch):
+    """文件夹打不开（macOS 在等授权）时不去启动 Claude，直接说清原因。"""
+    from remote_claude import folders as folders_mod
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    monkeypatch.setattr(folders_mod, "readable", lambda p, timeout=5: False)
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 5
+        b.registry.add(Session(num=1, name="清理", cwd=str(tmp_path)))
+        await b.on_raw(msg("清理一下"))
+        await asyncio.sleep(0.2)
+
+    asyncio.run(go())
+    title, body = dt.sent[-1]
+    assert title.startswith("出错了") and "隐私保护" in body
