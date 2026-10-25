@@ -33,6 +33,7 @@ class Config:
     web_port: int = 8765  # 本机网页服务端口，经 SSH 反向隧道接到阿里云
     preview_upstream: str = "http://127.0.0.1:8000"  # 试课预览转给本机哪个 CyberScope 后端
     preview_root: str = ""
+    watch_host: str = ""  # 阿里云 ssh 别名：那边每分钟查小E 在不在线，掉线发手机通知（scripts/server_watch.py）；通知订阅变了同步过去
     dingtalk_quiet: bool = True  # 钉钉只发结果（做完/等你定/出错、回答）；开工、收到、插话、工作台这些过程只在网页里看
     web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串（scripts/set_web_password.py）  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
 
@@ -58,6 +59,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         preview_root=str(raw.get("preview_root", "")),
         web_user=str(raw.get("web_user", "")),
         dingtalk_quiet=bool(raw.get("dingtalk_quiet", True)),
+        watch_host=str(raw.get("watch_host", "")),
     )
 
 

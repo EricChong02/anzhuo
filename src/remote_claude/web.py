@@ -138,7 +138,7 @@ ul{{padding-left:20px;margin:4px 0}}
 
 class Web:
     def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = "",
-                 user: str = "", pw_hash: str = ""):
+                 user: str = "", pw_hash: str = "", watch_host: str = ""):
         self.user, self.pw_hash = user, pw_hash
         self.fails: dict[str, list[float]] = {}
         self.all_fails: list[float] = []
@@ -148,7 +148,7 @@ class Web:
         self.preview_root = preview_root
         self.turns_dir = data_dir / "turns"
         self.store_path = data_dir / "web.json"
-        self.push = Push(data_dir / "push.json", self.base or "https://localhost")
+        self.push = Push(data_dir / "push.json", self.base or "https://localhost", mirror=watch_host)
         self.store = self._load()
         self._client: aiohttp.ClientSession | None = None
         self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
@@ -353,6 +353,10 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 """
         return web.Response(text=js, content_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+    async def _health(self, request: web.Request) -> web.Response:
+        # 阿里云那边每分钟来问一声“还在吗”；网页也用它判断 Mac 连不连得上。不带任何内容
+        return web.json_response({"ok": True})
 
     async def _api_push_key(self, request: web.Request) -> web.Response:
         return web.json_response({"key": await asyncio.to_thread(self.push.public_key)})
@@ -720,7 +724,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js"):
+        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
+                            f"{PREFIX}/health"):
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
@@ -736,6 +741,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/icon.png", self._icon)
         app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
         app.router.add_get(f"{PREFIX}/sw.js", self._sw)
+        app.router.add_get(f"{PREFIX}/health", self._health)
         app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
         app.router.add_post(f"{PREFIX}/api/push", self._api_push)
         app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)

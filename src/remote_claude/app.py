@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -85,7 +87,7 @@ class Bridge:
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
-                       cfg.web_user, read_web_hash(cfg.web_user) if cfg.web_base else "")
+                       cfg.web_user, read_web_hash(cfg.web_user) if cfg.web_base else "", cfg.watch_host)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -765,5 +767,7 @@ class Bridge:
         client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
         if self.web.enabled:
             await self.web.start()
+        # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡
+        subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()

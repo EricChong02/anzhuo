@@ -34,8 +34,9 @@ def _load_vapid():
 
 
 class Push:
-    def __init__(self, path: Path, contact: str):
+    def __init__(self, path: Path, contact: str, mirror: str = ""):
         self.path = path
+        self.mirror = mirror  # 阿里云 ssh 别名：订阅变了同步一份过去，那边的掉线提醒才发得到
         self.contact = contact  # 推送服务要求留个联系方式，用网页地址
         self._vapid = None
         try:
@@ -56,6 +57,9 @@ class Push:
 
     def _save(self) -> None:
         self.path.write_text(json.dumps(self.subs, ensure_ascii=False))
+        if self.mirror:
+            subprocess.Popen(["scp", "-q", "-o", "ConnectTimeout=10", str(self.path), f"{self.mirror}:/opt/xiaoe-watch/push.json"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def add(self, sub: dict) -> None:
         if not isinstance(sub, dict) or not str(sub.get("endpoint", "")).startswith("https://") or not sub.get("keys"):
