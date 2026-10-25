@@ -180,12 +180,15 @@ def test_chat_api(tmp_path, monkeypatch):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
             self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
 
-        async def _new(self, tokens, text, inc, note=""):
+        async def _new(self, tokens, text, inc, note="", kind=None):
             self.new.append((tokens, text))
             self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
 
     async def go():
-        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        root = tmp_path / "root"
+        (root / "_drafts" / "c1").mkdir(parents=True)
+        (root / "_drafts" / "c1" / "course.json").write_text('{"title": "淘宝 2003"}')
+        w = Web("http://x.example", 0, tmp_path, "", str(root), user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = b = FakeBridge()
         b.registry.get = lambda n: b.registry.sessions.get(n)
         c = TestClient(TestServer(w.app()))
@@ -214,6 +217,20 @@ def test_chat_api(tmp_path, monkeypatch):
             assert t7["items"][-1] == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
+            # 新对话“在哪做”：接着做某门课 / 小E 自动判断 / 不碰文件
+            d = await (await c.get("/_x/api/sessions")).json()
+            assert d["drafts"][0]["dir"] == "c1" and d["drafts"][0]["title"] == "淘宝 2003"
+            await c.post("/_x/api/send", json={"text": "封面改大", "course": "c1"})
+            assert b.new[-1] == ([str(root)], "（这件事是关于课程《淘宝 2003》，目录 _drafts/c1/）\n封面改大")
+            from remote_claude import folders, router
+            async def fake_route(text, *a, **k):
+                return router.Route("new", None, "课程根", "", "dev", "")
+            monkeypatch.setattr(router, "route", fake_route)
+            monkeypatch.setattr(folders, "candidates", lambda tok, cfg: [Path("/x")] if tok == "课程根" else [])
+            await c.post("/_x/api/send", json={"text": "新做一节课", "folder": "auto"})
+            assert b.new[-1] == (["课程根"], "新做一节课")
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
+            assert b.new[-1] == ([], "查天气")
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
             assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
         finally:

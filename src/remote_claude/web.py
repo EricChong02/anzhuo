@@ -445,7 +445,8 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 title = json.loads(cj.read_text()).get("title") or cj.parent.name
             except (OSError, json.JSONDecodeError):
                 title = cj.parent.name
-            out.append({"title": title, "url": f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"})
+            out.append({"title": title, "dir": cj.parent.name, "mtime": int(cj.parent.stat().st_mtime),
+                        "url": f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"})
         return out
 
     async def _api_sessions(self, request: web.Request) -> web.Response:
@@ -603,8 +604,24 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
             await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
             return web.json_response({"ok": True, "injected": busy})
         folder = str(data.get("folder") or "").strip()
+        kind = None
+        course = str(data.get("course") or "").strip()
+        if course and course in {d["dir"] for d in self._drafts()}:
+            # 接着做某门课：在课程根里开，并说明是哪门课，免得它去猜
+            title = next(d["title"] for d in self._drafts() if d["dir"] == course)
+            folder, kind = str(Path(self.preview_root).expanduser()), "dev"
+            inc.text = text = f"（这件事是关于课程《{title}》，目录 _drafts/{course}/）\n{text}"
+        elif folder == "auto":
+            # 让小E 看话判断在哪做；判断不出或不涉及文件夹就用空白的临时文件夹
+            from . import router
+            r = await router.route(text, [], None, list(b.cfg.folders))
+            from . import folders as fd
+            folder = r.folder if r and r.folder and fd.candidates(r.folder, b.cfg) else ""
+            kind = r.kind if r else None
+        elif folder == "scratch":
+            folder = ""
         before = b.registry.next_num
-        await b._new([folder] if folder else [], text, inc, note="（网页里新开）")
+        await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind)
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
 
     async def _api_compact(self, request: web.Request) -> web.Response:
