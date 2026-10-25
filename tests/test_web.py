@@ -148,6 +148,7 @@ def test_chat_api(tmp_path, monkeypatch):
     class FakeRunner:
         def __init__(self):
             self.turns, self.stopped = {}, []
+            self.limits, self.default_effort = {"five_hour": (0.37, "10月25日 21:00"), "seven_day": (0.22, None)}, "medium"
 
         def busy(self, n):
             return n in self.turns
@@ -189,9 +190,11 @@ def test_chat_api(tmp_path, monkeypatch):
             d = await (await c.get("/_x/api/sessions")).json()
             assert [r["num"] for r in d["sessions"]] == [6, 7]                 # 等你回答的排最前
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
+            assert d["limits"] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "小E" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}

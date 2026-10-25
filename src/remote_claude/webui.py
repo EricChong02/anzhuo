@@ -41,6 +41,15 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .error .dot{background:var(--red);border-color:var(--red)}
 .idle .dot{border-color:var(--line);background:var(--line)}
 .course svg{color:var(--acc)}
+.quota{padding:12px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.qrow{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute);margin:3px 0}
+.qrow span{min-width:44px} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
+.qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
+.pill.warn{color:var(--amber);border-color:var(--amber)}
+.usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px 16px;min-width:250px;font-size:15px}
+.usage div{display:flex;justify-content:space-between;gap:20px;padding:4px 0} .usage div span{color:var(--mute)} .usage .w{color:var(--amber)}
+.usage .r{font-size:14px;color:var(--mute);display:block;padding:0 0 4px}
 @keyframes pulse{50%{opacity:.35}}
 
 /* 主区 */
@@ -131,7 +140,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   .app:not(.in) .fab{display:grid} #newBtn{display:none}
   .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px}
   .head{padding-top:calc(10px + env(safe-area-inset-top))}
-  .scroll{padding:0 8px 110px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:16.5px} .item .st{font-size:14.5px}
+  .scroll{padding:0 8px 24px} .quota{padding-right:96px} .um{display:none} .usage{right:10px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:16.5px} .item .st{font-size:14.5px}
   .label{font-size:14.5px;padding:18px 12px 6px}
   .feed{padding:18px 16px calc(160px + var(--kb,0px))} .you{max-width:86%} .col{gap:20px}
   .live ol li:nth-last-child(n+4){display:none}
@@ -144,6 +153,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
     <div class="scroll"><div id="courses"></div><div id="list"></div>
       <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
     </div>
+    <div class="quota" id="quota" hidden></div>
   </aside>
   <button class="fab" id="fab" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <section class="main" id="main"><div class="blank"><b>小E</b>选一个对话，或开个新的</div></section>
@@ -162,7 +172,7 @@ const ICON = {
   clip: '<svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
 };
-let attachFiles = [];
+let attachFiles = [], limits = [], usageOpen = false;
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, folder = '', opened = new Set();
 
@@ -203,6 +213,25 @@ function md(src) {
   return out.join('\n').replace(/\n(<table>)/g, '$1').replace(/(<\/table>)\n/g, '$1').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function renderQuota() {
+  const q = $('#quota'); q.hidden = !limits.length;
+  q.innerHTML = limits.map(l => `<div class="qrow ${l.pct >= 80 ? 'warn' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><span>${esc(l.name)}</span>
+    <span class="bar"><i style="width:${Math.min(100, l.pct)}%"></i></span><b>${l.pct}%</b></div>`).join('');
+}
+
+function renderUsage(u) {
+  const el = $('#usageBox'); if (!el || !u) return;
+  const ctxWarn = u.context != null && u.context >= 70;
+  const warn = ctxWarn || limits.some(l => l.pct >= 80);
+  el.innerHTML = `<button class="pill ${warn ? 'warn' : ''}" id="usagePill"><span class="um">${esc(u.model)}${u.context != null ? ' · 上下文 ' : ''}</span>${u.context != null ? u.context + '%' : ''}</button>`
+    + (usageOpen ? `<div class="usage"><div><span>模型</span>${esc(u.model)}</div><div><span>思考深度</span>${esc(u.effort)}</div>
+      <div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
+      ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
+      ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}</div>` : '');
+  $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
+}
+document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
+
 function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
@@ -216,7 +245,7 @@ function renderSide() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; renderSide(); headStatus(); }
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; limits = d.limits || []; renderSide(); renderQuota(); headStatus(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
@@ -239,7 +268,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b>${esc(s.name)}</b><span id="hst"></span></div><span id="headActs"></span></div>
+      <div class="ti"><b>${esc(s.name)}</b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
@@ -291,6 +320,7 @@ function renderThread(d) {
     await api('send', {num: d.num, text: b.textContent}); loadThread(); loadSessions();
   });
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
+  renderUsage(d.usage);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(last.previews[0][1])}" target="_blank">${ICON.play}试课</a>` : '';
   $('#ta').placeholder = d.live ? '插话：它手上这一步做完就会看到' : d.awaiting ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };

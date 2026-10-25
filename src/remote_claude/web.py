@@ -28,6 +28,7 @@ from .cards import parse_decision
 from .commands import Cmd
 from .dingtalk import Incoming
 from .folders import display
+from .report import EFFORT_CN, LIMIT_CN, model_name
 
 log = logging.getLogger(__name__)
 
@@ -427,6 +428,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"{PREFIX}/t/{r['id']}/file/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "previews": r.get("previews", []), "files": fs,
+                            "model": r.get("model", ""),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
@@ -468,7 +470,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         return web.json_response({"sessions": rows, "drafts": self._drafts(),
-                                  "folders": list(b.cfg.folders), "current": b.registry.current})
+                                  "folders": list(b.cfg.folders), "current": b.registry.current,
+                                  "limits": [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or ""}
+                                             for k, (u, r) in b.runner.limits.items()]})
 
     async def _api_thread(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -507,8 +511,13 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
+        recs = self._records(num)
+        mid = (turn.model if turn and turn.model else "") or (recs[-1].get("model") if recs else "") or s.model or ""
+        eff = s.effort or b.runner.default_effort
+        usage = {"model": model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
+                 "context": round(s.context_pct) if s.context_pct is not None else None}
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
-                                  "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision})
+                                  "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
 
     async def _translate(self, key: str, text: str) -> None:
         """网页里显示的英文回复后台译成中文（和钉钉同一套：DeepSeek，Haiku 兜底），译好存起来，下次刷新就是中文。"""
