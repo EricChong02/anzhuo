@@ -15,11 +15,11 @@ APP_HTML = r"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 @media (prefers-color-scheme:dark){:root{--bg:#161616;--side:#1b1b1b;--panel:#222;--bubble:#2b2b2b;--ink:#ececec;--mute:#9b9b9b;--line:rgba(255,255,255,.09);
   --acc:#7aa7ff;--accsoft:rgba(122,167,255,.14);--amber:#f0a35e;--red:#f08070;--glass:rgba(34,34,34,.78);--shadow:0 6px 24px rgba(0,0,0,.3)}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
 a{color:var(--acc);text-decoration:none}
 svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.app{display:grid;grid-template-columns:296px 1fr;height:100dvh}
+.app{display:grid;grid-template-columns:296px 1fr;height:var(--vh,100dvh)}
 
 /* 侧栏 */
 .side{background:var(--side);display:flex;flex-direction:column;min-height:0}
@@ -84,7 +84,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .opt:disabled{opacity:.5}
 
 /* 输入条 */
-.dock{position:absolute;left:0;right:0;bottom:var(--kb,0px);padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
+.dock{position:absolute;left:0;right:0;bottom:0;padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
 .quick{pointer-events:auto;max-width:760px;margin:0 auto 8px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
 .quick::-webkit-scrollbar{display:none}
@@ -366,11 +366,16 @@ function openNew(fromPop) {
 $('#newBtn').onclick = () => openNew();
 $('#fab').onclick = () => openNew();
 
-// 手机弹出键盘时，把输入条托到键盘上面
+// 屏幕键盘弹出/收起：整页不滚，只让页面高度跟着“真正看得见的区域”走，输入条自然贴在键盘上面；
+// 收起后 Safari 为露出输入框而滚走的那段也拉回来（不然会卡在半截、下面一片空白）
 if (window.visualViewport) {
   const vv = visualViewport;
-  const fit = () => document.documentElement.style.setProperty('--kb', Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px');
-  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+  const fit = () => {
+    document.documentElement.style.setProperty('--vh', Math.round(vv.height) + 'px');
+    if (scrollX || scrollY) scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+  addEventListener('focusout', () => setTimeout(fit, 60));
 }
 
 (async () => {
