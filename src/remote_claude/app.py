@@ -181,12 +181,14 @@ class Bridge:
         if data.get("userId") not in self.cfg.allowed_user_ids:
             log.warning("忽略一次卡片点击：%s", data.get("userId"))
             return
-        oid, action = data.get("outTrackId", ""), cards.action_of(data.get("content") or {})
+        oid, action = data.get("outTrackId", ""), cards.action_of(data)
         info = self.cards.get(oid)
         log.info("卡片点击：%s %s", oid, action)
-        self.record("你", f"点了卡片按钮 {action}", card=oid)
-        if not info or not action:
+        self.record("你", f"点了卡片按钮 {action}", card=oid, raw=json.dumps(data, ensure_ascii=False)[:1500])
+        if not info:
             return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
+        if not action:
+            return await self.say("按钮没认出来", "这个按钮我没认出来（已记下来排查），先直接回字告诉我选哪个吧。")
         s = self.registry.get(info["num"])
         if not s:
             return await self.say("没有这个对话", f"#{info['num']} 已经不在了。")

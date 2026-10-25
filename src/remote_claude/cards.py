@@ -120,16 +120,33 @@ def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
     return {"title": "小E 回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
 
 
-def action_of(content: dict | str) -> str | None:
-    """按钮回调里找出点的是哪个按钮（id）。钉钉回调结构不完全固定，按已知的几处找。"""
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except json.JSONDecodeError:
-            content = {}
-    private = content.get("cardPrivateData") or {}
-    ids = private.get("actionIds") or content.get("actionIds") or []
-    if ids:
-        return str(ids[0])
-    m = re.search(r'"(stop|fwd|pick:[A-D])"', json.dumps(content))
-    return m.group(1) if m else None
+_OUR_ID = re.compile(r"^(stop|fwd|pick:[A-D])$")
+
+
+def _strings(x):
+    """把回调里所有字符串都摊开（里面套着的 JSON 字符串也拆开）。"""
+    if isinstance(x, str):
+        t = x.strip()
+        if t[:1] in "{[":
+            try:
+                yield from _strings(json.loads(t))
+                return
+            except json.JSONDecodeError:
+                pass
+        yield t
+    elif isinstance(x, dict):
+        for k, v in x.items():
+            yield str(k)
+            yield from _strings(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _strings(v)
+
+
+def action_of(data: dict | str) -> str | None:
+    """按钮回调里找出点的是哪个按钮。钉钉把模板自己的节点名（single_button_node_…）放在 actionIds 里，
+    我们设的按钮 id 在别处，所以把整个回调摊开找我们认得的 id；找不到返回 None。"""
+    for t in _strings(data):
+        if _OUR_ID.match(t):
+            return t
+    return None

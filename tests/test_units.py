@@ -175,6 +175,9 @@ A. 64px，最醒目
     assert json.loads(picked["sys_full_json_obj"])["msgButtons"] == [] and "你选了 B" in picked["markdown"]
     assert cards.action_of('{"cardPrivateData": {"actionIds": ["pick:A"], "params": {}}}') == "pick:A"
     assert cards.action_of({"whatever": {"id": "stop"}}) == "stop"
+    nested = {"outTrackId": "d4-1", "content": '{"cardPrivateData":{"actionIds":["single_button_node_x"],"params":{"id":"pick:B"}}}'}
+    assert cards.action_of(nested) == "pick:B"
+    assert cards.action_of({"content": '{"cardPrivateData":{"actionIds":["single_button_node_x"]}}'}) is None
     t = report.Turn(started=0, request="改封面", steps=[f"看 {i}.py" for i in range(9)])
     p = cards.progress_data("#2 封面", t)
     assert "4. 看 3.py" in p["markdown"] and "9. 看 8.py" in p["markdown"] and "看 2.py" not in p["markdown"]
