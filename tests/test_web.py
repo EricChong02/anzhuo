@@ -180,8 +180,9 @@ def test_chat_api(tmp_path, monkeypatch):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
             self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
 
-        async def _new(self, tokens, text, inc, note="", kind=None):
+        async def _new(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
             self.new.append((tokens, text))
+            self.new_model = (model, effort)
             self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
 
     async def go():
@@ -207,7 +208,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert "小E" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None}
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium"}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
@@ -231,6 +232,16 @@ def test_chat_api(tmp_path, monkeypatch):
             assert b.new[-1] == (["课程根"], "新做一节课")
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
             assert b.new[-1] == ([], "查天气")
+            # 选模型和思考深度：新开时带上；已有对话改了存下来，下一轮生效；不认得的不理
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "sonnet", "effort": "high"})
+            assert b.new_model == ("claude-sonnet-5-5", "high")
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "gpt", "effort": "超高"})
+            assert b.new_model == (None, None)
+            b.registry.save = lambda: None
+            assert (await (await c.post("/_x/api/settings/7", json={"model": "haiku", "effort": "xhigh"})).json())["ok"]
+            assert (b.registry.sessions[7].model, b.registry.sessions[7].effort) == ("claude-haiku-5-5", "xhigh")
+            u = (await (await c.get("/_x/api/thread/7")).json())["usage"]
+            assert (u["mkey"], u["ekey"]) == ("haiku", "xhigh")
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
             assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
         finally:

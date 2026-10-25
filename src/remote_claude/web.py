@@ -527,7 +527,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         recs = self._records(num)
         mid = (turn.model if turn and turn.model else "") or (recs[-1].get("model") if recs else "") or s.model or ""
         eff = s.effort or b.runner.default_effort
+        pick = s.model or mid
         usage = {"model": model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
+                 "mkey": next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""), "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None}
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
@@ -620,9 +622,30 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
             kind = r.kind if r else None
         elif folder == "scratch":
             folder = ""
+        model, effort = self._model_effort(data)
         before = b.registry.next_num
-        await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind)
+        await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind, model=model, effort=effort)
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
+
+    @staticmethod
+    def _model_effort(data: dict) -> tuple[str | None, str | None]:
+        """网页上选的模型（opus / sonnet / haiku）和深度（low…max）；没选或不认得的返回 None。"""
+        from .app import EFFORTS, MODELS
+        return MODELS.get(str(data.get("model") or "")), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
+
+    async def _api_settings(self, request: web.Request) -> web.Response:
+        """改某个对话的模型和思考深度，下一轮起生效（正在做的这一轮不变）。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        s = self.bridge.registry.get(int(request.match_info["num"]))
+        if not s:
+            raise web.HTTPNotFound()
+        model, effort = self._model_effort(await request.json())
+        s.model = model or s.model
+        s.effort = effort or s.effort
+        self.bridge.registry.save()
+        self._threads.pop(s.num, None)
+        return web.json_response({"ok": True})
 
     async def _api_compact(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
@@ -657,6 +680,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
+        app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_get(PREFIX, self._to_index)

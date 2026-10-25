@@ -128,6 +128,18 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);padding:8px}
 .composer .row{display:flex;align-items:flex-end;gap:6px}
 .composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
+.mpw{position:relative;flex:none;align-self:center}
+.mp{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 10px;border-radius:17px;font-size:14.5px;color:var(--mute);white-space:nowrap}
+.mp:hover,.mp.open{background:var(--line);color:var(--ink)} .mp svg{width:14px;height:14px;transform:rotate(90deg)}
+.mmenu{position:absolute;right:-44px;bottom:calc(100% + 12px);z-index:20;width:290px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:6px}
+.mmenu .lb{font-size:14px;color:var(--mute);padding:8px 10px 4px}
+.mo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8px 10px;border-radius:10px;color:var(--ink)}
+.mo:hover{background:var(--line)} .mo .tx{flex:1} .mo b{display:block;font-size:15.5px;font-weight:550} .mo small{display:block;font-size:14px;color:var(--mute)}
+.mo .ok{width:16px;height:16px;color:var(--acc);visibility:hidden} .mo.on .ok{visibility:visible}
+.seg{display:flex;gap:4px;padding:4px 6px 6px} .seg button{flex:1;height:34px;border-radius:9px;font-size:14.5px;color:var(--ink);background:var(--bg)}
+.seg button.on{background:var(--accsoft);color:var(--acc);font-weight:600}
+.mmenu .tip{font-size:14px;color:var(--mute);padding:2px 10px 8px}
+@media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(10px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:18px}}
 .send{width:38px;height:38px;border-radius:50%;background:var(--acc);color:#fff;display:grid;place-items:center;flex:none}
 .send:disabled{background:var(--line);color:var(--mute)}
 .send .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff}
@@ -143,7 +155,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   padding:24px 16px calc(24px + var(--kb,0px));transition:padding-bottom .15s}
 .newv h1{text-align:center;font-size:28px;font-weight:600;margin:0 0 18px}
 .wbar{max-width:760px;width:100%;margin:10px auto 0;display:flex;gap:8px;flex-wrap:wrap;position:relative}
-.pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:17px;border:1px solid var(--line);background:var(--panel);font-size:14.5px;color:var(--ink);max-width:100%}
+.pill{max-width:100%}
 .pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .pill.on{background:var(--accsoft);border-color:transparent;color:var(--acc)}
@@ -277,9 +289,8 @@ function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
   const warn = ctxWarn || limits.some(l => l.pct >= 80);
-  el.innerHTML = `<button class="pill ${warn ? 'warn' : ''}" id="usagePill"><span class="um">${esc(u.model)}${u.context != null ? ' · 上下文 ' : ''}</span>${u.context != null ? u.context + '%' : ''}</button>`
-    + (usageOpen ? `<div class="usage"><div><span>模型</span>${esc(u.model)}</div><div><span>思考深度</span>${esc(u.effort)}</div>
-      <div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
+  el.innerHTML = `<button class="pill ${warn ? 'warn' : ''}" id="usagePill">${u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量'}</button>`
+    + (usageOpen ? `<div class="usage"><div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
       ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
       ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px">压缩上下文</button></div>` : '');
@@ -313,8 +324,33 @@ function composerHTML(ph) {
   return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="warn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
     <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
-    <button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
+    <span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
+
+// 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
+const MODEL_OPTS = [['opus', 'Opus', '最强，做课和开发'], ['sonnet', 'Sonnet', '快一些，日常事够用'], ['haiku', 'Haiku', '最快最省，简单问答']];
+const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
+let mpOpen = false, mpRedraw = null;
+function renderModel(st, onPick, isNew) {
+  const el = $('#mpw'); if (!el) return;
+  mpRedraw = () => renderModel(st, onPick, isNew);
+  const mname = st.model === 'auto' ? '自动' : (MODEL_OPTS.find(m => m[0] === st.model) || [, '默认'])[1];
+  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
+  const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
+  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
+    + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
+      ${(isNew ? [['auto', '自动', '做课开发用 Opus，简单事用 Sonnet'], ...MODEL_OPTS] : MODEL_OPTS).map(([k, t, d]) =>
+        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b><small>${d}</small></span>${ok}</button>`).join('')}
+      <div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div>
+      <div class="tip">${isNew ? '越高想得越细，也越慢、越费额度' : '从下一轮起生效'}</div></div>` : '');
+  $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
+  el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    if (b.dataset.m) { st.model = b.dataset.m; mpOpen = false; } else st.effort = b.dataset.e;
+    onPick(st); renderModel(st, onPick, isNew);
+  });
+}
+document.addEventListener('click', e => { if (mpOpen && !e.target.closest('.mpw')) { mpOpen = false; mpRedraw && mpRedraw(); } });
 
 function headStatus() {
   const s = sessions.find(x => x.num === sel), el = $('#hst');
@@ -389,6 +425,7 @@ function renderThread(d) {
   });
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
   renderUsage(d.usage);
+  if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(last.previews[0][1])}" target="_blank">${ICON.play}试课</a>` : '';
   $('#ta').placeholder = d.live ? '插话：它手上这一步做完就会看到' : d.awaiting ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
@@ -515,8 +552,10 @@ function openNew(fromPop) {
   };
   draw();
   $('#main').onclick = e => { if (menu && !e.target.closest('.wmenu')) { menu = false; draw(); } };
-  wireComposer(text => api('send', pick.startsWith('c:') ? {text, course: pick.slice(2), images: attach, files: attachFiles}
-                                                          : {text, folder: pick, images: attach, files: attachFiles}));
+  const ms = {model: 'auto', effort: 'medium'}; let touched = false;
+  renderModel(ms, () => { touched = true; }, true);
+  const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
+  wireComposer(text => api('send', {...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, images: attach, files: attachFiles}));
   if (!matchMedia('(max-width:600px) and (pointer:coarse)').matches) $('#ta').focus();
 }
 $('#newBtn').onclick = () => openNew();

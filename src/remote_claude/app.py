@@ -520,13 +520,14 @@ class Bridge:
         return done, None, []
 
     async def _new(self, tokens: list[str], text: str, inc: Incoming, resolved: list[Path] | None = None,
-                   note: str = "", kind: str | None = None) -> None:
+                   note: str = "", kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
         resolved = list(resolved or [])
         rest = tokens[len(resolved):]
         if not tokens:
             num = self.registry.reserve_num()
             cwd = folders.scratch_dir(self.cfg, num)
-            return await self._start(num, cwd, [], text, inc, note=note or "（没指定文件夹，用了临时文件夹）", kind=kind)
+            return await self._start(num, cwd, [], text, inc, note=note or "（没指定文件夹，用了临时文件夹）", kind=kind,
+                                     model=model, effort=effort)
         try:
             more, ambiguous, cands = await self._resolve_all(rest)
         except LookupError as e:
@@ -538,7 +539,7 @@ class Bridge:
             lines = [f"{i}. {folders.display(p)}" for i, p in enumerate(cands, 1)]
             return await self.say("选文件夹", f"“{ambiguous}”找到几个，回编号选一个：\n\n" + "\n".join(lines))
         num = self.registry.reserve_num()
-        await self._start(num, resolved[0], resolved[1:], text, inc, note=note, kind=kind)
+        await self._start(num, resolved[0], resolved[1:], text, inc, note=note, kind=kind, model=model, effort=effort)
 
     async def _mkdir(self, spec: str, text: str, inc: Incoming) -> None:
         parent_tok, name = folders.split_new_path(spec)
@@ -639,18 +640,19 @@ class Bridge:
         await self.say("接着桌面", "\n\n".join(lines))
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
-                     kind: str | None = None) -> None:
+                     kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+        """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
             kind = "dev" if _looks_like_project(cwd) else "simple"
         model = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=model)
         said_model, said_effort = inline_overrides(text)
-        s.model = said_model or s.model
-        s.effort = said_effort or s.effort
+        s.model = model or said_model or s.model
+        s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "你指定的" if said_model else ("开发" if kind == "dev" else "简单任务")
+        why = "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
