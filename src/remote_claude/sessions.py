@@ -283,6 +283,7 @@ class Runner:
             system_prompt={"type": "preset", "preset": "claude_code", "append": APPEND},
             mcp_servers={"xiaoe": self._image_tool(turn)},
             stderr=lambda line: log.debug("claude: %s", line),
+            max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:
