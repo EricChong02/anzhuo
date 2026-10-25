@@ -502,13 +502,12 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         out[:] = [o for o in out if o["text"].strip()[:40] not in said]
         items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
         for it in items:
-            if it["who"] == "claude" and translate.needs_translation(it["text"]):
-                key = hashlib.sha1(it["text"].encode()).hexdigest()
-                if key in self._zh:
-                    it["text"] = self._zh[key]
-                elif key not in self._zh_busy and len(self._zh_busy) < 3:
-                    self._zh_busy.add(key)
-                    asyncio.create_task(self._translate(key, it["text"]))
+            if it["who"] == "claude":
+                it["text"] = self._zh_or_later(it["text"])
+        for it in [i for i in items if i["who"] == "claude"][-2:]:   # 最近两轮的工作过程也译（再早的不译，太费）
+            if it.get("process"):
+                it["process"] = [dict(e, text=self._zh_or_later(e["text"])) if e["k"] in ("think", "say") else e
+                                 for e in it["process"]]
         turn = b.runner.turns.get(num)
         if not turn and s.updated > s.seen:   # 打开了、看到最新一轮了，就不算没看
             s.seen = time.time()
@@ -517,6 +516,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         if turn:
             proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1200], "detail": str(e.get("detail") or "")[:400]}
                     for e in turn.timeline if e["kind"] in ("think", "say", "do")][-40:]
+            for e in proc:
+                if e["k"] in ("think", "say"):
+                    e["text"] = self._zh_or_later(e["text"])
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
@@ -530,12 +532,24 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
 
+    def _zh_or_later(self, text: str) -> str:
+        """英文的先原样给，后台译好存起来，下次刷新就是中文。"""
+        if not translate.needs_translation(text):
+            return text
+        key = hashlib.sha1(text.encode()).hexdigest()
+        if key in self._zh:
+            return self._zh[key]
+        if key not in self._zh_busy and len(self._zh_busy) < 6:
+            self._zh_busy.add(key)
+            asyncio.create_task(self._translate(key, text))
+        return text
+
     async def _translate(self, key: str, text: str) -> None:
         """网页里显示的英文回复后台译成中文（和钉钉同一套：DeepSeek，Haiku 兜底），译好存起来，下次刷新就是中文。"""
         try:
             if done := await translate.to_chinese(text):
                 self._zh[key] = done[0]
-                self._zh = dict(list(self._zh.items())[-500:])
+                self._zh = dict(list(self._zh.items())[-2000:])
                 self._zh_path.write_text(json.dumps(self._zh, ensure_ascii=False))
         finally:
             self._zh_busy.discard(key)
