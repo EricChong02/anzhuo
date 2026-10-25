@@ -26,6 +26,7 @@ class Turn:
     effort: str = ""
     context_pct: float | None = None
     compacted: bool = False
+    translated: bool = False  # 原文有大段英文，已用 Haiku 译成中文
 
 
 SECTIONS = ("要你定", "要你做的", "做了什么", "改了哪些", "自查结果", "截图")
@@ -178,6 +179,8 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
         facts += f" · 改 {len(files)} 个文件 · 跑 {len(turn.commands)} 条命令"
         if turn.images:
             facts += f" · 截图 {len(turn.images)} 张见下"
+    if turn.translated:
+        facts += " · 英文已由 Haiku 译成中文"
     tail = ["---", facts]
     if files and "改了哪些" not in turn.final_text:
         shown = [_rel(f, cwd) for f in files[:12]]

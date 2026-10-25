@@ -11,7 +11,7 @@ from pathlib import Path
 import dingtalk_stream
 from claude_agent_sdk import list_sessions
 
-from . import folders, report, router
+from . import folders, report, router, translate
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config
 from .dingtalk import DingTalk, Incoming, parse_incoming
@@ -80,6 +80,9 @@ class Bridge:
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if translate.needs_translation(turn.final_text):
+            if zh := await translate.to_chinese(turn.final_text):
+                turn.final_text, turn.translated = zh, True
         title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
         s.last_title = title
         self.registry.save()

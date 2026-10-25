@@ -128,3 +128,18 @@ def test_router_parse():
     assert (r.action, r.folder, r.kind) == ("new", "课程根", "dev")
     assert _parse('{"action":"continue","target":9}', {1}).action == "ask"
     assert _parse("不是 JSON", {1}) is None
+
+
+def test_needs_translation():
+    from remote_claude.translate import needs_translation
+    assert needs_translation("I updated the cover title and checked that it still fits on the lab screen.")
+    assert not needs_translation("改好了第二课封面，用 Opus 5.5 跑了 course_gates.py G1，结果 PASS。")
+    assert not needs_translation("跑了：\n```\nuv run pytest -q tests/test_units.py --maxfail one two three four\n```")
+    assert not needs_translation("路径是 ~/Projects/04_项目/work/CyberScope/Frontend/courses/_shared/lesson-shell.js")
+    assert needs_translation("做完了。\n\nNote: the preview server was already running, so I reused it instead of starting another.")
+
+
+def test_translated_footer():
+    t = report.Turn(started=0, ended=60, request="改标题", final_text="改好了", translated=True,
+                    changed_files=["/w/a.html"])
+    assert "英文已由 Haiku 译成中文" in report.build("#1 测试", t, "/w")[1]
