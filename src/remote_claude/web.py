@@ -113,7 +113,7 @@ def _md(text: str) -> str:
 
 
 PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{title}</title>
 <style>
 :root{{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1f;--mute:#6e6e73;--line:#e5e5e2;--acc:#2f6fdf}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#151515;--card:#1f1f1f;--ink:#ececec;--mute:#9a9a9a;--line:#333;--acc:#7aa7ff}}}}
@@ -129,7 +129,11 @@ pre{{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,Menlo,
 details summary{{cursor:pointer}} img{{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 0}}
 .btn{{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;margin:4px 6px 4px 0}}
 ul{{padding-left:20px;margin:4px 0}}
-</style></head><body><main>{body}</main></body></html>"""
+.bk{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:4px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
+  background:var(--bg);border-bottom:1px solid var(--line);color:var(--acc);font-size:16px;text-decoration:none}}
+</style></head><body>
+<a class="bk" href="/_x/" onclick="if(history.length>1){{history.back();return false}}">‹ 返回</a>
+<main>{body}</main></body></html>"""
 
 
 class Web:

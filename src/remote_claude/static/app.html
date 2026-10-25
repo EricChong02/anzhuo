@@ -129,6 +129,9 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);padding:8px}
 .composer .row{display:flex;align-items:flex-end;gap:6px}
 .composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
+.lightbox{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:auto;touch-action:pinch-zoom}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+.lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:24px;line-height:40px;text-align:center}
 .mpw{position:relative;flex:none;align-self:center}
 .mp{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 10px;border-radius:17px;font-size:14.5px;color:var(--mute);white-space:nowrap}
 .mp:hover,.mp.open{background:var(--line);color:var(--ink)} .mp svg{width:14px;height:14px;transform:rotate(90deg)}
@@ -412,6 +415,19 @@ async function setupPush() {
   };
 }
 setupPush().catch(() => {});
+
+// 看大图：在页面里盖一层，点右上角 × 、点空白或返回手势都能关（主屏幕 app 里没有浏览器的返回键，不能跳走）
+function viewImage(src) {
+  const el = document.createElement('div'); el.className = 'lightbox';
+  el.innerHTML = `<img src="${esc(src)}"><button class="x" aria-label="关闭">×</button>`;
+  document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
+  el.onclick = e => { if (e.target.tagName !== 'IMG') history.back(); };
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('.imgs a'); if (!a) return;
+  e.preventDefault(); viewImage(a.getAttribute('href'));
+});
+addEventListener('popstate', e => { const lb = document.querySelectorAll('.lightbox'); if (lb.length) { lb.forEach(x => x.remove()); e.stopImmediatePropagation(); } });
 
 addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
 
