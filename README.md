@@ -45,7 +45,7 @@ security add-generic-password -U -s remote-claude.deepseek -a api -w   # 可选�
 scripts/install_launchd.sh                # 开机自启并立即运行；改了代码再运行一次即重启
 ```
 
-停用：双击 `scripts/停用小E.command`。日志在 `~/Library/Logs/remote-claude/`，只记消息类型和长度，不记内容。
+停用：双击 `scripts/停用小E.command`。日志在 `~/Library/Logs/remote-claude/`，只记消息类型和长度，不记内容。最近的来往原文（你发的、小E 回的、分给了哪个对话）另存在本机 `~/.local/share/remote-claude/recent.jsonl`，只留最近 100 行，排查“小E 为什么这么答”时看。
 
 ## 安全边界
 

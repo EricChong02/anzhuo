@@ -363,3 +363,15 @@ def test_reply_forward(tmp_path, monkeypatch):
 
     asyncio.run(go())
     assert seen == [(4, "以后能同时做几个对话吗", 0), (4, "按了之后好像没啥反应", 1)]
+
+
+def test_recent_record(tmp_path):
+    """来往原文只留最近 100 行。"""
+    import json as _json
+    from remote_claude import app as app_mod
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
+    for i in range(app_mod.RECENT_KEEP + 20):
+        b.record("你", f"第{i}句")
+    rows = [_json.loads(x) for x in (tmp_path / "data" / "recent.jsonl").read_text().splitlines()]
+    assert len(rows) == app_mod.RECENT_KEEP and rows[-1]["text"] == f"第{app_mod.RECENT_KEEP + 19}句"

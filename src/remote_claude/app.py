@@ -22,6 +22,7 @@ from .sessions import Job, Registry, Runner, Session, describe, user_setting
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
+RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
 
 log = logging.getLogger(__name__)
@@ -80,7 +81,19 @@ class Bridge:
         self.registry.save()
 
     # ---------- 发消息 ----------
+    def record(self, who: str, text: str, **extra) -> None:
+        """最近的来往原文存一份在本机（你同意的），排查“小E 为什么这么答”时看原话。只留最近 100 行。"""
+        try:
+            path = self.data_dir / "recent.jsonl"
+            lines = path.read_text().splitlines()[-(RECENT_KEEP - 1):] if path.exists() else []
+            row = {"t": time.strftime("%m-%d %H:%M:%S"), "who": who, "text": text[:2000], **extra}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join([*lines, json.dumps(row, ensure_ascii=False)]) + "\n")
+        except OSError:
+            log.debug("记最近来往失败", exc_info=True)
+
     async def say(self, title: str, text: str) -> None:
+        self.record("小E", text, title=title)
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
 
@@ -159,6 +172,7 @@ class Bridge:
         except Exception:  # noqa: BLE001
             log.warning("发回复卡失败", exc_info=True)
             return await self.say("回复", f"{answer}\n\n---\n\n小E 直接回的（Haiku）。要说给 {cur.label}，发“#{cur.num} 原话”")
+        self.record("小E", answer, title="回复卡", forward_to=cur.num)
         self.cards[oid] = {"kind": "reply", "num": cur.num, "text": text, "answer": answer}
         self._save_cards()
 
@@ -170,6 +184,7 @@ class Bridge:
         oid, action = data.get("outTrackId", ""), cards.action_of(data.get("content") or {})
         info = self.cards.get(oid)
         log.info("卡片点击：%s %s", oid, action)
+        self.record("你", f"点了卡片按钮 {action}", card=oid)
         if not info or not action:
             return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
         s = self.registry.get(info["num"])
@@ -211,6 +226,8 @@ class Bridge:
             return
         log.info("收到 %s，文字 %d 字，图片 %d，文件 %d，引用 %s", inc.kind, len(inc.text), len(inc.image_codes),
                  len(inc.files), "有" if inc.quoted_text else "无")
+        self.record("你", inc.text, kind=inc.kind, images=len(inc.image_codes), files=len(inc.files),
+                    quoted=inc.quoted_text[:200])
         try:
             await self.handle(inc)
         except Exception as e:  # noqa: BLE001
@@ -514,6 +531,8 @@ class Bridge:
             busy = {n for n in self.registry.sessions if self.runner.busy(n)}
             r = await router.route(cmd.text, self.registry.visible(), self.registry.current,
                                    list(self.cfg.folders), chat=recent, busy=busy)
+            self.record("分派", r.reason if r else "判断失败", action=r.action if r else None,
+                        target=r.target if r else None)
             if r and r.action == "reply" and (inc.image_codes or inc.files):
                 r = None  # 小E 看不到图和文件，带图的话交给当前对话
             if r and r.action == "reply":
