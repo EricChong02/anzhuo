@@ -1,6 +1,7 @@
 """小E 网页：一次性链接登录、过程页、试课预览的放行名单与转发。"""
 import asyncio
 import time
+from pathlib import Path
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -199,6 +200,45 @@ def test_chat_api(tmp_path, monkeypatch):
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
             assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
+def test_files_delivered_and_uploaded(tmp_path):
+    """交给你的文件：复制到小E 自己的文件夹、过程页和对话里能下载（原文件名）；网页传上来的文件存进收件箱。"""
+    import base64 as b64
+    from types import SimpleNamespace as NS
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        src = tmp_path / "tmpdir" / "研究生毕业证.pdf"
+        src.parent.mkdir()
+        src.write_bytes(b"%PDF-1.4 fake")
+        t = Turn(started=time.time() - 60, ended=time.time(), request="发毕业证", final_text="发了", files=[str(src)])
+        tid = w.save_turn("#7 毕业证", t, str(tmp_path), "做完了")
+        src.unlink()                                                      # 原处被清掉也不影响下载
+        rec = w._records(7)[0]
+        assert rec["files"][0]["name"] == "研究生毕业证.pdf" and rec["files"][0]["size"] == 13
+        sent = []
+
+        async def _message(cmd, inc, routed=False):
+            sent.append(cmd.text)
+        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, _message=_message)
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            r = await c.get(f"/_x/t/{tid}/file/0")
+            assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
+            assert "attachment" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
+            assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
+            data = "data:application/pdf;base64," + b64.b64encode(b"hello").decode()
+            r = await (await c.post("/_x/api/send", json={"num": 7, "text": "看看这个", "files": [{"name": "../合同.pdf", "data": data}]})).json()
+            assert r["ok"] and "附件已存到" in sent[0] and sent[0].endswith("合同.pdf）")
+            saved = sent[0].split("附件已存到：")[1].rstrip("）")
+            assert Path(saved).read_bytes() == b"hello" and Path(saved).parent == tmp_path / "inbox" / "web"
         finally:
             await c.close()
 

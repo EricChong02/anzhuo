@@ -60,6 +60,8 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         it["tid"] = rec["id"]
         it["previews"] = rec.get("previews", [])
         it["title"] = rec.get("title", "")
+        it["images"] = rec.get("images", [])
+        it["files"] = rec.get("files", [])
         if rec.get("final_text") and rec.get("translated"):
             it["text"] = rec["final_text"]  # 钉钉里发的是译好的中文，网页也用它
     return items

@@ -145,6 +145,15 @@ class DingTalk:
             raise RuntimeError(f"上传图片失败：{str(j)[:300]}")
         return j["media_id"]
 
+    def _upload_file(self, path: Path) -> str:
+        with open(path, "rb") as f:
+            r = requests.post(f"{OAPI}/media/upload", params={"access_token": self._get_token()},
+                              data={"type": "file"}, files={"media": (path.name, f)}, timeout=120)
+        j = r.json()
+        if "media_id" not in j:
+            raise RuntimeError(f"上传文件失败：{str(j)[:300]}")
+        return j["media_id"]
+
     def _download(self, code: str, dest: Path) -> Path:
         url = self._post("/v1.0/robot/messageFiles/download",
                          {"robotCode": self.client_id, "downloadCode": code})["downloadUrl"]
@@ -167,6 +176,11 @@ class DingTalk:
     async def send_image(self, user_id: str, path: Path) -> None:
         media_id = await asyncio.to_thread(self._upload_image, path)
         await asyncio.to_thread(self._send, user_id, "sampleImageMsg", {"photoURL": media_id})
+
+    async def send_file(self, user_id: str, path: Path) -> None:
+        media_id = await asyncio.to_thread(self._upload_file, path)
+        ext = path.suffix.lstrip(".").lower() or "file"
+        await asyncio.to_thread(self._send, user_id, "sampleFile", {"mediaId": media_id, "fileName": path.name, "fileType": ext})
 
     async def download(self, code: str, dest: Path) -> Path:
         return await asyncio.to_thread(self._download, code, dest)

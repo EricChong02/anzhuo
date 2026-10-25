@@ -64,6 +64,12 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .cl .md th{font-weight:600}
 .cl .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .note{align-self:center;font-size:14px;color:var(--mute)}
+.imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:12px;border:1px solid var(--line);display:block}
+.file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
+.file:hover{border-color:var(--acc)} .file .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .file .fs{color:var(--mute);font-size:14px;flex:none}
+.file svg{color:var(--acc)}
+.chipf{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 10px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:14px;max-width:220px;position:relative}
+.chipf span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5px;border-radius:5px}
 .live{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
 .live .lh{display:flex;align-items:center;gap:10px}
@@ -153,7 +159,11 @@ const ICON = {
   stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
+  clip: '<svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
 };
+let attachFiles = [];
+const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, folder = '', opened = new Set();
 
 async function api(path, body) {
@@ -212,7 +222,7 @@ async function loadSessions() {
 
 function composerHTML(ph) {
   return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="warn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
-    <div class="row"><label class="icon-btn" title="图片">${ICON.img}<input type="file" accept="image/*" multiple id="file" hidden></label>
+    <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
     <button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
@@ -224,7 +234,7 @@ function headStatus() {
 }
 
 function openSession(num, fromPop) {
-  sel = num; lastKey = ''; attach = [];
+  sel = num; lastKey = ''; attach = []; attachFiles = [];
   if (!fromPop) history.pushState({s: num}, '', '#s' + num);
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
@@ -236,7 +246,7 @@ function openSession(num, fromPop) {
   const feed = $('#feed');
   feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
   $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
-  wireComposer(text => api('send', {num, text, images: attach}), text => { (pending[num] ||= []).push({text, t: Date.now()}); });
+  wireComposer(text => api('send', {num, text, images: attach, files: attachFiles}), text => { (pending[num] ||= []).push({text, t: Date.now()}); });
   renderSide(); headStatus(); loadThread();
 }
 
@@ -256,7 +266,9 @@ function renderThread(d) {
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 700 && !opened.has(id);
-    return `<div class="cl ${fold ? 'fold' : ''}"><div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
+    const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
+    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" download>${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    return `<div class="cl ${fold ? 'fold' : ''}"><div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
   h += pending[d.num].map(p => `<div class="you pending">${esc(p.text)}</div>`).join('');
   if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
@@ -319,13 +331,23 @@ function wireComposer(sendFn, onSent) {
   const ta = $('#ta'), btn = $('#send');
   const sync = () => {
     ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, innerHeight * .38) + 'px';
-    btn.disabled = sending || (!ta.value.trim() && !attach.length);
-    $('#thumbs').hidden = !attach.length;
-    $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('');
-    document.querySelectorAll('.thumb button').forEach(b => b.onclick = () => { attach.splice(+b.dataset.i, 1); sync(); });
+    btn.disabled = sending || (!ta.value.trim() && !attach.length && !attachFiles.length);
+    $('#thumbs').hidden = !attach.length && !attachFiles.length;
+    $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
+      + attachFiles.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
+    document.querySelectorAll('.thumb button[data-i]').forEach(b => b.onclick = () => { attach.splice(+b.dataset.i, 1); sync(); });
+    document.querySelectorAll('.thumb button[data-f]').forEach(b => b.onclick = () => { attachFiles.splice(+b.dataset.f, 1); sync(); });
   };
   const warn = t => { $('#warn').hidden = !t; $('#warn').textContent = t || ''; };
-  const add = async files => { for (const f of files) if (f.type.startsWith('image/')) attach.push(await shrink(f)); sync(); };
+  const readFile = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  const add = async files => {
+    for (const f of files) {
+      if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
+      else if (f.size > 100 * 1048576) warn(`${f.name} 超过 100MB，传不了`);
+      else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
+    }
+    sync();
+  };
   ta.oninput = sync;
   $('#file').onchange = e => add(e.target.files);
   ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile()); if (fs.length) add(fs); };
@@ -337,13 +359,13 @@ function wireComposer(sendFn, onSent) {
   };
   async function go() {
     const text = ta.value.trim();
-    if ((!text && !attach.length) || sending) return;
+    if ((!text && !attach.length && !attachFiles.length) || sending) return;
     sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
     try {
       const r = await sendFn(text);
       if (r.ok) {
-        if (onSent) onSent(text || '[图片]');
-        ta.value = ''; attach = [];
+        if (onSent) onSent(text || (attachFiles.length ? '[附件]' : '[图片]'));
+        ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
       } else warn(r.error || '没发出去，再试一次');
     } catch (e) { if (e.message !== 'login') warn('没发出去，再试一次'); }
@@ -361,7 +383,7 @@ function openNew(fromPop) {
       `<button class="chip ${v === folder ? 'on' : ''}" data-v="${esc(v)}">${esc(t)}</button>`).join('');
     document.querySelectorAll('.chip').forEach(c => c.onclick = () => { folder = c.dataset.v; chips(); }); };
   chips();
-  wireComposer(text => api('send', {text, folder, images: attach}));
+  wireComposer(text => api('send', {text, folder, images: attach, files: attachFiles}));
   $('#ta').focus();
 }
 $('#newBtn').onclick = () => openNew();

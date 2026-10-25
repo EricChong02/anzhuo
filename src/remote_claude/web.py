@@ -10,6 +10,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import shutil
 import html
 import json
 import logging
@@ -253,11 +254,22 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
     def save_turn(self, label: str, turn, cwd: str, title: str) -> str:
         tid = f"{label.split()[0].lstrip('#')}-{int(turn.started)}"
         files = list(dict.fromkeys(turn.changed_files))
+        # 交给你的截图和文件复制一份到小E 自己的文件夹（原处可能是临时目录，过后会被清掉）
+        out = self.store_path.parent / "outbox" / tid
+        kept_images, kept_files = [], []
+        for src, dest in [(p, kept_images) for p in turn.images] + [(p, kept_files) for p in getattr(turn, "files", [])]:
+            try:
+                out.mkdir(parents=True, exist_ok=True)
+                target = out / Path(src).name
+                shutil.copy2(src, target)
+                dest.append(str(target))
+            except OSError:
+                dest.append(src)
         rec = {
             "id": tid, "label": label, "title": title, "request": turn.request, "cwd": cwd,
             "started": turn.started, "ended": turn.ended, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
-            "changed_files": files, "commands": turn.commands, "images": turn.images,
+            "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "previews": course_previews(files, self.preview_root), "translated": turn.translated,
         }
         self.turns_dir.mkdir(parents=True, exist_ok=True)
@@ -344,6 +356,10 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         if r.get("images"):
             out.append("<h2>截图</h2>" + "".join(f'<img src="{PREFIX}/t/{r["id"]}/img/{i}" loading="lazy">'
                                                 for i in range(len(r["images"]))))
+        if r.get("files"):
+            out.append("<h2>交给你的文件</h2><ul>" + "".join(
+                f'<li><a href="{PREFIX}/t/{r["id"]}/file/{i}">{html.escape(Path(f).name)}</a></li>'
+                for i, f in enumerate(r["files"])) + "</ul>")
         if r.get("changed_files"):
             out.append("<h2>改了哪些文件</h2><ul>" + "".join(
                 f"<li><code>{html.escape(display(Path(f)))}</code></li>" for f in r["changed_files"]) + "</ul>")
@@ -369,6 +385,16 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         if not r or not 0 <= i < len(r.get("images", [])) or not Path(r["images"][i]).is_file():
             raise web.HTTPNotFound()
         return web.FileResponse(r["images"][i], headers={"Cache-Control": "private, max-age=3600"})
+
+    async def _turn_file(self, request: web.Request) -> web.StreamResponse:
+        r = self._turn(request.match_info["tid"])
+        i = int(request.match_info["i"])
+        if not r or not 0 <= i < len(r.get("files", [])) or not Path(r["files"][i]).is_file():
+            raise web.HTTPNotFound()
+        name = Path(r["files"][i]).name
+        return web.FileResponse(r["files"][i], headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
     # ---------- 试课预览：转给本机 CyberScope ----------
     async def _proxy(self, request: web.Request) -> web.StreamResponse:
@@ -398,7 +424,10 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         for p in sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1])):
             try:
                 r = json.loads(p.read_text())
-                out.append({"id": r["id"], "title": r.get("title", ""), "previews": r.get("previews", []),
+                fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
+                       "url": f"{PREFIX}/t/{r['id']}/file/{i}"} for i, f in enumerate(r.get("files", []))]
+                out.append({"id": r["id"], "title": r.get("title", ""), "previews": r.get("previews", []), "files": fs,
+                            "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
                 continue
@@ -495,6 +524,18 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         origin = request.headers.get("Origin")
         return origin is None or origin == self.base or not self.base.startswith("https://")
 
+    async def _save_files(self, data: dict) -> list[str]:
+        """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
+        paths = []
+        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder.mkdir(parents=True, exist_ok=True)
+        for i, f in enumerate((data.get("files") or [])[:10]):
+            name = Path(str(f.get("name") or "file")).name.replace("/", "_")[:120] or "file"
+            p = folder / f"{int(time.time() * 1000)}-{i}-{name}"
+            p.write_bytes(base64.b64decode(str(f.get("data", "")).partition(",")[2]))
+            paths.append(str(p))
+        return paths
+
     async def _save_images(self, data: dict) -> list[str]:
         paths = []
         folder = Path(self.store_path.parent) / "inbox" / "web"
@@ -514,6 +555,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         data = await request.json()
         text = str(data.get("text") or "").strip()
         images = await self._save_images(data)
+        uploaded = await self._save_files(data)
+        if uploaded:
+            text = (text + "\n\n" if text else "") + "\n".join(f"（附件已存到：{p}）" for p in uploaded)
         if not text and not images:
             return web.json_response({"ok": False, "error": "没写内容"}, status=400)
         b = self.bridge
@@ -546,7 +590,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         return await handler(request)
 
     def app(self) -> web.Application:
-        app = web.Application(middlewares=[self._guard], client_max_size=20 * 1024 * 1024)
+        app = web.Application(middlewares=[self._guard], client_max_size=150 * 1024 * 1024)
         app.router.add_get(f"{PREFIX}/login", self._login_get)
         app.router.add_post(f"{PREFIX}/login", self._login_post)
         app.router.add_get("/", self._to_index)
@@ -561,6 +605,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
+        app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
         app.router.add_route("*", "/{tail:.*}", self._proxy)
         return app
 

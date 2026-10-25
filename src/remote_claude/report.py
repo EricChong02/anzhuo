@@ -23,6 +23,7 @@ class Turn:
     injected: int = 0  # 做的过程中你插了几次话
     accepting: bool = True  # 还能插话（出结果后就不能了，再说的话排到下一轮）
     images: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)  # 交给你的文件（PDF、文档等，原样）
     final_text: str = ""
     is_error: bool = False
     error: str = ""
@@ -160,7 +161,7 @@ def split(text: str, limit: int = MAX_LEN) -> list[str]:
 def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple[str, str]:
     minutes = max(1, round((turn.ended - turn.started) / 60))
     files = list(dict.fromkeys(turn.changed_files))
-    worked = bool(files or turn.commands or turn.images)
+    worked = bool(files or turn.commands or turn.images or turn.files)
     if turn.interrupted:
         title = "停下了"
     elif turn.is_error:
@@ -184,6 +185,8 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
         facts += f" · 改 {len(files)} 个文件 · 跑 {len(turn.commands)} 条命令"
         if turn.images:
             facts += f" · 截图 {len(turn.images)} 张见下"
+        if turn.files:
+            facts += f" · 文件 {len(turn.files)} 个见下"
     if turn.injected:
         facts += f" · 中途插话 {turn.injected} 次"
     if turn.translated:

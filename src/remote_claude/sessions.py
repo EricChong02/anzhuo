@@ -35,7 +35,8 @@ APPEND = """回复一律用简体中文；专有名词、代码、命令、路�
 截图：做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张），这里只写每张图是什么。
 某一段没有内容（比如没有要用户做的、没有改文件、没有截图），这一段整段不写，不要写“没有”“无”。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
-选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。"""
+选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
+用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。"""
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -258,7 +259,25 @@ class Runner:
                 msg += f" 没收下：{', '.join(bad)}（不存在、不是图片或超过 6 张）"
             return {"content": [{"type": "text", "text": msg}]}
 
-        return create_sdk_mcp_server("xiaoe", tools=[send_images])
+        @tool("send_files", "把文件原样交给用户（PDF、Word、表格、压缩包等任何格式，用户能直接下载）。paths 是本机文件的绝对路径，最多 10 个，每个不超过 100MB。"
+              "用户要的是文件本身时用这个，不要只发截图。",
+              {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
+               "required": ["paths"]})
+        async def send_files(args):
+            ok, bad = [], []
+            for p in args.get("paths", []):
+                path = Path(p).expanduser()
+                if path.is_file() and path.stat().st_size <= 100 * 1024 * 1024 and len(turn.files) + len(ok) < 10:
+                    ok.append(str(path))
+                else:
+                    bad.append(p)
+            turn.files.extend(ok)
+            msg = f"已收下 {len(ok)} 个文件。"
+            if bad:
+                msg += f" 没收下：{', '.join(bad)}（不存在、超过 100MB 或超过 10 个）"
+            return {"content": [{"type": "text", "text": msg}]}
+
+        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files])
 
     async def _prompt(self, job: Job):
         content: list[dict] = []

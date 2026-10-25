@@ -23,6 +23,7 @@ from .sessions import Job, Registry, Runner, Session, describe, user_setting
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
+DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
 
@@ -235,6 +236,16 @@ class Bridge:
             await self.say(title, body, board=False)
             for img in turn.images:
                 await self.dt.send_image(self.user_id, Path(img))
+            for f in turn.files:
+                path = Path(f)
+                if path.stat().st_size > DINGTALK_FILE_MAX:
+                    await self.say("文件太大", f"{path.name} 超过 20MB，钉钉发不了，到网页对话里下载。", board=False)
+                    continue
+                try:
+                    await self.dt.send_file(self.user_id, path)
+                except Exception:  # noqa: BLE001
+                    log.exception("发文件失败")
+                    await self.say("文件没发出去", f"{path.name} 钉钉没发出去，到网页对话里下载。", board=False)
             if not turn.is_error and (d := cards.parse_decision(turn.final_text)):
                 oid = f"d{s.num}-{int(time.time() * 1000)}"
                 await self.dt.create_card(self.user_id, oid, cards.decision_data(s.label, d))
