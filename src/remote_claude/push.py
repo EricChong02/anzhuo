@@ -64,6 +64,10 @@ class Push:
             {"endpoint": sub["endpoint"], "keys": sub["keys"]}]
         self._save()
 
+    def remove(self, endpoint: str) -> None:
+        self.subs = [s for s in self.subs if s["endpoint"] != endpoint]
+        self._save()
+
     async def send(self, title: str, body: str, num: int | None = None) -> None:
         """给每台开了通知的设备发一条；设备已注销（404/410）的顺手删掉。出错只记日志，不影响别的。"""
         if not self.subs:

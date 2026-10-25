@@ -249,6 +249,16 @@ def test_chat_api(tmp_path, monkeypatch):
             assert (await c.post("/_x/api/push", json=sub)).status == 200
             assert (await c.post("/_x/api/push", json={"endpoint": "http://evil"})).status == 400
             assert w.push.subs == [sub]
+            # 退出登录：这台设备的登录和通知都清掉，再访问要重新登录
+            r = await c.post("/_x/api/logout", json={"endpoint": sub["endpoint"]})
+            assert r.status == 200 and w.push.subs == [] and w.store["sessions"] == {}
+            assert (await c.get("/_x/api/sessions")).status == 401
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            assert len(w.store["sessions"]) == 2
+            await c.post("/_x/api/logout", json={"all": True})
+            assert w.store["sessions"] == {}
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
             assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
         finally:

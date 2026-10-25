@@ -257,6 +257,24 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                         secure=self.base.startswith("https://"), path="/")
         raise resp
 
+    async def _api_logout(self, request: web.Request) -> web.Response:
+        """退出登录：只退这台设备，或 all=true 时所有设备都退（手机丢了用）；这台设备的手机通知也一并停掉。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        data = await request.json()
+        if data.get("all"):
+            self.store["sessions"] = {}
+            self.push.subs = []
+            self.push._save()
+        else:
+            self.store["sessions"].pop(request.cookies.get(COOKIE, ""), None)
+            if data.get("endpoint"):
+                self.push.remove(str(data["endpoint"]))
+        self._save()
+        resp = web.json_response({"ok": True})
+        resp.del_cookie(COOKIE, path="/")
+        return resp
+
     # ---------- 记下一轮的完整过程 ----------
     def save_turn(self, label: str, turn, cwd: str, title: str) -> str:
         tid = f"{label.split()[0].lstrip('#')}-{int(turn.started)}"
@@ -720,6 +738,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/sw.js", self._sw)
         app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
         app.router.add_post(f"{PREFIX}/api/push", self._api_push)
+        app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
