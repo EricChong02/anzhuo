@@ -56,6 +56,7 @@ class Session:
     effort: str | None = None
     context_pct: float | None = None
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
+    unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
 
@@ -180,6 +181,10 @@ class Runner:
                 self.registry.save()
                 if self.on_start:
                     asyncio.create_task(self.on_start(s, turn, job))
+                if s.unsent:
+                    job.text = f"{s.unsent}\n\n{job.text}"
+                    s.unsent = ""
+                started_before = s.claude_id
                 try:
                     await self._run(s, job, turn)
                 except FolderBlocked as e:
@@ -196,6 +201,8 @@ class Runner:
                     turn.ended = time.time()
                     self.turns.pop(num, None)
                     self.clients.pop(num, None)
+                    if turn.is_error and s.claude_id == started_before and not turn.final_text:
+                        s.unsent = job.text  # Claude 一个字都没收到，下次一起带上
                     s.status = "error" if turn.is_error else "idle"
                     s.updated = time.time()
                     self.registry.save()

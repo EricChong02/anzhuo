@@ -400,3 +400,46 @@ def test_folder_blocked(tmp_path, monkeypatch):
     asyncio.run(go())
     title, body = dt.sent[-1]
     assert title.startswith("出错了") and "隐私保护" in body
+
+
+def test_unsent_carried_over(tmp_path, monkeypatch):
+    """第一句没能开始（文件夹打不开），下一句会带上它。"""
+    from remote_claude import folders as folders_mod
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    ok = {"v": False}
+    monkeypatch.setattr(folders_mod, "readable", lambda p, timeout=5: ok["v"])
+    seen = []
+
+    async def fake_run(self, s, job, turn):
+        if not ok["v"]:
+            raise RuntimeError("不该到这")
+        seen.append(job.text)
+        turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    real_run = Runner._run
+
+    async def run(self, s, job, turn):
+        if not folders_mod.readable(Path(s.cwd)):
+            return await real_run(self, s, job, turn)
+        return await fake_run(self, s, job, turn)
+
+    monkeypatch.setattr(Runner, "_run", run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 5
+        b.registry.add(Session(num=1, name="清理", cwd=str(tmp_path)))
+        await b.on_raw(msg("清理下载文件夹"))
+        await asyncio.sleep(0.1)
+        ok["v"] = True
+        await b.on_raw(msg("权限开好了"))
+        await asyncio.sleep(0.1)
+
+    asyncio.run(go())
+    assert seen == ["清理下载文件夹\n\n权限开好了"]
