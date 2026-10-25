@@ -489,8 +489,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
             items = []
             if s.claude_id:
                 try:
-                    from claude_agent_sdk import get_session_messages
-                    msgs = await asyncio.to_thread(get_session_messages, s.claude_id, s.cwd)
+                    msgs = await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd)
                     items = thread.attach_records(thread.history(msgs), self._records(num))
                 except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
                     log.debug("读对话记录失败", exc_info=True)

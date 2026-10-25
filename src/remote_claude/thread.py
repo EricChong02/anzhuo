@@ -25,6 +25,34 @@ def _user_text(content) -> str | None:
     return "\n".join(p for p in head + texts if p)
 
 
+def full_messages(session_id: str, cwd: str | None):
+    """读整段对话记录，压缩过的也接上压缩前的部分。
+    SDK 的 get_session_messages 只从最近一次压缩往后读（压缩点之前的被摘要顶替），网页上就看不到早先的对话了；
+    这里顺着压缩点的 logicalParentUuid 把前面几段接回去，压缩摘要本身显示成一条“已压缩”提示。"""
+    from claude_agent_sdk._internal import sessions as sdk
+
+    content = sdk._read_session_file(session_id, cwd)
+    if not content:
+        return []
+    entries = sdk._parse_transcript_entries(content)
+    by_uuid = {e["uuid"]: e for e in entries}
+    chain = sdk._build_conversation_chain(entries)
+    seen = {e["uuid"] for e in chain}
+    while chain:
+        first = chain[0]
+        boundary = first if first.get("logicalParentUuid") else by_uuid.get(first.get("parentUuid") or "")
+        prev = by_uuid.get((boundary or {}).get("logicalParentUuid") or "")
+        if not prev or prev["uuid"] in seen:
+            break
+        part, cur = [], prev
+        while cur is not None and cur["uuid"] not in seen:
+            seen.add(cur["uuid"])
+            part.append(cur)
+            cur = by_uuid.get(cur.get("parentUuid") or "")
+        chain = part[::-1] + chain
+    return [sdk._to_session_message(e) for e in chain if sdk._is_visible_message(e)]
+
+
 def _detail(name: str, inp: dict) -> str:
     if name == "Bash":
         return str(inp.get("command", ""))[:400]
@@ -34,7 +62,7 @@ def _detail(name: str, inp: dict) -> str:
     return ""
 
 
-def history(messages, limit: int = 60) -> list[dict]:
+def history(messages, limit: int = 300) -> list[dict]:
     items: list[dict] = []
     reply, steps, process = "", 0, []
 
