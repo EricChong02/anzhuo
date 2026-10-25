@@ -279,7 +279,7 @@ def test_desktop_resume(tmp_path, monkeypatch):
 def test_cards_flow(tmp_path, monkeypatch):
     """做得久的发进度卡、原地更新、结束收尾；“要你定”出按钮卡，点按钮把选择交回对话；陌生人点无效。"""
     from remote_claude.sessions import Session
-    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"), auto_route=False)
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"), auto_route=False, dingtalk_quiet=False)
     seen = []
 
     async def fake_run(self, s, job, turn):
@@ -447,7 +447,7 @@ def test_unsent_carried_over(tmp_path, monkeypatch):
 def test_board_follows(tmp_path, monkeypatch):
     """两件同时做：一件做完发报告后，工作台挪到报告下面、旧的缩成一行；点“停 #N”停对应那件；都完了收尾。"""
     from remote_claude.sessions import Session
-    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False, dingtalk_quiet=False)
     gate = asyncio.Event()
 
     async def fake_run(self, s, job, turn):
@@ -494,7 +494,7 @@ def test_board_follows(tmp_path, monkeypatch):
 def test_inject_while_running(tmp_path, monkeypatch):
     """对话正在做时你再说话：直接插给它（不排队），回一句“插话给 #N 了”。"""
     from remote_claude.sessions import Session
-    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False, dingtalk_quiet=False)
     gate, got = asyncio.Event(), []
 
     class FakeClient:
@@ -572,7 +572,7 @@ def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
 def test_compact(tmp_path, monkeypatch):
     """“压缩”：正在做就排到这一轮之后（不插话），压完报上下文从多少到多少。"""
     from remote_claude.sessions import Session
-    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False, dingtalk_quiet=False)
     gate, seen = asyncio.Event(), []
 
     async def fake_run(self, s, job, turn):
@@ -605,3 +605,47 @@ def test_compact(tmp_path, monkeypatch):
     asyncio.run(go())
     assert seen == ["改封面", "/compact"]
     assert any(t == "压缩好了" and "59% → 12%" in x for t, x in dt.sent)
+
+
+
+def test_quiet_dingtalk(tmp_path, monkeypatch):
+    """钉钉安静模式（默认）：开工、收到、插话、工作台都不发，只发做完的报告。"""
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    gate = asyncio.Event()
+
+    class FakeClient:
+        async def query(self, prompt):
+            async for _ in prompt:
+                pass
+
+    async def fake_run(self, s, job, turn):
+        self.clients[s.num] = FakeClient()
+        turn.steps.append("看 a.py")
+        await gate.wait()
+        turn.changed_files.append(str(tmp_path / "a.py"))
+        turn.final_text = "改好了"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 0.01
+        await b.on_raw(msg("新开 根：做一件要很久的事"))      # 文件夹找不到也会回话；改用临时文件夹
+        await b.on_raw(msg("新开：做一件要很久的事"))
+        await asyncio.sleep(0.1)
+        await b.on_raw(msg("顺便看看别的"))                    # 正在做 → 插话
+        await asyncio.sleep(0.05)
+        gate.set()
+        await asyncio.sleep(0.2)
+
+    asyncio.run(go())
+    titles = [t for t, _ in dt.sent]
+    assert dt.cards == {}                                          # 没发工作台
+    assert not any(t in ("收到", "插话") for t in titles)          # 没发开工、收到、插话
+    assert any(t.startswith("做完了") for t in titles)              # 做完的报告照发

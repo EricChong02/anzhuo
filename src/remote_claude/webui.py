@@ -47,6 +47,10 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
 .qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
 .pill.warn{color:var(--amber);border-color:var(--amber)}
+.notice{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translate(-50%,-140%);z-index:20;display:flex;align-items:center;gap:10px;
+  max-width:min(92vw,440px);padding:10px 16px;border-radius:16px;background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
+  border:1px solid var(--line);box-shadow:var(--shadow);font-size:15px;transition:transform .25s ease;cursor:pointer}
+.notice.on{transform:translate(-50%,0)} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px 16px;min-width:250px;font-size:15px}
 .usage div{display:flex;justify-content:space-between;gap:20px;padding:4px 0} .usage div span{color:var(--mute)} .usage .w{color:var(--amber)}
 .usage .r{font-size:14px;color:var(--mute);display:block;padding:0 0 4px}
@@ -158,6 +162,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   <button class="fab" id="fab" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <section class="main" id="main"><div class="blank"><b>小E</b>选一个对话，或开个新的</div></section>
 </div>
+<div class="notice" id="notice"></div>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -172,7 +177,27 @@ const ICON = {
   clip: '<svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
 };
-let attachFiles = [], limits = [], usageOpen = false;
+let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
+
+// 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
+function notice(s) {
+  const el = $('#notice'), word = {awaiting: '等你回答', error: '出错了', idle: '做完了'}[s.status] || '有新进展';
+  el.className = 'notice ' + s.status;
+  el.innerHTML = `<span class="dot"></span><span>${esc(s.name)} · ${word}</span>`;
+  el.onclick = () => { el.classList.remove('on'); openSession(s.num); };
+  requestAnimationFrame(() => el.classList.add('on'));
+  clearTimeout(noticeTimer); noticeTimer = setTimeout(() => el.classList.remove('on'), 5000);
+}
+function watchStatus() {
+  const now = Object.fromEntries(sessions.map(s => [s.num, s.status]));
+  if (prevStatus) for (const s of sessions) {
+    const was = prevStatus[s.num];
+    if ((was === 'running' || was === 'queued') && !['running', 'queued'].includes(s.status)) notice(s);
+  }
+  prevStatus = now;
+  const n = sessions.filter(s => s.status === 'awaiting' || s.status === 'error').length;
+  document.title = n ? `(${n}) 小E` : '小E';
+}
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, folder = '', opened = new Set();
 
@@ -250,7 +275,7 @@ function renderSide() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; limits = d.limits || []; renderSide(); renderQuota(); headStatus(); }
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; limits = d.limits || []; renderSide(); renderQuota(); headStatus(); watchStatus(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
@@ -291,11 +316,12 @@ function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const said = new Set(d.items.filter(i => i.who === 'you').map(i => i.text.trim()));
-  pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text) && Date.now() - p.t < 120000);
+  d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
+  pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
   let h = d.items.map((it, idx) => {
-    if (it.who === 'you') return `<div class="you">${esc(it.text)}</div>`;
+    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${esc(it.text)}</div>`;
     if (it.who === 'note') return `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
@@ -396,14 +422,17 @@ function wireComposer(sendFn, onSent) {
     const text = ta.value.trim();
     if ((!text && !attach.length && !attachFiles.length) || sending) return;
     sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
+    // 一按发送就先显示在对话里（长文字带图上传要几秒），没发出去再撤回
+    const shown = text || (attachFiles.length ? '[附件]' : '[图片]'), num0 = sel;
+    if (onSent) { onSent(shown); lastKey = ''; loadThread(); }
+    const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); lastKey = ''; loadThread(); };
     try {
       const r = await sendFn(text);
       if (r.ok) {
-        if (onSent) onSent(text || (attachFiles.length ? '[附件]' : '[图片]'));
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
-      } else warn(r.error || '没发出去，再试一次');
-    } catch (e) { if (e.message !== 'login') warn('没发出去，再试一次'); }
+      } else { undo(); warn(r.error || '没发出去，再试一次'); }
+    } catch (e) { undo(); if (e.message !== 'login') warn('没发出去，再试一次'); }
     sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
   }
   btn.onclick = go; sync();

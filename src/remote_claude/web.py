@@ -495,6 +495,11 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)
         items = [dict(it) for it in items]
+        # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
+        said = {it["text"].strip()[:40] for it in items if it["who"] == "you"}
+        out = b.outgoing.get(num, [])
+        out[:] = [o for o in out if o["text"].strip()[:40] not in said]
+        items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
         for it in items:
             if it["who"] == "claude" and translate.needs_translation(it["text"]):
                 key = hashlib.sha1(it["text"].encode()).hexdigest()

@@ -77,6 +77,7 @@ class Bridge:
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
+        self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
         self.board_task: asyncio.Task | None = None
@@ -113,6 +114,13 @@ class Bridge:
             path.write_text("\n".join([*lines, json.dumps(row, ensure_ascii=False)]) + "\n")
         except OSError:
             log.debug("记最近来往失败", exc_info=True)
+
+    async def detail(self, title: str, text: str) -> None:
+        """过程类消息（开工、收到、插话、开始压缩）：钉钉安静模式下不发，只记下来（网页里本来就看得到）。"""
+        if self.cfg.dingtalk_quiet:
+            self.record("小E（只记不发）", text, title=title)
+            return
+        await self.say(title, text)
 
     async def say(self, title: str, text: str, board: bool = True) -> None:
         self.record("小E", text, title=title)
@@ -201,8 +209,8 @@ class Bridge:
     async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
         """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。"""
         await asyncio.sleep(self.receipt_delay)
-        if job.finished or turn.ended:
-            return
+        if job.finished or turn.ended or self.cfg.dingtalk_quiet:
+            return  # 安静模式：进度只在网页里看，钉钉不发工作台
         if self.board:
             return  # 工作台自己会刷新出这一件
         try:
@@ -221,7 +229,7 @@ class Bridge:
         self._compact_from[s.num] = s.context_pct
         ahead = self.runner.submit(s, Job(text=COMPACT))
         msg = f"{s.label} 开始压缩上下文" + (f"，等手上 {ahead} 件做完再压" if ahead else "") + "，大约一分钟。"
-        await self.say("压缩", msg)
+        await self.detail("压缩", msg)
         return msg
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
@@ -710,6 +718,10 @@ class Bridge:
 
     async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
         s.awaiting = ""
+        if text.strip() and text != COMPACT:
+            shown = text.split("\n\n（下面是引用的内容")[0].strip()
+            self.outgoing.setdefault(s.num, []).append({"t": time.time(), "text": shown})
+            self.outgoing[s.num] = self.outgoing[s.num][-10:]
         inbox = self.data_dir / "inbox" / str(s.num)
         stamp = f"{time.time():.0f}"
         images = [await self.dt.download(c, inbox / f"{stamp}-{i}.png") for i, c in enumerate(inc.image_codes)]
@@ -721,12 +733,12 @@ class Bridge:
         self.work_at = time.time()
         ahead = self.runner.submit(s, job)
         if ahead == -1:
-            return await self.say("插话", f"插话给 {s.label} 了：它手上这一步做完就会看到，接着按你说的调整。")
+            return await self.detail("插话", f"插话给 {s.label} 了：它手上这一步做完就会看到，接着按你说的调整。")
         msg = opening or f"收到 · {s.label} 在做：{report.brief(text) or '看图'}"
         if ahead:
             msg += f"，前面还有 {ahead} 件，做完再做这件"
         if opening or ahead:  # 其余的“收到”由进度卡代替（几秒内答完的不发）
-            await self.say("收到", msg)
+            await self.detail("收到", msg)
 
     # ---------- 运行 ----------
     async def run(self) -> None:

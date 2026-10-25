@@ -166,13 +166,17 @@ def test_chat_api(tmp_path, monkeypatch):
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
             self.cfg = NS(folders={"课程根": "/x"})
-            self.user_id, self.sent, self.new = "me", [], []
+            self.user_id, self.sent, self.new, self.outgoing, self.said = "me", [], [], {}, []
+
+        async def say(self, title, text):
+            self.said.append((title, text))
 
         def record(self, *a, **k):
             pass
 
         async def _message(self, cmd, inc, routed=False):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
+            self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
 
         async def _new(self, tokens, text, inc, note=""):
             self.new.append((tokens, text))
@@ -199,6 +203,9 @@ def test_chat_api(tmp_path, monkeypatch):
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
             assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
+            assert b.said == []                                                    # 钉钉不转述你在网页说的话
+            t7 = await (await c.get("/_x/api/thread/7")).json()
+            assert t7["items"][-1] == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
             assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
@@ -228,7 +235,10 @@ def test_files_delivered_and_uploaded(tmp_path):
 
         async def _message(cmd, inc, routed=False):
             sent.append(cmd.text)
-        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, _message=_message)
+        async def say(*a):
+            pass
+        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, _message=_message,
+                      outgoing={}, say=say, registry=NS(get=lambda n: None))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
