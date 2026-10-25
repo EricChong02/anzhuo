@@ -86,7 +86,7 @@ def test_login_pages_and_proxy(tmp_path):
             idx = await (await c.get("/_x/history")).text()
             assert "试课：淘宝 2003" in idx and "/workspace/_drafts/l9/course.json" in idx
             r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
-            assert await r.text() == "PREVIEW" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
+            assert await r.text() == "PREVIEW<script src=\"/_x/feedback.js\"></script>" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
             await c.get("/workspace/a/course.json", headers={"X-Forwarded-For": "1.2.3.4"})
             await c.get("/api/teacher/answers", headers={"X-Forwarded-For": "1.2.3.4"})
             assert seen["xff"]["/workspace/a/course.json"] is None          # 课件当本机直连
@@ -323,3 +323,51 @@ def test_process_translation_no_flip(tmp_path):
     del w._zh[k]
     w._zh_failed.add(k)
     assert w._zh_proc({"k": "think", "text": en}) == {"k": "think", "text": en}
+
+
+def test_course_feedback(tmp_path):
+    """试课页反馈：带上课、节、屏，交给正在做这门课的对话；没有就在课程根新开。试课页里插了反馈按钮的脚本。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Session
+    root = tmp_path / "root"
+    (root / "_drafts" / "c1").mkdir(parents=True)
+    (root / "_drafts" / "c1" / "course.json").write_text('{"title": "淘宝 2003"}')
+    s6 = Session(num=6, name="做课：淘宝 2003 数据工程师", cwd=str(root))
+    s7 = Session(num=7, name="清理下载", cwd=str(tmp_path))
+
+    class B:
+        user_id, sent, new = "me", [], []
+        registry = NS(visible=lambda: [s6, s7], get=lambda n: None, next_num=8)
+
+        def record(self, *a, **k):
+            pass
+
+        async def _message(self, cmd, inc, routed=False):
+            self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
+
+        async def _new(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
+            self.new.append((tokens, text))
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, "", str(root), user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = b = B()
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            assert "反馈这一屏" in await (await c.get("/_x/feedback.js")).text()
+            png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
+            r = await (await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2",
+                                                               "section_no": 2, "section_title": "数据从哪来", "screen": 2,
+                                                               "text": "标题太小", "images": [png]})).json()
+            assert r["ok"] and r["num"] == 6
+            num, text, imgs = b.sent[0]
+            assert num == 6 and "《淘宝 2003》第 2 节「数据从哪来」第 3 屏" in text and "标题太小" in text and len(imgs) == 1
+            s6.cwd = str(tmp_path / "别处")          # 没有在做这门课的对话 → 在课程根新开
+            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "text": "x"})
+            assert b.new and b.new[0][0] == [str(root)]
+            assert (await c.post("/_x/api/feedback", json={"course": "/etc/passwd", "text": "x"})).status == 400
+        finally:
+            await c.close()
+
+    asyncio.run(go())

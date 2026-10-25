@@ -61,6 +61,7 @@ PREVIEW_PAGES = {"/studio-preview.html", "/lecture-preview.html"}
 COURSE_DIRS = ("/workspace/", "/courses/")  # 课件本身（草稿在 /workspace/，上架的在 /courses/）
 # CyberScope 只让“本机直连”读做课工作区（/workspace/ 课件、判题、草稿课列表），带代理来源头的一律当外来（auth.is_trusted_local）。
 # 进得了这里的人已经过了小E 的一次性链接登录，所以只对这三类请求去掉来源头；其余（含教师接口）照旧带着，后端照旧当外来。
+FEEDBACK_PAGES = ("/studio-preview.html",)  # 试课页：小E 转发时插一个“反馈这一屏”按钮（static/feedback.js）
 LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
 PROXY_SOURCE = {"x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
@@ -466,10 +467,18 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if self._client is None:
             self._client = aiohttp.ClientSession(auto_decompress=False, timeout=aiohttp.ClientTimeout(total=120))
         drop = HOP | (PROXY_SOURCE if request.path.startswith(LOCAL_ONLY) else set())
+        inject = request.method == "GET" and request.path in FEEDBACK_PAGES
+        if inject:
+            drop = drop | {"accept-encoding", "if-none-match", "if-modified-since"}  # 要改页面，取不压缩、完整的一份
         headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}
         try:
             async with self._client.request(request.method, self.preview_upstream + request.rel_url.path_qs,
                                             headers=headers, data=await request.read(), allow_redirects=False) as up:
+                if inject and up.status == 200 and "text/html" in up.headers.get("Content-Type", ""):
+                    page = (await up.read()).decode("utf-8", "replace")
+                    tag = f'<script src="{PREFIX}/feedback.js"></script>'
+                    page = page.replace("</body>", tag + "</body>", 1) if "</body>" in page else page + tag
+                    return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
                 resp = web.StreamResponse(status=up.status, headers={
                     k: v for k, v in up.headers.items() if k.lower() not in HOP | {"set-cookie"}})
                 await resp.prepare(request)
@@ -722,6 +731,62 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._threads.pop(s.num, None)
         return web.json_response({"ok": True})
 
+    async def _feedback_js(self, request: web.Request) -> web.Response:
+        return web.Response(text=(Path(__file__).parent / "static" / "feedback.js").read_text(),
+                            content_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+    def _course_session(self, cdir: str, title: str):
+        """试课反馈交给谁：在课程根里、发过这门课试课链接的对话最准；其次看对话名和标题重合多少字。挑最近动过的。"""
+        root = Path(self.preview_root).expanduser().resolve() if self.preview_root else None
+        pairs = lambda t: {t[i:i + 2] for i in range(len(t) - 1)}  # 两字片段，比如“淘宝”“数据”“工程”
+        want = pairs(re.sub(r"\W", "", title))
+        best, best_key = None, None
+        for s in self.bridge.registry.visible():
+            try:
+                inside = root is not None and Path(s.cwd).expanduser().resolve().is_relative_to(root)
+            except OSError:
+                inside = False
+            if not inside:
+                continue
+            linked = any(f"/{cdir}/" in u for r in self._records(s.num) for _, u in r.get("previews", []))
+            said = re.sub(r"\W", "", " ".join([s.name or "", s.last_summary or ""]))
+            overlap = len(want & pairs(said)) + (5 if cdir in said else 0)
+            if not linked and overlap < 3:
+                continue
+            key = (linked, overlap >= 3, s.updated)
+            if best_key is None or key > best_key:
+                best, best_key = s, key
+        return best
+
+    async def _api_feedback(self, request: web.Request) -> web.Response:
+        """试课页上“反馈这一屏”：带上课、节、屏，交给做这门课的对话；没有就在课程根里新开一个。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        data = await request.json()
+        m = re.match(r"^/workspace/(_drafts|topics)/([^/]+)/course\.json$", str(data.get("course") or ""))
+        if not m:
+            return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
+        cdir = m.group(2)
+        title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
+        sec_no, sec_title, screen = data.get("section_no") or 0, str(data.get("section_title") or ""), data.get("screen")
+        where = "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "", f"第 {int(screen) + 1} 屏" if isinstance(screen, int) and screen >= 0 else ""])
+        text = str(data.get("text") or "").strip()
+        msg = (f"（试课反馈）《{title}》{where}（{m.group(1)}/{cdir}，节 id {data.get('section') or '未知'}）：\n"
+               + (text or "见截图") + "\n\n改完截图给我看这一屏。")
+        images = await self._save_images(data)
+        b = self.bridge
+        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=msg, local_images=images)
+        b.record("你（试课反馈）", msg, images=len(images))
+        s = self._course_session(cdir, title)
+        if s:
+            await b._message(Cmd("message", num=s.num, text=msg), inc, routed=True)
+            return web.json_response({"ok": True, "num": s.num, "name": s.name})
+        before = b.registry.next_num
+        root = str(Path(self.preview_root).expanduser())
+        await b._new([root], msg, inc, note="（试课反馈新开）", kind="dev")
+        s = b.registry.get(before)
+        return web.json_response({"ok": bool(s), "num": before, "name": s.name if s else "新对话"})
+
     async def _api_confirm(self, request: web.Request) -> web.Response:
         """危险操作：你点了允许 / 不允许。"""
         if not self._same_origin(request):
@@ -762,6 +827,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/icon.png", self._icon)
         app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
         app.router.add_get(f"{PREFIX}/sw.js", self._sw)
+        app.router.add_get(f"{PREFIX}/feedback.js", self._feedback_js)
+        app.router.add_post(f"{PREFIX}/api/feedback", self._api_feedback)
         app.router.add_get(f"{PREFIX}/health", self._health)
         app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
         app.router.add_post(f"{PREFIX}/api/push", self._api_push)
