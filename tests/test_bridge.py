@@ -148,3 +148,35 @@ def test_auto_route(tmp_path, monkeypatch):
     assert seen[1][0] == 1 and seen[1][2] == "再大一点"
     assert seen[2][0] == 2 and "scratch" in seen[2][1]
     assert seen[3][0] == 2 and seen[3][2] == "去那个文件夹看看"
+
+
+def test_chat_follow_up(tmp_path, monkeypatch):
+    """小E 直接回答后，你接着追问（哪怕很短）还交给小E，并带上刚才那段话。"""
+    from remote_claude import router
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
+    calls = []
+    answers = iter([
+        router.Route("reply", answer="叫“洪老师的先生”就好。"),
+        router.Route("reply", answer="那就叫“先生”或跟着叫他名字。"),
+        router.Route("reply", answer="不客气！"),
+    ])
+
+    async def fake_route(text, *a, chat=None, **k):
+        calls.append((text, list(chat or [])))
+        return next(answers)
+
+    monkeypatch.setattr(router, "route", fake_route)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        await b.on_raw(msg("见到洪老师的老公怎么称呼"))
+        await b.on_raw(msg("她老公不是老师"))
+        await b.on_raw(msg("好的"))  # 平时会直接交给当前对话；刚闲聊过就还给小E
+
+    asyncio.run(go())
+    assert [c[0] for c in calls] == ["见到洪老师的老公怎么称呼", "她老公不是老师", "好的"]
+    assert calls[0][1] == []
+    assert calls[1][1] == [("见到洪老师的老公怎么称呼", "叫“洪老师的先生”就好。")]
+    assert len(calls[2][1]) == 2
+    assert all(t == "回复" for t, _ in dt.sent)

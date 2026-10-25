@@ -21,6 +21,8 @@ from .sessions import Job, Registry, Runner, Session, describe, user_setting
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
+CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
+
 log = logging.getLogger(__name__)
 
 
@@ -63,6 +65,9 @@ class Bridge:
         self.photo_task: asyncio.Task | None = None
         self.photo_wait = 15.0
         self.receipt_delay = 4.0
+        self.chat: list[tuple[float, str, str]] = []  # 小E 自己直接回过的几轮（时间、你说的、它答的），接话时带上
+        self.chat_at = 0.0  # 最近一次小E 直接回答的时间
+        self.work_at = 0.0  # 最近一次把话交给对话的时间
         self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else ""
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
@@ -325,10 +330,14 @@ class Bridge:
         if num is None and inc.quoted_text:
             m = re.search(r"#(\d{1,4})", inc.quoted_text)
             num = int(m.group(1)) if m else None
-        if num is None and cmd.text and not routed and self.cfg.auto_route and not _is_reply(cmd.text):
+        chatting = self.chat_at > self.work_at and time.time() - self.chat_at < CHAT_MEMORY
+        if num is None and cmd.text and not routed and self.cfg.auto_route and (chatting or not _is_reply(cmd.text)):
+            recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
             r = await router.route(cmd.text, list(self.registry.sessions.values()), self.registry.current,
-                                   list(self.cfg.folders))
+                                   list(self.cfg.folders), chat=recent)
             if r and r.action == "reply":
+                self.chat = [*self.chat[-5:], (time.time(), cmd.text, r.answer)]
+                self.chat_at = time.time()
                 return await self.say("回复", f"{r.answer}\n\n---\n\n小E 直接回的（Haiku），没占用任何对话")
             if r and r.action == "new":
                 if r.folder and not folders.candidates(r.folder, self.cfg):
@@ -373,6 +382,7 @@ class Bridge:
             path = await self.dt.download(code, inbox / f"{stamp}-{i}-{Path(fname).name}")
             text += f"\n\n（附件已存到：{path}）"
         job = Job(text=text, images=images)
+        self.work_at = time.time()
         ahead = self.runner.submit(s, job)
         msg = opening or f"收到 · {s.label} 在做：{report.brief(text) or '看图'}"
         if ahead:
