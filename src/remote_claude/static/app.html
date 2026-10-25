@@ -129,8 +129,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);padding:8px}
 .composer .row{display:flex;align-items:flex-end;gap:6px}
 .composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
-.lightbox{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:auto;touch-action:pinch-zoom}
-.lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+.lightbox{position:fixed;inset:0;z-index:50;touch-action:none;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none}
 .lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:24px;line-height:40px;text-align:center}
 .mpw{position:relative;flex:none;align-self:center}
 .mp{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 10px;border-radius:17px;font-size:14.5px;color:var(--mute);white-space:nowrap}
@@ -416,12 +416,50 @@ async function setupPush() {
 }
 setupPush().catch(() => {});
 
-// 看大图：在页面里盖一层，点右上角 × 、点空白或返回手势都能关（主屏幕 app 里没有浏览器的返回键，不能跳走）
+// 看大图：在页面里盖一层（主屏幕 app 里没有浏览器的返回键，不能跳走）。两指捏合放大、双击放大/还原、放大后单指拖动；
+// 没放大时点空白、右上角 ×、返回手势都能关。电脑上滚轮缩放、双击放大。
 function viewImage(src) {
   const el = document.createElement('div'); el.className = 'lightbox';
-  el.innerHTML = `<img src="${esc(src)}"><button class="x" aria-label="关闭">×</button>`;
+  el.innerHTML = `<img src="${esc(src)}" draggable="false"><button class="x" aria-label="关闭">×</button>`;
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
-  el.onclick = e => { if (e.target.tagName !== 'IMG') history.back(); };
+  const img = el.querySelector('img');
+  let sc = 1, tx = 0, ty = 0, start = null, lastTap = 0, moved = false, closeTimer = 0;
+  const W = () => innerWidth / 2, H = () => innerHeight / 2;
+  const apply = (anim) => { img.style.transition = anim ? 'transform .2s' : 'none'; img.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; };
+  const zoomAt = (ns, x, y) => {   // 以屏幕上 (x,y) 为中心缩放到 ns 倍
+    ns = Math.min(6, Math.max(1, ns)); const cx = x - W(), cy = y - H();
+    tx = cx - (cx - tx) * ns / sc; ty = cy - (cy - ty) * ns / sc; sc = ns; if (sc === 1) tx = ty = 0;
+  };
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  el.addEventListener('touchstart', e => {
+    moved = false;
+    if (e.touches.length === 2) start = {d: dist(e.touches), s: sc, x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2, tx, ty};
+    else start = {px: e.touches[0].clientX, py: e.touches[0].clientY, tx, ty};
+  }, {passive: true});
+  el.addEventListener('touchmove', e => {
+    e.preventDefault(); moved = true; if (!start) return;
+    if (e.touches.length === 2 && start.d) {
+      sc = start.s; tx = start.tx; ty = start.ty; zoomAt(start.s * dist(e.touches) / start.d, start.x, start.y);
+    } else if (e.touches.length === 1 && sc > 1 && start.px != null) {
+      tx = start.tx + e.touches[0].clientX - start.px; ty = start.ty + e.touches[0].clientY - start.py;
+    }
+    apply(false);
+  }, {passive: false});
+  el.addEventListener('touchend', e => {
+    if (e.touches.length) { start = {px: e.touches[0].clientX, py: e.touches[0].clientY, tx, ty}; return; }
+    start = null;
+    if (moved) return;
+    const t = e.changedTouches[0], now = Date.now();
+    if (now - lastTap < 300) { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, t.clientX, t.clientY); apply(true); lastTap = 0; e.preventDefault(); }
+    else lastTap = now;
+  });
+  el.addEventListener('wheel', e => { e.preventDefault(); zoomAt(sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); apply(false); }, {passive: false});
+  el.addEventListener('dblclick', e => { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, e.clientX, e.clientY); apply(true); });
+  el.onclick = e => {
+    if (e.target.closest('.x')) return history.back();
+    if (e.target === img || sc > 1) return;
+    clearTimeout(closeTimer); closeTimer = setTimeout(() => { if (sc === 1) history.back(); }, 320);   // 等等看是不是双击
+  };
 }
 document.addEventListener('click', e => {
   const a = e.target.closest('.imgs a'); if (!a) return;
