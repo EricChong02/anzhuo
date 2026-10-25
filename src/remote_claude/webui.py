@@ -227,8 +227,13 @@ function renderUsage(u) {
     + (usageOpen ? `<div class="usage"><div><span>模型</span>${esc(u.model)}</div><div><span>思考深度</span>${esc(u.effort)}</div>
       <div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
       ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
-      ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}</div>` : '');
+      ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}
+      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px">压缩上下文</button></div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
+  if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
+    e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
+    await api('compact/' + sel, {}); b.textContent = '已开始，大约一分钟';
+  };
 }
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 

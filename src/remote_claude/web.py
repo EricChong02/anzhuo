@@ -583,6 +583,12 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         await b._new([folder] if folder else [], text, inc, note="（网页里新开）")
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
 
+    async def _api_compact(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        msg = await self.bridge.compact(int(request.match_info["num"]))
+        return web.json_response({"ok": True, "message": msg})
+
     async def _api_stop(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
@@ -610,6 +616,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
+        app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)

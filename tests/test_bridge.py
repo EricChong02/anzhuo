@@ -567,3 +567,41 @@ def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
 
     asyncio.run(go())
     assert seen == [(6, "按C来做")]
+
+
+def test_compact(tmp_path, monkeypatch):
+    """“压缩”：正在做就排到这一轮之后（不插话），压完报上下文从多少到多少。"""
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    gate, seen = asyncio.Event(), []
+
+    async def fake_run(self, s, job, turn):
+        seen.append(job.text)
+        if job.text == "/compact":
+            s.context_pct = 12
+            return
+        await gate.wait()
+        turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 5
+        b.registry.add(Session(num=6, name="做课", cwd=str(tmp_path), claude_id="sid", context_pct=59))
+        await b.on_raw(msg("改封面"))
+        await asyncio.sleep(0.05)
+        b.runner.clients[6] = object()       # 假装正在做、能插话
+        await b.on_raw(msg("压缩"))
+        assert "等手上 1 件做完再压" in dt.sent[-1][1]
+        gate.set()
+        await asyncio.sleep(0.2)
+
+    asyncio.run(go())
+    assert seen == ["改封面", "/compact"]
+    assert any(t == "压缩好了" and "59% → 12%" in x for t, x in dt.sent)

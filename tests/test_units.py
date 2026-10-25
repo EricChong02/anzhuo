@@ -27,6 +27,8 @@ def test_parse_commands():
     c = parse("深度 高")
     assert (c.kind, c.num, c.name) == ("effort", None, "高")
     assert parse("额度").kind == "quota"
+    assert (parse("压缩").kind, parse("压缩").num, parse("压缩 6").num, parse("压缩上下文").kind) == ("compact", None, 6, "compact")
+    assert parse("压缩一下这张图").kind == "message"
     assert (parse("删 7").kind, parse("删 #7").num) == ("delete", 7)
     assert parse("删掉第二段").kind == "message"
     assert (parse("接着桌面").kind, parse("接着桌面").num, parse("接着桌面 2").num) == ("desktop", None, 2)

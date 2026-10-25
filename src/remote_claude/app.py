@@ -18,7 +18,7 @@ from .config import DATA_DIR, Config, read_web_hash
 from .dingtalk import DingTalk, Incoming, parse_incoming
 from .report import Turn
 from .web import Web
-from .sessions import Job, Registry, Runner, Session, describe, user_setting
+from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
@@ -77,6 +77,7 @@ class Bridge:
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
+        self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
         self.board_task: asyncio.Task | None = None
         self.board_lock = asyncio.Lock()
@@ -210,7 +211,25 @@ class Bridge:
             log.warning("发工作台失败", exc_info=True)
             await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}", board=False)
 
+    async def compact(self, num: int | None) -> str:
+        """压缩某个对话的上下文：发 /compact 给它；正在做就排到这一轮之后。返回给网页的一句话。"""
+        s = self.registry.get(num or self.registry.current)
+        if not s or not s.claude_id:
+            msg = "这个对话还没开始，没什么可压缩的。"
+            await self.say("压缩", msg)
+            return msg
+        self._compact_from[s.num] = s.context_pct
+        ahead = self.runner.submit(s, Job(text=COMPACT))
+        msg = f"{s.label} 开始压缩上下文" + (f"，等手上 {ahead} 件做完再压" if ahead else "") + "，大约一分钟。"
+        await self.say("压缩", msg)
+        return msg
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if turn.request == "压缩上下文" and not turn.is_error:
+            before = self._compact_from.pop(s.num, None)
+            after = s.context_pct
+            span = f"{before:.0f}% → {after:.0f}%" if before is not None and after is not None else (f"现在 {after:.0f}%" if after is not None else "")
+            return await self.say("压缩好了", f"{s.label} 压缩好了：上下文 {span}。之前聊过的要点都还记得。")
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
@@ -395,6 +414,8 @@ class Bridge:
                 return await self.say("网页", "网页还没开通（配置里没有 web_base）。")
             return await self.say("网页", f"小E 网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
                                           "里面有在做的课（一点就试课）和最近每一轮的完整过程。")
+        if cmd.kind == "compact":
+            return await self.compact(cmd.num)
         if cmd.kind == "quota":
             return await self._quota()
         if cmd.kind == "recent":

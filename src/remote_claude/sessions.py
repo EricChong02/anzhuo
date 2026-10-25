@@ -149,7 +149,7 @@ class Runner:
     def submit(self, s: Session, job: Job) -> int:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
         turn, client = self.turns.get(s.num), self.clients.get(s.num)
-        if turn and client and turn.accepting and not turn.interrupted:
+        if turn and client and turn.accepting and not turn.interrupted and job.text != COMPACT:
             turn.injected += 1
             turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
             asyncio.create_task(self._inject(s, client, job))
@@ -419,7 +419,12 @@ def user_setting(key: str) -> str | None:
         return None
 
 
+COMPACT = "/compact"  # Claude Code 的压缩上下文指令，作为一句话发给对话即可
+
+
 def _request_title(job: Job) -> str:
+    if job.text == COMPACT:
+        return "压缩上下文"
     return brief(job.text) or ("看图" if job.images else "")
 
 
