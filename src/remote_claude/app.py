@@ -261,7 +261,7 @@ class Bridge:
         self.registry.save()
         if self.web.enabled:  # 手机通知：主屏幕上的小E 直接弹
             head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting)
-            asyncio.create_task(self.web.push.send(head, what, f"/_x/#s{s.num}", tag=f"s{s.num}"))
+            asyncio.create_task(self.web.push.send(head, what, s.num))
         try:
             await self.say(title, body, board=False)
             for img in turn.images:

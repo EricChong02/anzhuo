@@ -59,19 +59,14 @@ def _plain(line: str) -> str:
 
 
 def push_message(name: str, request: str, final: str, is_error: bool, awaiting: str) -> tuple[str, str]:
-    """手机通知的标题和正文：标题先说状态再说是哪个对话；正文第一行是结论（或要你回答的问题），第二行提醒你当时说的是什么。"""
-    status = "出错了" if is_error else ("等你回答" if awaiting else "做完了")
-    lines = [_plain(ln) for ln in (final or "").splitlines()]
-    lines = [ln for ln in lines if ln and not ln.startswith(_SECTIONS) and ln not in ("---",)]
+    """手机通知：标题是哪个对话，正文一句短话说怎么样了（细节点进去看）。"""
+    if is_error:
+        return name, "出错了，点开看原因"
     if awaiting:
-        head = _plain(awaiting)
-    elif lines:
-        head = lines[0] if len(lines[0]) <= 80 else (
-            lines[0][: max(lines[0].rfind(c, 0, 80) for c in "。！？；") + 1] or lines[0][:79] + "…")
-    else:
-        head = "没有具体回复，点开看看"
-    body = head + (f"\n你说的：{brief(_plain(request), 24)}" if request else "")
-    return f"{status} · {name}", body
+        return name, "等你回答：" + brief(_plain(awaiting), 18)
+    lines = [_plain(ln) for ln in (final or "").splitlines()]
+    lines = [ln for ln in lines if ln and not ln.startswith(_SECTIONS) and ln != "---"]
+    return name, "做完了" + ("：" + brief(lines[0], 18) if lines else "")
 
 
 def model_name(model_id: str) -> str:

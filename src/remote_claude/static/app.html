@@ -377,8 +377,19 @@ function openSession(num, fromPop) {
 }
 
 function goList() { sel = null; if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
-// 点手机通知进来：地址变成 #s编号，打开那个对话
-addEventListener('hashchange', () => { const m = location.hash.match(/^#s(\d+)/); if (m) openSession(+m[1], true); });
+// 点手机通知进来：打开通知说的那个对话。编号可能在地址里（?s=4），也可能在后台脚本记下的缓存里，或者直接发消息过来
+async function openFromNotice() {
+  let n = +new URLSearchParams(location.search).get('s') || 0;
+  try {
+    const c = await caches.open('xiaoe'), r = await c.match('/_x/__open');
+    if (r) { n = n || +(await r.text()); await c.delete('/_x/__open'); }
+  } catch (e) {}
+  if (!n) return false;
+  history.replaceState(null, '', location.pathname); openSession(n); return true;
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+  if (e.data && e.data.open) { caches.open('xiaoe').then(c => c.delete('/_x/__open')).catch(() => {}); openSession(+e.data.open); }
+});
 
 // 手机通知：只有加到主屏幕后打开（全屏模式）iPhone 才允许；第一次要点一下“开启通知”，之后每次打开悄悄续上订阅
 async function setupPush() {
@@ -605,9 +616,9 @@ if (window.visualViewport) {
 (async () => {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
-  if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
+  if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
   setInterval(() => { if (!document.hidden) loadSessions(); }, 4000);
   setInterval(() => { if (!document.hidden) loadThread(); }, 3000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSessions(); loadThread(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSessions(); loadThread(); openFromNotice(); } });
 })();
 </script></body></html>

@@ -64,12 +64,12 @@ class Push:
             {"endpoint": sub["endpoint"], "keys": sub["keys"]}]
         self._save()
 
-    async def send(self, title: str, body: str, url: str = "/_x/", tag: str = "") -> None:
+    async def send(self, title: str, body: str, num: int | None = None) -> None:
         """给每台开了通知的设备发一条；设备已注销（404/410）的顺手删掉。出错只记日志，不影响别的。"""
         if not self.subs:
             return
         from pywebpush import WebPushException, webpush
-        data = json.dumps({"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False)
+        data = json.dumps({"title": title, "body": body, "num": num, "tag": f"s{num}" if num else ""}, ensure_ascii=False)
         gone = []
 
         def one(sub):

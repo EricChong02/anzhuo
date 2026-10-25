@@ -312,18 +312,20 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                                   "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"}]})
 
     async def _sw(self, request: web.Request) -> web.Response:
-        # 手机通知的后台脚本：收到推送就弹通知，点通知打开那个对话
+        # 点通知：先把要打开的对话编号记进缓存（iPhone 冷启动时不一定带上地址），再叫醒已开着的页面或新开一个
         js = """self.addEventListener('push', e => {
   const d = e.data ? e.data.json() : {};
-  e.waitUntil(self.registration.showNotification(d.title || '小E', {body: d.body || '', tag: d.tag || undefined, data: {url: d.url || '/_x/'}, icon: '/_x/icon.png'}));
+  e.waitUntil(self.registration.showNotification(d.title || '小E', {body: d.body || '', tag: d.tag || undefined, data: {num: d.num || null}, icon: '/_x/icon.png'}));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || '/_x/';
-  e.waitUntil(clients.matchAll({type: 'window', includeUncontrolled: true}).then(cs => {
-    for (const c of cs) { if ('focus' in c) { c.navigate(url); return c.focus(); } }
-    return clients.openWindow(url);
-  }));
+  const n = e.notification.data && e.notification.data.num;
+  e.waitUntil((async () => {
+    if (n) await (await caches.open('xiaoe')).put('/_x/__open', new Response(String(n)));
+    const cs = await clients.matchAll({type: 'window', includeUncontrolled: true});
+    for (const c of cs) { if (n) c.postMessage({open: n}); if ('focus' in c) return c.focus(); }
+    return clients.openWindow(n ? '/_x/?s=' + n : '/_x/');
+  })());
 });
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));

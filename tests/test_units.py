@@ -192,8 +192,9 @@ A. 64px，最醒目
 
 
 def test_push_message():
-    """手机通知：标题先说状态再说对话；正文是结论或要你回答的问题，第二行是你当时说的话；去掉 markdown 和五段小标题。"""
+    """手机通知：标题是对话名，正文一句短话；去掉 markdown 和五段小标题。"""
     from remote_claude.report import push_message
-    assert push_message("天气", "明天厦门天气", "**明天**多云。\n\n做了什么：查了", False, "") == ("做完了 · 天气", "明天多云。\n你说的：明天厦门天气")
-    assert push_message("做课", "改封面", "要你定：用哪张？\nA. 深\nB. 浅", False, "用哪张？") == ("等你回答 · 做课", "用哪张？\n你说的：改封面")
-    assert push_message("清理", "清下载", "", True, "")[0] == "出错了 · 清理"
+    assert push_message("天气", "明天厦门天气", "**明天**多云。\n\n做了什么：查了", False, "") == ("天气", "做完了：明天多云")
+    assert push_message("做课", "改封面", "要你定：用哪张？", False, "用哪张？") == ("做课", "等你回答：用哪张？")
+    assert push_message("清理", "清下载", "", True, "") == ("清理", "出错了，点开看原因")
+    assert len(push_message("x", "", "很长" * 50, False, "")[1]) <= 23
