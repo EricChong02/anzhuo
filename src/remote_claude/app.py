@@ -15,7 +15,6 @@ from . import folders, report, router
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config
 from .dingtalk import DingTalk, Incoming, parse_incoming
-from .guard import RosterGuard
 from .report import Turn
 from .sessions import Job, Registry, Runner, Session, describe, user_setting
 
@@ -59,7 +58,6 @@ class Bridge:
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort)
-        self.guard = RosterGuard(cfg.roster_db)
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
         self.photo_buf: Incoming | None = None  # 只发了图、还没跟话时先攒着，等后面那句话一起交
         self.photo_task: asyncio.Task | None = None
@@ -73,9 +71,6 @@ class Bridge:
 
     # ---------- 发消息 ----------
     async def say(self, title: str, text: str) -> None:
-        text, hits = self.guard.redact(text)
-        if hits:
-            text += "  \n\n（已把 %d 处学生姓名或学号换成“某同学”）" % hits
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
 

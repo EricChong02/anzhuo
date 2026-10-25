@@ -1,7 +1,7 @@
 """小E：在钉钉里给 Mac 上的 Claude Code 派活、收报告。
 
   remote-claude run      常驻运行（开机自启用这个）
-  remote-claude check    核对配置、钥匙串、钉钉、学生名单、Claude 登录
+  remote-claude check    核对配置、钥匙串、钉钉、Claude 登录
   remote-claude whoami   临时运行，打印给小E发消息的人的钉钉 ID（首次配置用）
 """
 from __future__ import annotations
@@ -30,7 +30,6 @@ def _claude_logged_in() -> str:
 
 def check() -> int:
     from .dingtalk import DingTalk
-    from .guard import RosterGuard
     ok = True
     try:
         cfg = load_config()
@@ -46,9 +45,6 @@ def check() -> int:
     except Exception as e:  # noqa: BLE001
         ok = False
         print(f"钉钉：{e}")
-    g = RosterGuard(cfg.roster_db)
-    g._load()
-    print(f"学生名单拦截：{g.count} 个姓名/学号" if g.count else "学生名单拦截：没读到名单（检查 guard.roster_db）")
     for name, p in cfg.folders.items():
         if not Path(p).expanduser().is_dir():
             ok = False

@@ -1,10 +1,8 @@
-import sqlite3
 
 from remote_claude import folders, report
 from remote_claude.commands import parse
 from remote_claude.config import Config
 from remote_claude.dingtalk import parse_incoming
-from remote_claude.guard import RosterGuard
 
 
 def test_parse_commands():
@@ -45,18 +43,6 @@ def test_folder_candidates(tmp_path):
     assert folders.candidates(str(tmp_path / "b"), cfg) == [tmp_path / "b"]
     assert folders.split_new_path("personal/菜谱整理") == ("personal", "菜谱整理")
     assert folders.scratch_dir(cfg, 3).is_dir()
-
-
-def test_guard(tmp_path):
-    db = tmp_path / "lab.db"
-    con = sqlite3.connect(db)
-    con.execute("CREATE TABLE users (name TEXT, student_id TEXT)")
-    con.executemany("INSERT INTO users VALUES (?, ?)", [("张三丰", "20250101"), ("李", "1")])
-    con.commit()
-    con.close()
-    g = RosterGuard(str(db))
-    text, n = g.redact("张三丰（学号 20250101）这题答错；李老师说")
-    assert n == 2 and "张三丰" not in text and "20250101" not in text and "李老师" in text
 
 
 def test_parse_incoming():

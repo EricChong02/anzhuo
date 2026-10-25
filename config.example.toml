@@ -15,7 +15,3 @@ scratch_root = "~/Projects/_scratch/小E"
 "平台" = "~/Projects/04_项目/work/CyberScope"
 Projects = "~/Projects"
 "下载" = "~/Downloads"
-
-[guard]
-# 发到钉钉前按这份名单把学生姓名、学号换成“某同学”（只读）
-roster_db = "~/Projects/04_项目/work/CyberScope/lab_data.db"

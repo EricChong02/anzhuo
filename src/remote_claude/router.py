@@ -88,7 +88,7 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
                 timeout: float = 25) -> Route | None:
     """返回判断结果；出错、超时、答非所问时返回 None，由调用方按老规矩交给当前对话。"""
     options = ClaudeAgentOptions(
-        model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫小E，是庄毅钉钉里的助手，背后是他 Mac 上的 Claude Code。用法说明：\n" + HELP,
+        model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫小E，是用户钉钉里的助手，背后是用户 Mac 上的 Claude Code。称呼用户时用“你”。用法说明：\n" + HELP,
         tools=[], max_turns=1,
         setting_sources=[], cwd=str(Path.home()),
     )

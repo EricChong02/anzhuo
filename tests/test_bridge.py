@@ -1,4 +1,4 @@
-"""不连钉钉、不调 Claude，走一遍：开对话、选文件夹、引用回复、列表、报告推送、学生名拦截。"""
+"""不连钉钉、不调 Claude，走一遍：开对话、选文件夹、引用回复、列表、报告推送。"""
 import asyncio
 import sqlite3
 
@@ -42,7 +42,7 @@ def test_flow(tmp_path, monkeypatch):
     con.commit()
     con.close()
     cfg = Config(client_id="x", allowed_user_ids=["me"], folders={"根": str(tmp_path / "proj")},
-                 search_roots=[str(tmp_path)], scratch_root=str(tmp_path / "scratch"), roster_db=str(db),
+                 search_roots=[str(tmp_path)], scratch_root=str(tmp_path / "scratch"),
                  auto_route=False)
     seen = []
 
@@ -94,7 +94,6 @@ def test_flow(tmp_path, monkeypatch):
     assert seen[4][2:] == ("", 1)
     done = [t for t, _ in dt.sent if t.startswith("做完了")]
     assert len(done) == 5
-    assert all("王小明" not in text for _, text in dt.sent) and any("某同学" in text for _, text in dt.sent)
     listing = next(text for t, text in dt.sent if t == "对话列表")
     assert "#1" in listing and "#2" in listing
     assert b.registry.sessions[1].claude_id == "sid-1"

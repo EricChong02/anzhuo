@@ -24,7 +24,6 @@ class Config:
     search_roots: list[str] = field(default_factory=lambda: list(DEFAULT_SEARCH_ROOTS))
     skip_names: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_NAMES))
     scratch_root: str = "~/Projects/_scratch/小E"
-    roster_db: str | None = None
     max_parallel: int = 3
     auto_route: bool = True  # 直接说话时让小E判断接着哪个对话、还是新开
     default_effort: str | None = None  # 小E 对话的默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
@@ -42,7 +41,6 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         search_roots=list(raw.get("search_roots", DEFAULT_SEARCH_ROOTS)),
         skip_names=list(raw.get("skip_names", DEFAULT_SKIP_NAMES)),
         scratch_root=raw.get("scratch_root", "~/Projects/_scratch/小E"),
-        roster_db=raw.get("guard", {}).get("roster_db"),
         max_parallel=int(raw.get("max_parallel", 3)),
         auto_route=bool(raw.get("auto_route", True)),
         default_effort=raw.get("default_effort"),

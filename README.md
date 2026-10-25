@@ -2,7 +2,7 @@
 
 人不在 Mac 前，在钉钉里跟机器人“小E”说话，Mac 上的 Claude Code 就去干活，做完按五段把结果推回钉钉（要你做什么、做了什么、改了哪些、自查结果、截图）。任何文件夹都能开对话，几个对话可以同时干活。
 
-当前是第一期：收发文字、图片、文件、语音转文字，自动判断接着哪个对话或新开，多对话并行，按名字找文件夹，五段报告与用量表，学生姓名拦截，开机自启。设计与后续三期见 [docs/design.md](docs/design.md)。
+当前是第一期：收发文字、图片、文件、语音转文字，自动判断接着哪个对话或新开，多对话并行，按名字找文件夹，五段报告与用量表，开机自启。设计与后续三期见 [docs/design.md](docs/design.md)。
 
 ## 在钉钉里怎么说
 
@@ -34,7 +34,7 @@ cp config.example.toml ~/.config/remote-claude/config.toml   # 然后填 client_
 scripts/save_secret.sh                    # 钉钉 Client Secret 存进钥匙串
 scripts/claude_login.sh                   # 给小E用的 Claude Code 登录一次
 .venv/bin/remote-claude whoami            # 给小E发句话，拿到自己的钉钉 ID，填进 allowed_user_ids
-.venv/bin/remote-claude check             # 核对配置、钥匙串、钉钉、学生名单、Claude 登录
+.venv/bin/remote-claude check             # 核对配置、钥匙串、钉钉、Claude 登录
 scripts/install_launchd.sh                # 开机自启并立即运行；改了代码再运行一次即重启
 ```
 
@@ -45,7 +45,6 @@ scripts/install_launchd.sh                # 开机自启并立即运行；改了
 - 只认 `allowed_user_ids` 里的钉钉账号发来的单聊消息，其余一律忽略并记日志。
 - 钉钉密钥只在钥匙串（服务名 `remote-claude.dingtalk`）；配置文件、仓库、日志里都没有。
 - 每个对话以“跳过权限确认”运行，与桌面端一致，并加载用户、项目、本地三层设置，所以各项目的规则与护栏照常生效。拿到你钉钉账号的人就能指挥这台 Mac：手机丢了先在钉钉里踢下线，再双击停用。
-- 发往钉钉的文字先按 CyberScope 开发库 `users` 表（只读）把学生姓名、学号换成“某同学”；图片无法检查，靠给 Claude 的要求（不写学生真实信息）与做课预览只用隔离环境保证。
 - 钉钉接口免费额度每月 1 万次；第一期每件活只发开工、结果和截图几条消息。
 
 ## 开发
