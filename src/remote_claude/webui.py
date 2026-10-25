@@ -19,7 +19,7 @@ html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;backgrou
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
 a{color:var(--acc);text-decoration:none}
 svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.app{display:grid;grid-template-columns:296px 1fr;height:var(--vh,100dvh)}
+.app{display:grid;grid-template-columns:296px 1fr;height:100dvh}
 
 /* 侧栏 */
 .side{background:var(--side);display:flex;flex-direction:column;min-height:0}
@@ -53,7 +53,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:17px;border:1px solid var(--line);background:var(--panel);font-size:14.5px;color:var(--ink)}
 .pill:hover{border-color:var(--acc)} .pill svg{width:16px;height:16px}
 .back{display:none}
-.feed{flex:1;overflow:auto;padding:24px 20px 140px;scroll-behavior:auto}
+.feed{flex:1;overflow:auto;padding:24px 20px calc(150px + var(--kb,0px));scroll-behavior:auto}
 .col{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
 .you{align-self:flex-end;max-width:82%;background:var(--bubble);border-radius:20px;padding:10px 16px;white-space:pre-wrap;word-break:break-word}
 .you.pending{opacity:.55}
@@ -84,7 +84,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .opt:disabled{opacity:.5}
 
 /* 输入条 */
-.dock{position:absolute;left:0;right:0;bottom:0;padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
+.dock{position:absolute;left:0;right:0;bottom:var(--kb,0px);padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
   background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
 .quick{pointer-events:auto;max-width:760px;margin:0 auto 8px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
 .quick::-webkit-scrollbar{display:none}
@@ -126,7 +126,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   .head{padding-top:calc(10px + env(safe-area-inset-top))}
   .scroll{padding:0 8px 110px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:16.5px} .item .st{font-size:14.5px}
   .label{font-size:14.5px;padding:18px 12px 6px}
-  .feed{padding:18px 16px 150px} .you{max-width:86%} .col{gap:20px}
+  .feed{padding:18px 16px calc(160px + var(--kb,0px))} .you{max-width:86%} .col{gap:20px}
   .live ol li:nth-last-child(n+4){display:none}
   .dock{padding:24px 10px calc(10px + env(safe-area-inset-bottom))}
 }
@@ -366,13 +366,14 @@ function openNew(fromPop) {
 $('#newBtn').onclick = () => openNew();
 $('#fab').onclick = () => openNew();
 
-// 屏幕键盘弹出/收起：整页不滚，只让页面高度跟着“真正看得见的区域”走，输入条自然贴在键盘上面；
-// 收起后 Safari 为露出输入框而滚走的那段也拉回来（不然会卡在半截、下面一片空白）
+// 屏幕键盘（或妙控键盘的悬浮快捷条）挡住底部时：页面保持满屏，只把输入条往上挪被挡住的那么多；
+// 整页不滚，Safari 为露出输入框滚走的那段拉回来（不然会卡在半截、下面一片空白）
 if (window.visualViewport) {
   const vv = visualViewport;
   const fit = () => {
-    document.documentElement.style.setProperty('--vh', Math.round(vv.height) + 'px');
     if (scrollX || scrollY) scrollTo(0, 0);
+    const kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty('--kb', kb + 'px');
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
   addEventListener('focusout', () => setTimeout(fit, 60));
