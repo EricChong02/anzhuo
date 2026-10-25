@@ -1,0 +1,26 @@
+[project]
+name = "remote-claude"
+version = "0.1.0"
+description = "小E：在钉钉里使唤 Mac 上的 Claude Code"
+readme = "README.md"
+authors = [
+    { name = "zy", email = "yi_official@163.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "claude-agent-sdk>=0.2.174",
+    "dingtalk-stream>=0.24.3",
+    "requests>=2.34.2",
+]
+
+[project.scripts]
+remote-claude = "remote_claude:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

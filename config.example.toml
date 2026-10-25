@@ -1,0 +1,21 @@
+# 小E（钉钉 ↔ Mac 上的 Claude Code）配置。钉钉密钥不写在这里，存在钥匙串（scripts/save_secret.sh）。
+client_id = "在钉钉开发者后台“凭证与基础信息”里的 Client ID"
+# 只认这些钉钉 ID 发来的单聊消息；用 remote-claude whoami 查自己的
+allowed_user_ids = []
+max_parallel = 3
+default_effort = "medium"  # 低 low · 中 medium · 高 high · 很高 xhigh · 最高 max
+# 新开对话时按任务类型选模型：简单任务（查资料、整理文件、问答）用 simple_model，开发类（写代码、做功能、做课件）用 dev_model。
+# 话里说了“用 opus”“深度调到高”就以说的为准；钉钉里也可按对话改：模型 opus / 深度 高
+simple_model = "sonnet"
+dev_model = "opus"
+scratch_root = "~/Projects/_scratch/小E"
+
+[folders]
+"课程根" = "~/Projects/04_项目/work/CyberScope-courses-zy"
+"平台" = "~/Projects/04_项目/work/CyberScope"
+Projects = "~/Projects"
+"下载" = "~/Downloads"
+
+[guard]
+# 发到钉钉前按这份名单把学生姓名、学号换成“某同学”（只读）
+roster_db = "~/Projects/04_项目/work/CyberScope/lab_data.db"

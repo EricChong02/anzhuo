@@ -1,0 +1,189 @@
+"""把一轮工作的结果排成钉钉消息：标题一行，正文是 Claude 按五段写的回复，再附钉钉桥自己看到的实际改动。"""
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass, field
+
+from .folders import display
+
+MAX_LEN = 3500  # 钉钉 Markdown 单条留足余量；超出拆成几条
+
+
+@dataclass
+class Turn:
+    started: float
+    request: str = ""  # 这一轮你说的话的开头，做标题
+    ended: float = 0.0
+    changed_files: list[str] = field(default_factory=list)
+    commands: list[str] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
+    final_text: str = ""
+    is_error: bool = False
+    error: str = ""
+    interrupted: bool = False
+    model: str = ""
+    effort: str = ""
+    context_pct: float | None = None
+    compacted: bool = False
+
+
+SECTIONS = ("要你定", "要你做的", "做了什么", "改了哪些", "自查结果", "截图")
+EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
+LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
+
+
+def brief(text: str, limit: int = 20) -> str:
+    """取第一句话做短标题：到句末标点为止；还太长就截断加省略号。"""
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    m = re.match(r"(.+?[。？！?!；;])", first)
+    if m and len(m.group(1)) <= limit:
+        return m.group(1).rstrip("。；;")
+    return first[:limit] + ("…" if len(first) > limit else "")
+
+
+def model_name(model_id: str) -> str:
+    m = re.match(r"claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)", model_id or "")
+    return f"{m.group(1).capitalize()} {m.group(2)}.{m.group(3)}" if m else (model_id or "")
+
+
+_EMPTY = re.compile(r"(无|没有|暂无|不需要|无需|没|—+|-+)")
+
+
+def bold_sections(text: str) -> str:
+    """“要你做的：…”这类段名加粗、前面空一行；内容只是“没有/无”的段整段去掉。"""
+    out = []
+    for line in text.splitlines():
+        s = line.lstrip("*# ").strip()
+        for name in SECTIONS:
+            if s.startswith(name) and s[len(name):len(name) + 1] in ("：", ":"):
+                rest = s[len(name) + 1:].lstrip("*").strip()
+                if rest and len(rest) <= 16 and _EMPTY.match(rest):
+                    line = None
+                    break
+                if out and out[-1].strip():
+                    out.append("")
+                line = f"**{name}**：{rest}" if rest else f"**{name}**"
+                break
+        if line is not None:
+            out.append(line)
+    return "\n".join(out)
+
+
+def bar(pct: float, n: int = 5) -> str:
+    """5 格实心方块进度条；钉钉机器人消息不认字体颜色，靠格数和数字表达。"""
+    filled = max(0, min(n, round(pct / 100 * n)))
+    if pct > 0 and filled == 0:
+        filled = 1 if pct >= 10 else 0
+    return f"{'■' * filled}{'□' * (n - filled)} {pct:.0f}%"
+
+
+def status_line(turn: Turn, limits: dict[str, tuple[float, str | None]]) -> tuple[list[str], list[str]]:
+    """底部：一行“模型 · 深度”，下面一张用量小表格（上下文、5 小时、本周）；超过警戒线另起醒目提示。"""
+    lines, warns = [], []
+    first = [model_name(turn.model)] if turn.model else []
+    if turn.effort:
+        first.append(f"深度{EFFORT_CN.get(turn.effort, turn.effort)}")
+    if first:
+        lines.append(" · ".join(first))
+    rows = []
+    if turn.context_pct is not None:
+        rows.append(("上下文", bar(turn.context_pct)))
+        if turn.context_pct >= 70:
+            warns.append(f"这个对话的上下文已用 {turn.context_pct:.0f}%，快满了，换件新事建议新开对话")
+    if turn.compacted:
+        warns.append("这一轮里对话自动压缩过一次，前面的细节它可能记得不准")
+    for key, short in (("five_hour", "5 小时"), ("seven_day", "本周")):
+        if key in limits:
+            util, resets = limits[key]
+            rows.append((short, bar(util * 100)))
+            if util >= 0.8:
+                when = f"，{resets} 重置" if resets else ""
+                warns.append(f"{LIMIT_CN[key]}额度已用 {util * 100:.0f}%{when}")
+    if rows:
+        lines.append("\n".join(["| 用量 | |", "|---|---|"] + [f"| {k} | {v} |" for k, v in rows]))
+    return lines, warns
+
+
+def needs_decision(text: str) -> bool:
+    return "要你定" in text[:300]
+
+
+def _rel(path: str, cwd: str) -> str:
+    try:
+        rel = os.path.relpath(path, cwd)
+        return rel if not rel.startswith("..") else display_path(path)
+    except ValueError:
+        return display_path(path)
+
+
+def display_path(path: str) -> str:
+    from pathlib import Path
+    return display(Path(path))
+
+
+def to_md(text: str) -> str:
+    """钉钉的 Markdown 单个换行不换行，这里统一补成硬换行。"""
+    out = []
+    for line in text.splitlines():
+        out.append(line + "  " if line.strip() else "")
+    return "\n".join(out)
+
+
+def split(text: str, limit: int = MAX_LEN) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+    parts, cur = [], ""
+    for para in text.split("\n\n"):
+        while len(para) > limit:
+            if cur:
+                parts.append(cur)
+                cur = ""
+            parts.append(para[:limit])
+            para = para[limit:]
+        if len(cur) + len(para) + 2 > limit:
+            parts.append(cur)
+            cur = para
+        else:
+            cur = f"{cur}\n\n{para}" if cur else para
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple[str, str]:
+    minutes = max(1, round((turn.ended - turn.started) / 60))
+    files = list(dict.fromkeys(turn.changed_files))
+    worked = bool(files or turn.commands or turn.images)
+    if turn.interrupted:
+        title = "停下了"
+    elif turn.is_error:
+        title = "出错了"
+    elif needs_decision(turn.final_text):
+        title = "等你定"
+    elif worked:
+        title = "做完了"
+    else:
+        title = ""  # 闲聊、直接问答：不加标题，只给回答
+    what = turn.request or label
+
+    body = [f"### 【{title}】{what}"] if title else []
+    if turn.is_error and turn.error:
+        body.append(f"**出错原因**：{turn.error}")
+    if turn.final_text:
+        body.append(bold_sections(turn.final_text.strip()))
+
+    facts = f"#{label.split()[0].lstrip('#')} · {minutes} 分钟"
+    if worked:
+        facts += f" · 改 {len(files)} 个文件 · 跑 {len(turn.commands)} 条命令"
+        if turn.images:
+            facts += f" · 截图 {len(turn.images)} 张见下"
+    tail = ["---", facts]
+    if files and "改了哪些" not in turn.final_text:
+        shown = [_rel(f, cwd) for f in files[:12]]
+        tail.append("改动的文件：" + "、".join(shown) + ("等" if len(files) > 12 else ""))
+    status, warns = status_line(turn, limits or {})
+    tail += status
+    body.append("\n\n".join(tail))
+    body += [f"**注意**：{w}" for w in warns]
+    return f"{title or '回复'} · {what}", to_md("\n\n".join(body))
