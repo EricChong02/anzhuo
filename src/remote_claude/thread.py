@@ -2,6 +2,10 @@
 中间的工具调用不逐条列，只记步数；完整过程另有过程页。"""
 from __future__ import annotations
 
+from .cards import step_label
+
+PROCESS_KEEP = 15  # 最近几轮带“工作过程”（再早的看过程页），免得一个长对话整页太重
+
 _SKIP_PREFIX = ("<command-", "<local-command", "<system-reminder", "Caveat:", "<bash-", "<task-notification",
                 "[SYSTEM NOTIFICATION")
 _SKIP_REPLY = {"No response requested.", "No response requested"}  # 系统通知那一轮的自动回复，不是给你的
@@ -21,15 +25,27 @@ def _user_text(content) -> str | None:
     return "\n".join(p for p in head + texts if p)
 
 
+def _detail(name: str, inp: dict) -> str:
+    if name == "Bash":
+        return str(inp.get("command", ""))[:400]
+    for key in ("file_path", "notebook_path", "pattern", "query", "url", "description", "skill"):
+        if inp.get(key):
+            return str(inp[key])[:300]
+    return ""
+
+
 def history(messages, limit: int = 60) -> list[dict]:
     items: list[dict] = []
-    reply, steps = "", 0
+    reply, steps, process = "", 0, []
 
     def flush():
-        nonlocal reply, steps
+        nonlocal reply, steps, process
         if reply and reply.strip() not in _SKIP_REPLY:
-            items.append({"who": "claude", "text": reply, "steps": steps})
-        reply, steps = "", 0
+            # 最后那段话是回复本身，不算进过程
+            if process and process[-1]["k"] == "say" and process[-1]["text"] == reply[:1500]:
+                process.pop()
+            items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:]})
+        reply, steps, process = "", 0, []
 
     for m in messages:
         msg = m.message if isinstance(m.message, dict) else {}
@@ -44,13 +60,24 @@ def history(messages, limit: int = 60) -> list[dict]:
                 continue
             items.append({"who": "you", "text": text.strip()})
         elif m.type == "assistant" and isinstance(content, list):
-            texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
-                     and b.get("text", "").strip()]
-            if texts:
-                reply = "\n".join(texts)
-            steps += sum(1 for b in content if isinstance(b, dict) and b.get("type") == "tool_use")
+            for b in content:
+                kind = b.get("type") if isinstance(b, dict) else None
+                if kind == "thinking" and (b.get("thinking") or "").strip():
+                    process.append({"k": "think", "text": b["thinking"][:1500]})
+                elif kind == "text" and b.get("text", "").strip():
+                    reply = b["text"]
+                    process.append({"k": "say", "text": b["text"][:1500]})
+                elif kind == "tool_use":
+                    steps += 1
+                    label = step_label(b.get("name", ""), b.get("input") or {})
+                    if label:
+                        process.append({"k": "do", "text": label, "detail": _detail(b.get("name", ""), b.get("input") or {})})
     flush()
-    return items[-limit:]
+    out = items[-limit:]
+    replies = [it for it in out if it["who"] == "claude"]
+    for it in replies[:-PROCESS_KEEP]:
+        it.pop("process", None)
+    return out
 
 
 def attach_records(items: list[dict], records: list[dict]) -> list[dict]:

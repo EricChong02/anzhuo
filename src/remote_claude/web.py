@@ -515,8 +515,10 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
             b.registry.save()
         live = None
         if turn:
+            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1200], "detail": str(e.get("detail") or "")[:400]}
+                    for e in turn.timeline if e["kind"] in ("think", "say", "do")][-40:]
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
-                    "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected}
+                    "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None

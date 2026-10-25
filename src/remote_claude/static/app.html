@@ -71,6 +71,16 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .you.pending{opacity:.55}
 .cl{line-height:1.75;word-break:break-word}
 .cl .md{white-space:pre-wrap}
+.ptog{display:inline-flex;align-items:center;gap:6px;font-size:14.5px;color:var(--mute);margin-bottom:8px;padding:4px 0}
+.ptog svg{width:15px;height:15px;transition:transform .15s} .ptog.open svg{transform:rotate(90deg)}
+.plist{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.6}
+.pi{display:flex;gap:10px;align-items:flex-start} .pi>svg{width:16px;height:16px;margin-top:4px;color:var(--mute)}
+.pi .pt{min-width:0;flex:1;white-space:pre-wrap;word-break:break-word}
+.pi.think .pt{color:var(--mute);font-style:italic}
+.pi.do .pt{color:var(--mute)} .pi.do b{font-weight:500;color:var(--ink)}
+.pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
+.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
 .cl .md table{border-collapse:collapse;margin:8px 0;white-space:normal;font-size:15px;display:block;overflow-x:auto}
 .cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:6px 12px 6px 0;text-align:left;vertical-align:top}
 .cl .md th{font-weight:600}
@@ -175,7 +185,18 @@ const ICON = {
   down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
   clip: '<svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>',
+  step: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>',
+  say: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
 };
+let openProc = new Set();
+function procHTML(list) {
+  return `<div class="plist">${list.map(e => e.k === 'think'
+    ? `<div class="pi think">${ICON.bulb}<span class="pt clamp">${esc(e.text)}</span></div>`
+    : e.k === 'say' ? `<div class="pi say">${ICON.say}<span class="pt">${md(e.text)}</span></div>`
+    : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd clamp">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
+}
 let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
@@ -329,7 +350,11 @@ function renderThread(d) {
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 700 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" download>${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
-    return `<div class="cl ${fold ? 'fold' : ''}"><div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
+    const proc = it.process && it.process.length ? (() => {
+      const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
+      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process) : ''}`;
+    })() : '';
+    return `<div class="cl ${fold ? 'fold' : ''}">${proc}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
   h += pending[d.num].map(p => `<div class="you pending">${esc(p.text)}</div>`).join('');
   if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
@@ -337,12 +362,15 @@ function renderThread(d) {
     const L = d.live, first = L.total - L.steps.length + 1;
     h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · ${L.minutes} 分钟${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
-      ${L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
+      ${(L.process || []).length ? procHTML(L.process.slice(-14)) : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }
   if (d.decision) h += `<div class="ask"><div class="q">${esc(d.decision.question)}</div>${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   $('#col').innerHTML = h;
   document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.ptog').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k); lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.clamp').forEach(c => c.onclick = () => c.classList.toggle('clamp'));
+  const lp = document.querySelector('.live .plist'); if (lp) lp.scrollTop = lp.scrollHeight;
   const q = $('#quick');
   const quick = d.live ? [] : d.decision ? [] : d.awaiting ? ['好的', '就按你推荐的', '先不做'] : [];
   q.hidden = !quick.length;

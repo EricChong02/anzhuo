@@ -14,7 +14,7 @@ from typing import Awaitable, Callable
 
 from claude_agent_sdk import (
     AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage, TextBlock,
-    ToolUseBlock, create_sdk_mcp_server, tool,
+    ThinkingBlock, ToolUseBlock, create_sdk_mcp_server, tool,
 )
 
 from .folders import blocked, display
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，小E 分派时也不考虑
 
-APPEND = """回复一律用简体中文；专有名词、代码、命令、路径保持原样。
+APPEND = """回复一律用简体中文，思考和过程中的说明也用简体中文；专有名词、代码、命令、路径保持原样。
 这一轮如果只是聊天、打招呼或直接回答问题，没有动手做事，就直接自然地回答，不写下面的五段。
 这一轮如果动手做了事（改文件、跑命令、查资料、做截图等），最后一段回复按下面五段写，用简体中文，写给不看代码的读者：
 要你做的：需要用户做或决定的事；没有就写“没有”。
@@ -304,6 +304,7 @@ class Runner:
             mcp_servers={"xiaoe": self._image_tool(turn)},
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
+            thinking={"type": "adaptive", "display": "summarized"},  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:
@@ -328,6 +329,9 @@ class Runner:
                 elif isinstance(msg, AssistantMessage):
                     if msg.model:
                         turn.model = msg.model
+                    for b in msg.content:
+                        if isinstance(b, ThinkingBlock) and b.thinking.strip():
+                            turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
                     texts = [b.text for b in msg.content if isinstance(b, TextBlock) and b.text.strip()]
                     if texts:
                         last_text = "\n".join(texts)

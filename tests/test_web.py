@@ -123,7 +123,7 @@ def test_thread_history():
         M(type="user", message={"content": "This session is being continued from a previous conversation"}),
         M(type="user", message={"content": "<command-name>/compact</command-name>"}),
         M(type="user", message={"content": [{"type": "text", "text": "把封面标题改大"}, {"type": "image", "source": {}}]}),
-        M(type="assistant", message={"content": [{"type": "text", "text": "我先看看"}, {"type": "tool_use", "name": "Read"}]}),
+        M(type="assistant", message={"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "我先看看"}, {"type": "tool_use", "name": "Read"}]}),
         M(type="user", message={"content": [{"type": "tool_result", "content": "..."}]}),
         M(type="assistant", message={"content": [{"type": "tool_use", "name": "Edit"}]}),
         M(type="assistant", message={"content": [{"type": "text", "text": "改好了"}]}),
@@ -134,7 +134,9 @@ def test_thread_history():
     items = thread.history(msgs)
     assert items == [{"who": "note", "text": "（更早的对话内容已压缩）"},
                      {"who": "you", "text": "[图片]\n把封面标题改大"},
-                     {"who": "claude", "text": "改好了", "steps": 2},
+                     {"who": "claude", "text": "改好了", "steps": 2,
+                      "process": [{"k": "say", "text": "我先看看"}, {"k": "do", "text": "看 文件", "detail": ""},
+                                  {"k": "do", "text": "改 文件", "detail": ""}]},
                      {"who": "you", "text": "好的"}]
     thread.attach_records(items, [{"id": "6-1", "title": "做完了", "previews": [["l01", "/p"]]}])
     assert items[2]["tid"] == "6-1" and items[2]["previews"] == [["l01", "/p"]]
