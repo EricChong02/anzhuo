@@ -787,6 +787,57 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(before)
         return web.json_response({"ok": bool(s), "num": before, "name": s.name if s else "新对话"})
 
+    def _sig_sessions(self) -> str:
+        """对话列表的“指纹”：谁在做、做到第几步、等不等你、更新时间；变了就叫网页刷新列表。"""
+        b = self.bridge
+        out = []
+        for s in b.registry.visible():
+            t = b.runner.turns.get(s.num)
+            out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
+                        bool(t and t.confirm), b.runner.busy(s.num)))
+        return json.dumps(out, ensure_ascii=False, default=str)
+
+    def _sig_thread(self, num: int) -> str:
+        b = self.bridge
+        s, t = b.registry.get(num), b.runner.turns.get(num)
+        return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
+                           len(b.outgoing.get(num, []))])
+
+    async def _api_events(self, request: web.Request) -> web.StreamResponse:
+        """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
+        网页收到就当场更新，不用每几秒问一次。每 15 秒发个空行保活（阿里云那边 120 秒没动静会断）。"""
+        num = int(request.query.get("num") or 0)
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store",
+                                           "X-Accel-Buffering": "no"})
+        await resp.prepare(request)
+        last_s = last_t = last_p = None
+        beat = time.time()
+        try:
+            while True:
+                sig_s = self._sig_sessions()
+                if sig_s != last_s:
+                    if last_s is not None:
+                        await resp.write(b"event: s\ndata: 1\n\n")
+                    last_s = sig_s
+                if num:
+                    sig_t = self._sig_thread(num)
+                    if sig_t != last_t:
+                        if last_t is not None:
+                            await resp.write(b"event: t\ndata: 1\n\n")
+                        last_t = sig_t
+                    t = self.bridge.runner.turns.get(num)
+                    part = t.partial if t else ""
+                    if part != last_p:
+                        await resp.write(b"event: p\ndata: " + json.dumps({"text": part}, ensure_ascii=False).encode() + b"\n\n")
+                        last_p = part
+                if time.time() - beat > 15:
+                    await resp.write(b": ping\n\n")
+                    beat = time.time()
+                await asyncio.sleep(0.4)
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        return resp
+
     async def _api_confirm(self, request: web.Request) -> web.Response:
         """危险操作：你点了允许 / 不允许。"""
         if not self._same_origin(request):
@@ -834,6 +885,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/push", self._api_push)
         app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
+        app.router.add_get(f"{PREFIX}/api/events", self._api_events)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)

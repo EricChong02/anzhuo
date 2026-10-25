@@ -82,6 +82,9 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .pt.wait{color:var(--mute)}
+.live .partial{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:16px;line-height:1.65}
+.caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
 .live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
 .cl .md table{border-collapse:collapse;margin:8px 0;white-space:normal;font-size:15px;display:block;overflow-x:auto}
 .cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:6px 12px 6px 0;text-align:left;vertical-align:top}
@@ -245,7 +248,7 @@ let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeT
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
 function notice(s) {
-  const el = $('#notice'), word = {awaiting: '等你回答', error: '出错了', idle: '做完了'}[s.status] || '有新进展';
+  const el = $('#notice'), word = {awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你回答', error: '出错了', idle: '做完了'}[s.status] || '有新进展';
   el.className = 'notice ' + s.status;
   el.innerHTML = `<span class="dot"></span><span>${esc(s.name)} · ${word}</span>`;
   el.onclick = () => { el.classList.remove('on'); openSession(s.num); };
@@ -292,7 +295,7 @@ function ago(t) {
   if (s < 2 * 86400) return '昨天';
   return (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
-const statusText = s => ({running: `在做 · 第 ${s.steps} 步`, queued: '排队中', awaiting: '等你回答', error: '出错了'}[s.status]
+const statusText = s => ({running: `在做 · 第 ${s.steps} 步`, queued: '排队中', awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你回答', error: '出错了'}[s.status]
   || (s.unread ? '做完了 · ' + ago(s.updated) : ago(s.updated)));
 
 function md(src) {
@@ -396,6 +399,7 @@ function headStatus() {
 }
 
 function openSession(num, fromPop) {
+  partialText = ''; setTimeout(connectEvents);
   sel = num; lastKey = ''; attach = []; attachFiles = [];
   if (!fromPop) history.pushState({s: num}, '', '#s' + num);
   $('#app').classList.add('in');
@@ -412,7 +416,31 @@ function openSession(num, fromPop) {
   renderSide(); headStatus(); loadThread();
 }
 
-function goList() { sel = null; if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+function goList() { sel = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+// 实时推送：Mac 那边一有变化就推过来（列表 s、这个对话 t、正在写的回复 p），不再每几秒问一次
+let es = null, esNum = -1, esOk = false, lastPoll = 0, partialText = '';
+function connectEvents() {
+  const n = sel || 0;
+  if (es && esNum === n && es.readyState !== 2) return;
+  if (es) es.close();
+  esNum = n; esOk = false;
+  es = new EventSource('/_x/api/events?num=' + n);
+  es.onopen = () => { esOk = true; setOffline(false); };
+  es.onerror = () => { esOk = false; };          // 浏览器会自己重连；期间退回定时问
+  es.addEventListener('s', () => loadSessions());
+  es.addEventListener('t', () => loadThread());
+  es.addEventListener('p', e => { partialText = JSON.parse(e.data).text || ''; showPartial(); });
+}
+function showPartial() {
+  const live = document.querySelector('.live'), feed = $('#feed');
+  let el = document.querySelector('.live .partial');
+  if (!live || !partialText) { if (el) el.remove(); return; }
+  const near = feed && feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  if (!el) { el = document.createElement('div'); el.className = 'partial'; live.appendChild(el); }
+  el.innerHTML = md(partialText) + '<i class="caret"></i>';
+  if (near) feed.scrollTop = feed.scrollHeight;
+}
+
 // 点手机通知进来：打开通知说的那个对话。编号可能在地址里（?s=4），也可能在后台脚本记下的缓存里，或者直接发消息过来
 async function openFromNotice() {
   let n = +new URLSearchParams(location.search).get('s') || 0;
@@ -556,6 +584,7 @@ function renderThread(d) {
       <div class="tip">20 分钟不回就当不允许，它会换别的办法或问你</div></div>`;
   if (d.decision) h += `<div class="ask"><div class="q">${esc(d.decision.question)}</div>${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
+  setTimeout(showPartial);
   const pos = {};
   document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.scrollHeight - x.scrollTop - x.clientHeight < 24}; });
   $('#col').innerHTML = h;
@@ -581,7 +610,7 @@ function renderThread(d) {
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(last.previews[0][1])}" target="_blank">${ICON.play}试课</a>` : '';
-  $('#ta').placeholder = d.live ? '插话：它手上这一步做完就会看到' : d.awaiting ? '回答它的问题…' : '说点什么…';
+  $('#ta').placeholder = d.live ? '插话…' : d.awaiting ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
   document.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
     document.querySelectorAll('.opt').forEach(x => x.disabled = true);
@@ -684,6 +713,7 @@ function ago(t) {
 }
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开
 function openNew(fromPop) {
+  setTimeout(connectEvents);
   sel = null; if (!fromPop) history.pushState({n: 1}, '', '#new'); $('#app').classList.add('in'); renderSide();
   const said = Object.keys(FOLDER_SAY);
   const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '小E 看你说的话选地方'},
@@ -735,8 +765,10 @@ if (window.visualViewport) {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
   if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
-  setInterval(() => { if (!document.hidden) loadSessions(); }, 4000);
-  setInterval(() => { if (!document.hidden) loadThread(); }, 3000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSessions(); loadThread(); openFromNotice(); } });
+  // 实时推送连着时只偶尔兜底刷新；断了（换网络、锁屏回来）退回每几秒问一次
+  connectEvents();
+  setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
+  setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
 })();
 </script></body></html>

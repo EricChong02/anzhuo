@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from claude_agent_sdk import (
-    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, SystemMessage, TextBlock,
+    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, StreamEvent, SystemMessage, TextBlock,
     ThinkingBlock, ToolUseBlock, create_sdk_mcp_server, tool,
 )
 
@@ -343,7 +343,8 @@ class Runner:
             mcp_servers={"xiaoe": self._image_tool(turn)},
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
-            thinking={"type": "adaptive", "display": "summarized"},  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
+            thinking={"type": "adaptive", "display": "summarized"},
+            include_partial_messages=True,  # 回复边写边出（网页实时看）  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
             # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
             hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]},
         )
@@ -367,7 +368,16 @@ class Runner:
                         turn.compacted = True
                     elif msg.subtype == "init" and not turn.model:
                         turn.model = str(msg.data.get("model") or "")
+                elif isinstance(msg, StreamEvent):
+                    # 边写边看：只接主对话的正文增量（思考多是英文，等写完译好再出，免得读着换字）
+                    ev = msg.event or {}
+                    if msg.parent_tool_use_id is None:
+                        if ev.get("type") == "content_block_start":
+                            turn.partial = ""
+                        elif ev.get("type") == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
+                            turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
                 elif isinstance(msg, AssistantMessage):
+                    turn.partial = ""
                     if msg.model:
                         turn.model = msg.model
                     for b in msg.content:
