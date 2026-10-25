@@ -56,6 +56,7 @@ class Session:
     effort: str | None = None
     context_pct: float | None = None
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
+    last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
 
     @property

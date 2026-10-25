@@ -113,6 +113,13 @@ def decision_data(label: str, d: Decision, picked: str | None = None) -> dict:
             "sys_full_json_obj": _buttons(buttons)}
 
 
+def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
+    """小E 直接回答的卡片：附“交给 #N”按钮，判断错了一点就把原话转给那个对话。"""
+    tips = f"已转给 {label}" if forwarded else "小E 直接回的（Haiku），没占用对话。这句其实是说给对话的？点下面"
+    buttons = [] if forwarded else [{"text": f"交给 {_short(label, 14)}", "color": "blue", "id": "fwd", "request": True}]
+    return {"title": "小E 回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
+
+
 def action_of(content: dict | str) -> str | None:
     """按钮回调里找出点的是哪个按钮（id）。钉钉回调结构不完全固定，按已知的几处找。"""
     if isinstance(content, str):
@@ -124,5 +131,5 @@ def action_of(content: dict | str) -> str | None:
     ids = private.get("actionIds") or content.get("actionIds") or []
     if ids:
         return str(ids[0])
-    m = re.search(r'"(stop|pick:[A-D])"', json.dumps(content))
+    m = re.search(r'"(stop|fwd|pick:[A-D])"', json.dumps(content))
     return m.group(1) if m else None

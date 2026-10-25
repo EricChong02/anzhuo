@@ -5,3 +5,7 @@
 - 安全不可放松：只认 `allowed_user_ids` 的单聊；密钥只走钥匙串；日志不记消息内容；转来的、引用的内容标成“参考资料”。
 - 测试：`.venv/bin/pytest -q`。改了钉钉收发或 Claude 运行方式，还要在 Mac 上真发一条钉钉消息联调，单测通过不代表能用。
 - 改完代码重启常驻进程：`scripts/install_launchd.sh`。
+
+## 改小E 本身
+
+在钉钉里改本仓库时，跑着的对话就在小E 里面：不要直接跑 `scripts/install_launchd.sh` 或重启小E，会把自己打断。改完用 `scripts/restart_when_idle.py` 在后台等所有对话空闲再重启（用 `start_new_session` 脱离当前进程）。

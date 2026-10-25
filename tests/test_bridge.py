@@ -322,3 +322,44 @@ def test_cards_flow(tmp_path, monkeypatch):
 
     asyncio.run(go())
     assert seen == ["把封面标题改大", "选 B：中"]
+
+
+def test_reply_forward(tmp_path, monkeypatch):
+    """小E 直接回答时附“交给 #N”；点了把原话转过去。带图的话不让小E 答（它看不到图），直接交当前对话。"""
+    from remote_claude import router
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
+    seen = []
+
+    async def fake_run(self, s, job, turn):
+        seen.append((s.num, job.text, len(job.images)))
+        turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    async def fake_route(*a, **k):
+        return router.Route("reply", answer="这是小E 的回答")
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(router, "route", fake_route)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 0
+        b.registry.add(Session(num=4, name="开发小E", cwd=str(tmp_path)))
+        await b.on_raw(msg("以后能同时做几个对话吗"))
+        oid = next(k for k in dt.cards if k.startswith("r4-"))
+        assert "交给 #4" in dt.cards[oid][0]["sys_full_json_obj"]
+        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["fwd"]}}'})
+        await asyncio.sleep(0.05)
+        assert "已转给" in dt.cards[oid][-1]["tips"]
+        pic = {"msgtype": "picture", "content": {"downloadCode": "c1"}, "senderStaffId": "me", "conversationType": "1"}
+        await b.on_raw(pic)
+        await b.on_raw(msg("按了之后好像没啥反应"))
+        await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert seen == [(4, "以后能同时做几个对话吗", 0), (4, "按了之后好像没啥反应", 1)]

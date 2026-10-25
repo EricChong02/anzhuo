@@ -133,6 +133,7 @@ class Bridge:
                 turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
         s.last_title = title
+        s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
         self.registry.save()
         try:
             await self.say(title, body)
@@ -146,6 +147,20 @@ class Bridge:
                 self._save_cards()
         except Exception:
             log.exception("推送 #%s 的结果失败", s.num)
+
+    async def _reply(self, answer: str, text: str, inc: Incoming) -> None:
+        """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
+        cur = self.registry.get(self.registry.current)
+        if not cur or cur not in self.registry.visible():
+            return await self.say("回复", f"{answer}\n\n---\n\n小E 直接回的（Haiku），没占用任何对话")
+        oid = f"r{cur.num}-{int(time.time() * 1000)}"
+        try:
+            await self.dt.create_card(self.user_id, oid, cards.reply_data(answer, cur.label))
+        except Exception:  # noqa: BLE001
+            log.warning("发回复卡失败", exc_info=True)
+            return await self.say("回复", f"{answer}\n\n---\n\n小E 直接回的（Haiku）。要说给 {cur.label}，发“#{cur.num} 原话”")
+        self.cards[oid] = {"kind": "reply", "num": cur.num, "text": text, "answer": answer}
+        self._save_cards()
 
     async def on_card(self, data: dict) -> None:
         """卡片上的按钮被点了：停下，或把选择交回那个对话。"""
@@ -164,6 +179,16 @@ class Bridge:
             stopped = await self.runner.stop(s.num)
             if not stopped:
                 await self.say("停", f"{s.label} 已经做完了，不用停。")
+            return
+        if action == "fwd" and info["kind"] == "reply":
+            if info.get("done"):
+                return
+            info["done"] = True
+            self._save_cards()
+            self.chat = [c for c in self.chat if c[1] != info["text"]]  # 这句不算小E 的闲聊了
+            await self.dt.update_card(oid, cards.reply_data(info["answer"], s.label, forwarded=True))
+            inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=info["text"])
+            await self._message(Cmd("message", num=s.num, text=info["text"]), inc, routed=True)
             return
         if action.startswith("pick:") and info["kind"] == "decision":
             if info.get("picked"):
@@ -486,12 +511,15 @@ class Bridge:
         chatting = self.chat_at > self.work_at and time.time() - self.chat_at < CHAT_MEMORY
         if num is None and cmd.text and not routed and self.cfg.auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
+            busy = {n for n in self.registry.sessions if self.runner.busy(n)}
             r = await router.route(cmd.text, self.registry.visible(), self.registry.current,
-                                   list(self.cfg.folders), chat=recent)
+                                   list(self.cfg.folders), chat=recent, busy=busy)
+            if r and r.action == "reply" and (inc.image_codes or inc.files):
+                r = None  # 小E 看不到图和文件，带图的话交给当前对话
             if r and r.action == "reply":
                 self.chat = [*self.chat[-5:], (time.time(), cmd.text, r.answer)]
                 self.chat_at = time.time()
-                return await self.say("回复", f"{r.answer}\n\n---\n\n小E 直接回的（Haiku），没占用任何对话")
+                return await self._reply(r.answer, cmd.text, inc)
             if r and r.action == "new":
                 if r.folder and not folders.candidates(r.folder, self.cfg):
                     r.action = "ask"
