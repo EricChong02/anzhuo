@@ -86,10 +86,25 @@ _OPTION = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(?:方案|选项)?\s*([A-D])\s*(
 _RECOMMEND = re.compile(r"推荐[^A-D\n]{0,6}([A-D])")
 
 
-def parse_decision(text: str) -> Decision | None:
-    """从“要你定：……”的回复里拆出问题、选项、推荐；少于两个选项就不做按钮。"""
+_TABLE_OPTION = re.compile(r"^\s*\|\s*(?:\*\*)?(?:方案|选项)?\s*([A-D])\s*[.．、:：)）]\s*(?:\*\*)?\s*([^|]+)")
+
+
+def parse_decision(text: str, loose: bool = False) -> Decision | None:
+    """从“要你定：……”的回复里拆出问题、选项、推荐；少于两个选项就不做按钮。
+    loose=True（网页对话框用）：没写“要你定”、选项写在表格里也认，问题取最后一句问话。"""
     if "要你定" not in text[:300]:
-        return None
+        if not loose:
+            return None
+        options = []
+        for line in text.splitlines():
+            if (m := _TABLE_OPTION.match(line) or _OPTION.match(line)) and m.group(1) not in [o[0] for o in options]:
+                options.append((m.group(1), m.group(2).strip().strip("*").strip()))
+        if len(options) < 2:
+            return None
+        asks = [ln.strip(" *#") for ln in text.splitlines() if ln.strip().endswith(("？", "?"))]
+        rec = _RECOMMEND.search(text)
+        recommend = rec.group(1) if rec and rec.group(1) in [o[0] for o in options] else None
+        return Decision(_short(asks[-1] if asks else "选哪个？", 60), options[:4], recommend)
     after = text[text.index("要你定"):]
     question = re.sub(r"^要你定[\*：:\s]*", "", after.splitlines()[0]).strip(" *") or "要你定"
     options: list[tuple[str, str]] = []

@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 import hashlib
 import hmac
 import html
@@ -20,6 +22,10 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
+from . import thread, translate
+from .cards import parse_decision
+from .commands import Cmd
+from .dingtalk import Incoming
 from .folders import display
 
 log = logging.getLogger(__name__)
@@ -137,6 +143,14 @@ class Web:
         self.store_path = data_dir / "web.json"
         self.store = self._load()
         self._client: aiohttp.ClientSession | None = None
+        self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
+        self._threads: dict[int, tuple[tuple, list[dict]]] = {}
+        self._zh_path = data_dir / "translations.json"
+        try:
+            self._zh: dict[str, str] = json.loads(self._zh_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            self._zh = {}
+        self._zh_busy: set[str] = set()
 
     @property
     def enabled(self) -> bool:
@@ -236,7 +250,7 @@ class Web:
             "started": turn.started, "ended": turn.ended, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": turn.images,
-            "previews": course_previews(files, self.preview_root),
+            "previews": course_previews(files, self.preview_root), "translated": turn.translated,
         }
         self.turns_dir.mkdir(parents=True, exist_ok=True)
         (self.turns_dir / f"{tid}.json").write_text(json.dumps(rec, ensure_ascii=False))
@@ -258,9 +272,13 @@ class Web:
                                                                "Referrer-Policy": "no-referrer"})
 
     def _denied(self, request: web.Request) -> web.Response:
-        if request.method == "GET" and not request.path.startswith("/api/"):
+        if request.method == "GET" and "/api/" not in request.path:
             raise web.HTTPFound(f"{PREFIX}/login?next={quote(request.rel_url.path_qs, safe='')}")
         return web.json_response({"detail": "需要先登录小E 网页"}, status=401)
+
+    async def _app_page(self, request: web.Request) -> web.Response:
+        from .webui import APP_HTML
+        return web.Response(text=APP_HTML, content_type="text/html", headers={"Cache-Control": "no-store"})
 
     async def _to_index(self, request: web.Request) -> web.Response:
         raise web.HTTPFound(f"{PREFIX}/")
@@ -358,6 +376,150 @@ class Web:
             return self._page("预览没开", "<h1>本机的课程预览没开</h1><p class='meta'>Mac 上的 CyberScope（8000 端口）"
                               "没在运行。在钉钉里让小E 帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
 
+    # ---------- 网页对话框的接口 ----------
+    def _records(self, num: int) -> list[dict]:
+        out = []
+        for p in sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1])):
+            try:
+                r = json.loads(p.read_text())
+                out.append({"id": r["id"], "title": r.get("title", ""), "previews": r.get("previews", []),
+                            "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
+            except (OSError, json.JSONDecodeError, KeyError):
+                continue
+        return out
+
+    def _drafts(self) -> list[dict]:
+        root = Path(self.preview_root).expanduser() if self.preview_root else None
+        if not root or not (root / "_drafts").is_dir():
+            return []
+        out = []
+        for cj in sorted((root / "_drafts").glob("*/course.json"), key=lambda p: p.parent.stat().st_mtime, reverse=True):
+            try:
+                title = json.loads(cj.read_text()).get("title") or cj.parent.name
+            except (OSError, json.JSONDecodeError):
+                title = cj.parent.name
+            out.append({"title": title, "url": f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"})
+        return out
+
+    async def _api_sessions(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        now = time.time()
+        rows = []
+        for s in b.registry.visible():
+            turn = b.runner.turns.get(s.num)
+            if turn:
+                status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟 · 第 {len(turn.steps)} 步"
+            elif b.runner.busy(s.num):
+                status, detail = "queued", "排队中"
+            elif s.awaiting:
+                status, detail = "awaiting", f"等你回答：{s.awaiting}"
+            elif s.status == "error":
+                status, detail = "error", "上次出错了"
+            else:
+                status, detail = "idle", s.last_title or "空闲"
+            rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status,
+                         "detail": detail, "updated": s.updated,
+                         "last_step": turn.steps[-1] if turn and turn.steps else ""})
+        order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
+        rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
+        return web.json_response({"sessions": rows, "drafts": self._drafts(),
+                                  "folders": list(b.cfg.folders), "current": b.registry.current})
+
+    async def _api_thread(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        num = int(request.match_info["num"])
+        s = b.registry.get(num)
+        if not s:
+            raise web.HTTPNotFound()
+        key = (s.claude_id, s.updated)
+        cached = self._threads.get(num)
+        if cached and cached[0] == key:
+            items = cached[1]
+        else:
+            items = []
+            if s.claude_id:
+                try:
+                    from claude_agent_sdk import get_session_messages
+                    msgs = await asyncio.to_thread(get_session_messages, s.claude_id, s.cwd)
+                    items = thread.attach_records(thread.history(msgs), self._records(num))
+                except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
+                    log.debug("读对话记录失败", exc_info=True)
+            self._threads[num] = (key, items)
+        items = [dict(it) for it in items]
+        for it in items:
+            if it["who"] == "claude" and translate.needs_translation(it["text"]):
+                key = hashlib.sha1(it["text"].encode()).hexdigest()
+                if key in self._zh:
+                    it["text"] = self._zh[key]
+                elif key not in self._zh_busy and len(self._zh_busy) < 3:
+                    self._zh_busy.add(key)
+                    asyncio.create_task(self._translate(key, it["text"]))
+        turn = b.runner.turns.get(num)
+        live = None
+        if turn:
+            live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
+                    "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected}
+        last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
+        d = parse_decision(last, loose=True) if s.awaiting and not turn else None
+        decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
+        return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
+                                  "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision})
+
+    async def _translate(self, key: str, text: str) -> None:
+        """网页里显示的英文回复后台译成中文（和钉钉同一套：DeepSeek，Haiku 兜底），译好存起来，下次刷新就是中文。"""
+        try:
+            if done := await translate.to_chinese(text):
+                self._zh[key] = done[0]
+                self._zh = dict(list(self._zh.items())[-500:])
+                self._zh_path.write_text(json.dumps(self._zh, ensure_ascii=False))
+        finally:
+            self._zh_busy.discard(key)
+
+    def _same_origin(self, request: web.Request) -> bool:
+        origin = request.headers.get("Origin")
+        return origin is None or origin == self.base or not self.base.startswith("https://")
+
+    async def _save_images(self, data: dict) -> list[str]:
+        paths = []
+        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder.mkdir(parents=True, exist_ok=True)
+        for i, url in enumerate((data.get("images") or [])[:6]):
+            head, _, b64 = str(url).partition(",")
+            ext = "jpg" if "jpeg" in head else "png"
+            p = folder / f"{int(time.time() * 1000)}-{i}.{ext}"
+            p.write_bytes(base64.b64decode(b64))
+            paths.append(str(p))
+        return paths
+
+    async def _api_send(self, request: web.Request) -> web.Response:
+        """在某个对话里说话（它正在做就是插话）；没给 num 就是新开一个对话。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        data = await request.json()
+        text = str(data.get("text") or "").strip()
+        images = await self._save_images(data)
+        if not text and not images:
+            return web.json_response({"ok": False, "error": "没写内容"}, status=400)
+        b = self.bridge
+        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
+                       local_images=images)
+        b.record("你（网页）", text, images=len(images), num=data.get("num"))
+        num = data.get("num")
+        if num:
+            busy = int(num) in b.runner.turns
+            await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
+            return web.json_response({"ok": True, "injected": busy})
+        folder = str(data.get("folder") or "").strip()
+        before = b.registry.next_num
+        await b._new([folder] if folder else [], text, inc, note="（网页里新开）")
+        return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
+
+    async def _api_stop(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        stopped = await self.bridge.runner.stop(int(request.match_info["num"]))
+        return web.json_response({"ok": True, "stopped": stopped})
+
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
@@ -372,7 +534,12 @@ class Web:
         app.router.add_get(f"{PREFIX}/login", self._login_get)
         app.router.add_post(f"{PREFIX}/login", self._login_post)
         app.router.add_get("/", self._to_index)
-        app.router.add_get(f"{PREFIX}/", self._index)
+        app.router.add_get(f"{PREFIX}/", self._app_page)
+        app.router.add_get(f"{PREFIX}/history", self._index)
+        app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
+        app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
+        app.router.add_post(f"{PREFIX}/api/send", self._api_send)
+        app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)

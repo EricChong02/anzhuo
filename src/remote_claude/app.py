@@ -83,6 +83,7 @@ class Bridge:
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
                        cfg.web_user, read_web_hash(cfg.web_user) if cfg.web_base else "")
+        self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
@@ -213,13 +214,17 @@ class Bridge:
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
-        if self.web.enabled and (turn.changed_files or turn.commands or turn.images or turn.is_error):
+        if self.web.enabled:
             try:
-                tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0])
+                tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0] if title else "回复")
+                if not (turn.changed_files or turn.commands or turn.images or turn.is_error):
+                    raise LookupError  # 闲聊、直接问答：记下来给网页对话框用，报告里不附链接
                 turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
                 turn.links += [(f"试课：{name}", self.web.link(url))
                                for name, url in self.web._turn(tid).get("previews", [])]
                 title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
+            except LookupError:
+                pass
             except Exception:  # noqa: BLE001 - 过程页出问题不影响报告
                 log.exception("记过程页失败")
         s.last_title = title
@@ -676,6 +681,7 @@ class Bridge:
         inbox = self.data_dir / "inbox" / str(s.num)
         stamp = f"{time.time():.0f}"
         images = [await self.dt.download(c, inbox / f"{stamp}-{i}.png") for i, c in enumerate(inc.image_codes)]
+        images += [Path(p) for p in inc.local_images]
         for i, (code, fname) in enumerate(inc.files):
             path = await self.dt.download(code, inbox / f"{stamp}-{i}-{Path(fname).name}")
             text += f"\n\n（附件已存到：{path}）"

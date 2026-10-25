@@ -27,6 +27,7 @@ class Incoming:
     image_codes: list[str] = field(default_factory=list)
     files: list[tuple[str, str]] = field(default_factory=list)  # (downloadCode, 文件名)
     quoted_text: str = ""
+    local_images: list[str] = field(default_factory=list)  # 网页上传的图片（已存在本机）
 
 
 def _quoted(d: dict) -> str:

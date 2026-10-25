@@ -78,11 +78,11 @@ def test_login_pages_and_proxy(tmp_path):
             assert (await c.get(f"/_x/t/{tid}/img/0")).status == 200
             assert (await c.get(f"/_x/t/{tid}/img/5")).status == 404
             assert (await c.get("/", allow_redirects=False)).headers["Location"] == "/_x/"
-            assert "开发" in await (await c.get("/_x/")).text()
+            assert "开发" in await (await c.get("/_x/history")).text()
             w.preview_root = str(tmp_path / "root")
             (tmp_path / "root" / "_drafts" / "l9").mkdir(parents=True)
             (tmp_path / "root" / "_drafts" / "l9" / "course.json").write_text('{"title": "淘宝 2003"}')
-            idx = await (await c.get("/_x/")).text()
+            idx = await (await c.get("/_x/history")).text()
             assert "试课：淘宝 2003" in idx and "/workspace/_drafts/l9/course.json" in idx
             r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
             assert await r.text() == "PREVIEW" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
@@ -111,5 +111,93 @@ def test_login_pages_and_proxy(tmp_path):
             await up.close()
             if w._client:
                 await w._client.close()
+
+    asyncio.run(go())
+
+
+def test_thread_history():
+    from types import SimpleNamespace as M
+    from remote_claude import thread
+    msgs = [
+        M(type="user", message={"content": "This session is being continued from a previous conversation"}),
+        M(type="user", message={"content": "<command-name>/compact</command-name>"}),
+        M(type="user", message={"content": [{"type": "text", "text": "把封面标题改大"}, {"type": "image", "source": {}}]}),
+        M(type="assistant", message={"content": [{"type": "text", "text": "我先看看"}, {"type": "tool_use", "name": "Read"}]}),
+        M(type="user", message={"content": [{"type": "tool_result", "content": "..."}]}),
+        M(type="assistant", message={"content": [{"type": "tool_use", "name": "Edit"}]}),
+        M(type="assistant", message={"content": [{"type": "text", "text": "改好了"}]}),
+        M(type="user", message={"content": "好的"}),
+    ]
+    items = thread.history(msgs)
+    assert items == [{"who": "note", "text": "（更早的对话内容已压缩）"},
+                     {"who": "you", "text": "把封面标题改大\n[图片]"},
+                     {"who": "claude", "text": "改好了", "steps": 2},
+                     {"who": "you", "text": "好的"}]
+    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "previews": [["l01", "/p"]]}])
+    assert items[2]["tid"] == "6-1" and items[2]["previews"] == [["l01", "/p"]]
+
+
+def test_chat_api(tmp_path, monkeypatch):
+    """网页对话框：列表、读对话、发话（带图）、新开、停下；没登录给 401；外站来源的 POST 拒绝。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Session
+
+    class FakeRunner:
+        def __init__(self):
+            self.turns, self.stopped = {}, []
+
+        def busy(self, n):
+            return n in self.turns
+
+        async def stop(self, n):
+            self.stopped.append(n)
+            return True
+
+    class FakeBridge:
+        def __init__(self):
+            s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？")
+            s7 = Session(num=7, name="清理", cwd=str(tmp_path))
+            self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda: [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
+                               current=6, next_num=8)
+            self.runner = FakeRunner()
+            self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
+            self.cfg = NS(folders={"课程根": "/x"})
+            self.user_id, self.sent, self.new = "me", [], []
+
+        def record(self, *a, **k):
+            pass
+
+        async def _message(self, cmd, inc, routed=False):
+            self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
+
+        async def _new(self, tokens, text, inc, note=""):
+            self.new.append((tokens, text))
+            self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = b = FakeBridge()
+        b.registry.get = lambda n: b.registry.sessions.get(n)
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            assert (await c.get("/_x/api/sessions")).status == 401
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/sessions")).json()
+            assert [r["num"] for r in d["sessions"]] == [6, 7]                 # 等你回答的排最前
+            assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
+            assert "小E" in await (await c.get("/_x/")).text()
+            t7 = await (await c.get("/_x/api/thread/7")).json()
+            assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
+            png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
+            r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
+            assert r == {"ok": True, "injected": True}
+            assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
+            r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
+            assert r["num"] == 8 and b.new == [([], "查一下天气")]
+            assert (await (await c.post("/_x/api/stop/7", json={})).json())["stopped"] and b.runner.stopped == [7]
+            assert (await c.post("/_x/api/send", json={"text": ""})).status == 400
+        finally:
+            await c.close()
 
     asyncio.run(go())
