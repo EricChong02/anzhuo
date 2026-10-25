@@ -14,7 +14,7 @@ from claude_agent_sdk import list_sessions
 
 from . import cards, folders, report, router, translate
 from .commands import HELP, Cmd, parse
-from .config import DATA_DIR, Config
+from .config import DATA_DIR, Config, read_web_hash
 from .dingtalk import DingTalk, Incoming, parse_incoming
 from .report import Turn
 from .web import Web
@@ -68,7 +68,8 @@ class Bridge:
         self.board_lock = asyncio.Lock()
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
-        self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root)
+        self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
+                       cfg.web_user, read_web_hash(cfg.web_user) if cfg.web_base else "")
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
@@ -362,8 +363,8 @@ class Bridge:
         if cmd.kind == "web":
             if not self.web.enabled:
                 return await self.say("网页", "网页还没开通（配置里没有 web_base）。")
-            return await self.say("网页", f"[打开小E 网页]({self.web.link('/_x/')})\n\n一次性链接：点开后这台设备 30 天内免登录。"
-                                          "\n\n里面能看最近每一轮的完整过程，改过课的还能直接试课。")
+            return await self.say("网页", f"小E 网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
+                                          "里面有在做的课（一点就试课）和最近每一轮的完整过程。")
         if cmd.kind == "quota":
             return await self._quota()
         if cmd.kind == "recent":

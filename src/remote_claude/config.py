@@ -32,7 +32,8 @@ class Config:
     web_base: str = ""  # 过程页与试课预览的外网地址（如 https://xiaoe.ericlab.cn）；空 = 不发链接
     web_port: int = 8765  # 本机网页服务端口，经 SSH 反向隧道接到阿里云
     preview_upstream: str = "http://127.0.0.1:8000"  # 试课预览转给本机哪个 CyberScope 后端
-    preview_root: str = ""  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
+    preview_root: str = ""
+    web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串（scripts/set_web_password.py）  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
@@ -54,6 +55,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         web_port=int(raw.get("web_port", 8765)),
         preview_upstream=str(raw.get("preview_upstream", "http://127.0.0.1:8000")).rstrip("/"),
         preview_root=str(raw.get("preview_root", "")),
+        web_user=str(raw.get("web_user", "")),
     )
 
 
@@ -68,4 +70,16 @@ def read_secret(client_id: str) -> str:
             f"钥匙串里没有钉钉密钥（服务名 {KEYCHAIN_SERVICE}，账户 {client_id}）。"
             "运行 scripts/save_secret.sh 存一次。"
         )
+    return r.stdout.strip()
+
+
+WEB_KEYCHAIN = "remote-claude.web"
+
+
+def read_web_hash(user: str) -> str:
+    """网页登录密码的指纹（PBKDF2），存在钥匙串；没设就返回空（网页谁也进不去）。"""
+    if not user:
+        return ""
+    r = subprocess.run(["security", "find-generic-password", "-s", WEB_KEYCHAIN, "-a", user, "-w"],
+                       capture_output=True, text=True)
     return r.stdout.strip()

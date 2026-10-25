@@ -1,10 +1,13 @@
 """小E 网页：完整过程页和试课预览。只听本机端口，经 SSH 反向隧道挂到阿里云（如 https://xiaoe.ericlab.cn）。
 
-进门靠钉钉里发的一次性链接：点开换一个 30 天的登录凭证（Cookie），链接随即作废；同一浏览器再点旧链接仍能进。
+进门：固定网址 + 账号密码，登录一次这台设备 30 天免登录（Cookie）。密码只存 PBKDF2 指纹（钥匙串），
+同一来源连错 5 次锁 15 分钟、所有来源一小时内错 30 次全体锁一小时。
 试课预览只转本机 CyberScope 的课程预览页、静态文件和预览要用的几个接口；教师台、学生数据、WebSocket 一律不转。
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import json
 import logging
@@ -23,7 +26,23 @@ log = logging.getLogger(__name__)
 
 COOKIE = "xiaoe_sid"
 SESSION_DAYS = 30
-LINK_DAYS = 7
+LOCK_IP = (5, 15 * 60)  # 同一来源：错几次、锁多久
+LOCK_ALL = (30, 60 * 60)  # 所有来源合计：一小时内错几次就全体锁一小时
+
+
+def hash_password(password: str, salt: str | None = None, iters: int = 300_000) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), iters).hex()
+    return f"pbkdf2${iters}${salt}${digest}"
+
+
+def check_password(password: str, stored: str) -> bool:
+    try:
+        _, iters, salt, digest = stored.split("$")
+        return hmac.compare_digest(hash_password(password, salt, int(iters)).split("$")[3], digest)
+    except ValueError:
+        return False
+
 PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
 
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
@@ -103,7 +122,11 @@ ul{{padding-left:20px;margin:4px 0}}
 
 
 class Web:
-    def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = ""):
+    def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = "",
+                 user: str = "", pw_hash: str = ""):
+        self.user, self.pw_hash = user, pw_hash
+        self.fails: dict[str, list[float]] = {}
+        self.all_fails: list[float] = []
         self.base = base.rstrip("/")
         self.port = port
         self.preview_upstream = preview_upstream.rstrip("/")
@@ -117,17 +140,16 @@ class Web:
     def enabled(self) -> bool:
         return bool(self.base)
 
-    # ---------- 一次性链接与登录 ----------
+    # ---------- 登录 ----------
     def _load(self) -> dict:
         try:
             d = json.loads(self.store_path.read_text())
         except (OSError, json.JSONDecodeError):
             d = {}
-        return {"links": d.get("links", {}), "sessions": d.get("sessions", {})}
+        return {"sessions": d.get("sessions", {})}
 
     def _save(self) -> None:
         now = time.time()
-        self.store["links"] = {k: v for k, v in self.store["links"].items() if v["exp"] > now}
         self.store["sessions"] = {k: v for k, v in self.store["sessions"].items() if v > now}
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.store_path.with_suffix(".tmp")
@@ -136,15 +158,72 @@ class Web:
         tmp.replace(self.store_path)
 
     def link(self, target: str) -> str:
-        """给某个页面发一个一次性进门链接（7 天内有效）。"""
-        token = secrets.token_urlsafe(24)
-        self.store["links"][token] = {"target": target, "exp": time.time() + LINK_DAYS * 86400, "used": False}
-        self._save()
-        return f"{self.base}{PREFIX}/l/{token}"
+        """某个页面的固定网址（没登录会先到登录页，登完回到这里）。"""
+        return f"{self.base}{target}"
 
     def _logged_in(self, request: web.Request) -> bool:
         sid = request.cookies.get(COOKIE, "")
         return bool(sid) and self.store["sessions"].get(sid, 0) > time.time()
+
+    @staticmethod
+    def _client_ip(request: web.Request) -> str:
+        # nginx 把真实来源追加在 X-Forwarded-For 最后；前面的可以被伪造，只认最后一个
+        xff = request.headers.get("X-Forwarded-For", "")
+        return xff.split(",")[-1].strip() if xff else (request.remote or "")
+
+    def _locked(self, ip: str) -> int:
+        """还要锁多少秒（0 = 没锁）。"""
+        now = time.time()
+        self.all_fails = [t for t in self.all_fails if now - t < LOCK_ALL[1]]
+        mine = self.fails[ip] = [t for t in self.fails.get(ip, []) if now - t < LOCK_IP[1]]
+        if len(self.all_fails) >= LOCK_ALL[0]:
+            return int(self.all_fails[-LOCK_ALL[0]] + LOCK_ALL[1] - now) + 1
+        if len(mine) >= LOCK_IP[0]:
+            return int(mine[-LOCK_IP[0]] + LOCK_IP[1] - now) + 1
+        return 0
+
+    @staticmethod
+    def _safe_next(target: str) -> str:
+        return target if target.startswith("/") and not target.startswith("//") else f"{PREFIX}/"
+
+    def _login_form(self, nxt: str, msg: str = "", status: int = 200) -> web.Response:
+        note = f"<p style='color:#d33'>{html.escape(msg)}</p>" if msg else ""
+        return self._page("登录 · 小E", f"""<h1>小E · 登录</h1>{note}
+<form method="post" action="{PREFIX}/login" class="card">
+<input type="hidden" name="next" value="{html.escape(nxt)}">
+<p><label>账号<br><input name="username" autocomplete="username" required style="width:100%;font-size:17px;padding:8px"></label></p>
+<p><label>密码<br><input name="password" type="password" autocomplete="current-password" required style="width:100%;font-size:17px;padding:8px"></label></p>
+<p><button class="btn" style="border:0;font-size:17px">登录</button></p>
+<p class="meta">登录一次，这台设备 30 天内免登录。</p></form>""", status)
+
+    async def _login_get(self, request: web.Request) -> web.Response:
+        nxt = self._safe_next(request.query.get("next", f"{PREFIX}/"))
+        if self._logged_in(request):
+            raise web.HTTPFound(nxt)
+        return self._login_form(nxt)
+
+    async def _login_post(self, request: web.Request) -> web.Response:
+        form = await request.post()
+        nxt = self._safe_next(str(form.get("next", f"{PREFIX}/")))
+        ip = self._client_ip(request)
+        if wait := self._locked(ip):
+            return self._login_form(nxt, f"错太多次了，{max(1, wait // 60)} 分钟后再试。", 429)
+        ok = (self.pw_hash and hmac.compare_digest(str(form.get("username", "")).strip(), self.user)
+              and check_password(str(form.get("password", "")), self.pw_hash))
+        if not ok:
+            now = time.time()
+            self.fails.setdefault(ip, []).append(now)
+            self.all_fails.append(now)
+            log.warning("网页登录失败：%s", ip)
+            return self._login_form(nxt, "账号或密码不对。", 401)
+        self.fails.pop(ip, None)
+        sid = secrets.token_urlsafe(32)
+        self.store["sessions"][sid] = time.time() + SESSION_DAYS * 86400
+        self._save()
+        resp = web.HTTPFound(nxt)
+        resp.set_cookie(COOKIE, sid, max_age=SESSION_DAYS * 86400, httponly=True, samesite="Lax",
+                        secure=self.base.startswith("https://"), path="/")
+        raise resp
 
     # ---------- 记下一轮的完整过程 ----------
     def save_turn(self, label: str, turn, cwd: str, title: str) -> str:
@@ -176,27 +255,10 @@ class Web:
                             content_type="text/html", headers={"Cache-Control": "no-store",
                                                                "Referrer-Policy": "no-referrer"})
 
-    def _denied(self) -> web.Response:
-        return self._page("需要登录", "<h1>需要先登录</h1><p class='meta'>链接过期或已经用过了。"
-                          "在钉钉里给小E 发“网页”，会收到一个新的进门链接。</p>", 403)
-
-    async def _login(self, request: web.Request) -> web.Response:
-        token = request.match_info["token"]
-        link = self.store["links"].get(token)
-        if not link or link["exp"] < time.time():
-            return self._denied()
-        if link["used"]:
-            if self._logged_in(request):
-                raise web.HTTPFound(link["target"])
-            return self._denied()
-        link["used"] = True
-        sid = secrets.token_urlsafe(32)
-        self.store["sessions"][sid] = time.time() + SESSION_DAYS * 86400
-        self._save()
-        resp = web.HTTPFound(link["target"])
-        resp.set_cookie(COOKIE, sid, max_age=SESSION_DAYS * 86400, httponly=True, samesite="Lax",
-                        secure=self.base.startswith("https://"), path="/")
-        raise resp
+    def _denied(self, request: web.Request) -> web.Response:
+        if request.method == "GET" and not request.path.startswith("/api/"):
+            raise web.HTTPFound(f"{PREFIX}/login?next={quote(request.rel_url.path_qs, safe='')}")
+        return web.json_response({"detail": "需要先登录小E 网页"}, status=401)
 
     async def _to_index(self, request: web.Request) -> web.Response:
         raise web.HTTPFound(f"{PREFIX}/")
@@ -297,15 +359,17 @@ class Web:
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path.startswith(f"{PREFIX}/l/"):
+        if request.path == f"{PREFIX}/login":
             return await handler(request)
         if not self._logged_in(request):
-            return self._denied()
+            return self._denied(request)
         return await handler(request)
 
     def app(self) -> web.Application:
         app = web.Application(middlewares=[self._guard], client_max_size=20 * 1024 * 1024)
-        app.router.add_get(f"{PREFIX}/l/{{token}}", self._login)
+        app.router.add_get(f"{PREFIX}/login", self._login_get)
+        app.router.add_post(f"{PREFIX}/login", self._login_post)
+        app.router.add_get("/", self._to_index)
         app.router.add_get(f"{PREFIX}/", self._index)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
