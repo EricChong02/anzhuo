@@ -13,16 +13,12 @@ def _user_text(content) -> str | None:
         return content
     if not isinstance(content, list):
         return None
-    parts, real = [], False
-    for b in content:
-        kind = b.get("type") if isinstance(b, dict) else None
-        if kind == "text":
-            parts.append(b.get("text", ""))
-            real = True
-        elif kind == "image":
-            parts.append("[图片]")
-            real = True
-    return "\n".join(p for p in parts if p) if real else None
+    texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+    images = sum(1 for b in content if isinstance(b, dict) and b.get("type") == "image")
+    if not texts and not images:
+        return None
+    head = [f"[{images} 张图片]" if images > 1 else "[图片]"] if images else []
+    return "\n".join(p for p in head + texts if p)
 
 
 def history(messages, limit: int = 60) -> list[dict]:

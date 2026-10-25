@@ -132,7 +132,7 @@ def test_thread_history():
     ]
     items = thread.history(msgs)
     assert items == [{"who": "note", "text": "（更早的对话内容已压缩）"},
-                     {"who": "you", "text": "把封面标题改大\n[图片]"},
+                     {"who": "you", "text": "[图片]\n把封面标题改大"},
                      {"who": "claude", "text": "改好了", "steps": 2},
                      {"who": "you", "text": "好的"}]
     thread.attach_records(items, [{"id": "6-1", "title": "做完了", "previews": [["l01", "/p"]]}])

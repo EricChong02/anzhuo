@@ -8,6 +8,7 @@ APP_HTML = r"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
 <title>小E</title>
+<link rel="apple-touch-icon" href="/_x/icon.png"><link rel="manifest" href="/_x/manifest.json">
 <style>
 :root{--bg:#fafaf9;--side:#f2f2ef;--panel:#fff;--bubble:#ececE8;--ink:#1c1c1e;--mute:#6b6b70;--line:rgba(0,0,0,.08);
   --acc:#2f6fdf;--accsoft:rgba(47,111,223,.10);--amber:#b45309;--red:#c0392b;--glass:rgba(255,255,255,.78);--shadow:0 6px 24px rgba(0,0,0,.06)}
@@ -47,7 +48,8 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:10px 16px;min-height:58px;
   background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(16px);backdrop-filter:saturate(1.4) blur(16px);border-bottom:1px solid var(--line)}
 .head .ti{flex:1;min-width:0} .head .ti b{display:block;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.head .ti span{font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.head .ti span{font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.head .ti span.running{color:var(--acc)} .head .ti span.awaiting{color:var(--amber)} .head .ti span.error{color:var(--red)}
 .pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:17px;border:1px solid var(--line);background:var(--panel);font-size:14.5px;color:var(--ink)}
 .pill:hover{border-color:var(--acc)} .pill svg{width:16px;height:16px}
 .back{display:none}
@@ -82,8 +84,19 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .opt:disabled{opacity:.5}
 
 /* 输入条 */
-.dock{position:absolute;left:0;right:0;bottom:0;padding:0 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none}
-.composer{pointer-events:auto;max-width:760px;margin:0 auto;background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
+.dock{position:absolute;left:0;right:0;bottom:var(--kb,0px);padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
+  background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
+.quick{pointer-events:auto;max-width:760px;margin:0 auto 8px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.quick::-webkit-scrollbar{display:none}
+.quick button{flex:none;height:36px;padding:0 16px;border-radius:18px;background:var(--panel);border:1px solid var(--line);font-size:15px}
+.jump{pointer-events:auto;margin:0 auto 8px;height:36px;padding:0 14px;border-radius:18px;
+  background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);font-size:14.5px;display:none;align-items:center;gap:4px}
+.jump.on{display:inline-flex} .jump svg{width:16px;height:16px}
+.fold .md{max-height:15em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
+.more{margin-top:6px;font-size:15px;color:var(--acc)}
+.fab{display:none;position:fixed;right:20px;bottom:calc(22px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--acc);color:#fff;
+  box-shadow:0 8px 24px rgba(47,111,223,.35);place-items:center;z-index:5} .fab svg{width:24px;height:24px}
+.composer{pointer-events:auto;max-width:760px;margin:0 auto;background:var(--panel);
   border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);padding:8px}
 .composer .row{display:flex;align-items:flex-end;gap:6px}
 .composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
@@ -108,16 +121,24 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 @media (max-width:820px){
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
   .app.in .side{display:none} .app:not(.in) .main{display:none} .back{display:grid}
-  .feed{padding:18px 14px 130px} .you{max-width:88%}
+  .app:not(.in) .fab{display:grid} #newBtn{display:none}
+  .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px}
+  .head{padding-top:calc(10px + env(safe-area-inset-top))}
+  .scroll{padding:0 8px 110px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:16.5px} .item .st{font-size:14.5px}
+  .label{font-size:14.5px;padding:18px 12px 6px}
+  .feed{padding:18px 16px 150px} .you{max-width:86%} .col{gap:20px}
+  .live ol li:nth-last-child(n+4){display:none}
+  .dock{padding:24px 10px calc(10px + env(safe-area-inset-bottom))}
 }
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><b>小E</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
-    <div class="scroll"><div id="courses"></div><div class="label">对话</div><div id="list"></div>
+    <div class="scroll"><div id="courses"></div><div id="list"></div>
       <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
     </div>
   </aside>
+  <button class="fab" id="fab" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   <section class="main" id="main"><div class="blank"><b>小E</b>选一个对话，或开个新的</div></section>
 </div>
 <script>
@@ -130,8 +151,9 @@ const ICON = {
   up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
 };
-let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, folder = '';
+let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, folder = '', opened = new Set();
 
 async function api(path, body) {
   const r = await fetch('/_x/api/' + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
@@ -173,49 +195,67 @@ function md(src) {
 function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
-  $('#list').innerHTML = sessions.map(s => `<button class="item ${s.status} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
-      <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`).join('')
+  const row = s => `<button class="item ${s.status} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
+      <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
+  const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued'].includes(s.status)], ['其他', s => s.status === 'idle']]
+    .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
+  $('#list').innerHTML = groups.map(([t, xs]) => (groups.length > 1 || t !== '其他' ? `<div class="label">${t}</div>` : '') + xs.map(row).join('')).join('')
     || '<div class="note" style="padding:10px">还没有对话</div>';
   document.querySelectorAll('#list .item').forEach(b => b.onclick = () => openSession(+b.dataset.n));
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; renderSide(); }
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; renderSide(); headStatus(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
 function composerHTML(ph) {
-  return `<div class="dock"><div class="composer"><div class="warn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
+  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="warn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
     <div class="row"><label class="icon-btn" title="图片">${ICON.img}<input type="file" accept="image/*" multiple id="file" hidden></label>
     <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
     <button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
 
-function openSession(num) {
-  sel = num; lastKey = ''; attach = []; location.hash = 's' + num;
+function headStatus() {
+  const s = sessions.find(x => x.num === sel), el = $('#hst');
+  if (!s || !el) return;
+  el.className = s.status; el.textContent = s.status === 'idle' ? s.cwd : statusText(s);
+}
+
+function openSession(num, fromPop) {
+  sel = num; lastKey = ''; attach = [];
+  if (!fromPop) history.pushState({s: num}, '', '#s' + num);
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b>${esc(s.name)}</b><span>${esc(s.cwd)}</span></div><span id="headActs"></span></div>
-    <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>${composerHTML('说点什么…')}`;
-  $('#back').onclick = goList;
+      <div class="ti"><b>${esc(s.name)}</b><span id="hst">${esc(s.cwd)}</span></div><span id="headActs"></span></div>
+    <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
+    ${composerHTML('说点什么…')}`;
+  $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
+  const feed = $('#feed');
+  feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
+  $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
   wireComposer(text => api('send', {num, text, images: attach}), text => { (pending[num] ||= []).push({text, t: Date.now()}); });
-  renderSide(); loadThread();
+  renderSide(); headStatus(); loadThread();
 }
 
-function goList() { sel = null; location.hash = ''; $('#app').classList.remove('in'); renderSide(); }
+function goList() { sel = null; if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
 
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const said = new Set(d.items.filter(i => i.who === 'you').map(i => i.text.trim()));
   pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text) && Date.now() - p.t < 120000);
-  let h = d.items.map(it => {
+  const replies = d.items.filter(i => i.who === 'claude');
+  const keep = new Set(replies.slice(-2));
+  let h = d.items.map((it, idx) => {
     if (it.who === 'you') return `<div class="you">${esc(it.text)}</div>`;
     if (it.who === 'note') return `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
-    return `<div class="cl"><div class="md">${md(it.text)}</div>${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
+    const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 700 && !opened.has(id);
+    return `<div class="cl ${fold ? 'fold' : ''}"><div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
   h += pending[d.num].map(p => `<div class="you pending">${esc(p.text)}</div>`).join('');
   if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
@@ -228,6 +268,15 @@ function renderThread(d) {
   if (d.decision) h += `<div class="ask"><div class="q">${esc(d.decision.question)}</div>${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   $('#col').innerHTML = h;
+  document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
+  const q = $('#quick');
+  const quick = d.live ? [] : d.decision ? [] : d.awaiting ? ['好的', '就按你推荐的', '先不做'] : [];
+  q.hidden = !quick.length;
+  q.innerHTML = quick.map(t => `<button>${t}</button>`).join('');
+  q.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    q.hidden = true; (pending[d.num] ||= []).push({text: b.textContent, t: Date.now()}); lastKey = ''; renderThread(d);
+    await api('send', {num: d.num, text: b.textContent}); loadThread(); loadSessions();
+  });
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(last.previews[0][1])}" target="_blank">${ICON.play}试课</a>` : '';
   $('#ta').placeholder = d.live ? '插话：它手上这一步做完就会看到' : d.awaiting ? '回答它的问题…' : '说点什么…';
@@ -298,11 +347,11 @@ function wireComposer(sendFn, onSent) {
   btn.onclick = go; sync();
 }
 
-function openNew() {
-  sel = null; location.hash = 'new'; $('#app').classList.add('in'); renderSide(); folder = '';
+function openNew(fromPop) {
+  sel = null; if (!fromPop) history.pushState({n: 1}, '', '#new'); $('#app').classList.add('in'); renderSide(); folder = '';
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>新对话</b></div></div>
     <div class="newv"><h1>要做什么？</h1><div class="chips" id="chips"></div>${composerHTML('比如：把第二课封面标题改大一点')}</div>`;
-  $('#back').onclick = goList;
+  $('#back').onclick = () => history.state && history.state.n ? history.back() : goList();
   const chips = () => { $('#chips').innerHTML = [['', '临时文件夹'], ...folders.map(f => [f, f])].map(([v, t]) =>
       `<button class="chip ${v === folder ? 'on' : ''}" data-v="${esc(v)}">${esc(t)}</button>`).join('');
     document.querySelectorAll('.chip').forEach(c => c.onclick = () => { folder = c.dataset.v; chips(); }); };
@@ -310,12 +359,20 @@ function openNew() {
   wireComposer(text => api('send', {text, folder, images: attach}));
   $('#ta').focus();
 }
-$('#newBtn').onclick = openNew;
+$('#newBtn').onclick = () => openNew();
+$('#fab').onclick = () => openNew();
+
+// 手机弹出键盘时，把输入条托到键盘上面
+if (window.visualViewport) {
+  const vv = visualViewport;
+  const fit = () => document.documentElement.style.setProperty('--kb', Math.max(0, innerHeight - vv.height - vv.offsetTop) + 'px');
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+}
 
 (async () => {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
-  if (m) openSession(+m[1]); else if (location.hash === '#new') openNew();
+  if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
   setInterval(() => { if (!document.hidden) loadSessions(); }, 4000);
   setInterval(() => { if (!document.hidden) loadThread(); }, 3000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadSessions(); loadThread(); } });

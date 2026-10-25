@@ -288,6 +288,14 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         from .webui import APP_HTML
         return web.Response(text=APP_HTML, content_type="text/html", headers={"Cache-Control": "no-store"})
 
+    async def _icon(self, request: web.Request) -> web.StreamResponse:
+        return web.FileResponse(Path(__file__).parent / "static" / "icon.png", headers={"Cache-Control": "max-age=86400"})
+
+    async def _manifest(self, request: web.Request) -> web.Response:
+        return web.json_response({"name": "小E", "short_name": "小E", "start_url": f"{PREFIX}/", "display": "standalone",
+                                  "background_color": "#fafaf9", "theme_color": "#fafaf9",
+                                  "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"}]})
+
     async def _to_index(self, request: web.Request) -> web.Response:
         raise web.HTTPFound(f"{PREFIX}/")
 
@@ -531,7 +539,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path == f"{PREFIX}/login":
+        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json"):
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
@@ -544,6 +552,8 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         app.router.add_get("/", self._to_index)
         app.router.add_get(f"{PREFIX}/", self._app_page)
         app.router.add_get(f"{PREFIX}/history", self._index)
+        app.router.add_get(f"{PREFIX}/icon.png", self._icon)
+        app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
