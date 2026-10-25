@@ -111,7 +111,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 /* 空状态、新对话 */
 .blank{margin:auto;text-align:center;color:var(--mute);padding:24px}
 .blank b{display:block;color:var(--ink);font-size:22px;margin-bottom:6px}
-.newv{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 16px 140px}
+.newv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;justify-content:center;
+  padding:24px 16px calc(24px + var(--kb,0px));transition:padding-bottom .15s}
 .newv h1{text-align:center;font-size:28px;font-weight:600;margin:0 0 18px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0 auto 14px;max-width:760px}
 .chip{height:34px;padding:0 14px;border-radius:17px;border:1px solid var(--line);background:var(--panel);font-size:14.5px}
