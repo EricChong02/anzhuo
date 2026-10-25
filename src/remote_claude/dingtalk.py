@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 API = "https://api.dingtalk.com"
 OAPI = "https://oapi.dingtalk.com"
+CARD_TEMPLATE = "1366a1eb-bc54-4859-ac88-517c56a9acb1.schema"  # 钉钉公开的 Markdown + 按钮卡片模板
 
 
 @dataclass
@@ -111,6 +112,29 @@ class DingTalk:
             "msgKey": msg_key, "msgParam": json.dumps(param, ensure_ascii=False),
         })
 
+    def _put(self, path: str, body: dict) -> dict:
+        r = requests.put(f"{API}{path}", json=body, timeout=30,
+                         headers={"x-acs-dingtalk-access-token": self._get_token()})
+        if r.status_code == 401:
+            self._token = ""
+        if r.status_code >= 400:
+            raise RuntimeError(f"钉钉接口 {path} 返回 {r.status_code}：{r.text[:300]}")
+        return r.json() if r.text else {}
+
+    def _create_card(self, user_id: str, out_id: str, data: dict) -> None:
+        """单聊里发一张卡片（钉钉公开的“Markdown + 按钮”模板）；按钮点了经 Stream 回调回来。"""
+        self._post("/v1.0/card/instances/createAndDeliver", {
+            "cardTemplateId": CARD_TEMPLATE, "outTrackId": out_id, "userIdType": 1,
+            "cardData": {"cardParamMap": data}, "callbackType": "STREAM",
+            "openSpaceId": f"dtv1.card//IM_ROBOT.{user_id}",
+            "imRobotOpenSpaceModel": {"supportForward": False},
+            "imRobotOpenDeliverModel": {"spaceType": "IM_ROBOT", "robotCode": self.client_id},
+        })
+
+    def _update_card(self, out_id: str, data: dict) -> None:
+        self._put("/v1.0/card/instances", {"outTrackId": out_id, "cardData": {"cardParamMap": data},
+                                           "cardUpdateOptions": {"updateCardDataByKey": True}})
+
     def _upload_image(self, path: Path) -> str:
         with open(path, "rb") as f:
             r = requests.post(f"{OAPI}/media/upload", params={"access_token": self._get_token()},
@@ -145,3 +169,9 @@ class DingTalk:
 
     async def download(self, code: str, dest: Path) -> Path:
         return await asyncio.to_thread(self._download, code, dest)
+
+    async def create_card(self, user_id: str, out_id: str, data: dict) -> None:
+        await asyncio.to_thread(self._create_card, user_id, out_id, data)
+
+    async def update_card(self, out_id: str, data: dict) -> None:
+        await asyncio.to_thread(self._update_card, out_id, data)

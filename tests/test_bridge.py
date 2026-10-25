@@ -13,12 +13,19 @@ class FakeDT:
 
     def __init__(self):
         self.sent = []
+        self.cards = {}
 
     async def send_markdown(self, uid, title, text):
         self.sent.append((title, text))
 
     async def send_image(self, uid, path):
         self.sent.append(("图片", str(path)))
+
+    async def create_card(self, uid, oid, data):
+        self.cards[oid] = [data]
+
+    async def update_card(self, oid, data):
+        self.cards[oid].append(data)
 
     async def download(self, code, dest):
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -267,3 +274,51 @@ def test_desktop_resume(tmp_path, monkeypatch):
         assert len(b.registry.sessions) == 3
 
     asyncio.run(go())
+
+
+def test_cards_flow(tmp_path, monkeypatch):
+    """做得久的发进度卡、原地更新、结束收尾；“要你定”出按钮卡，点按钮把选择交回对话；陌生人点无效。"""
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"), auto_route=False)
+    seen = []
+
+    async def fake_run(self, s, job, turn):
+        seen.append(job.text)
+        if job.text.startswith("选"):
+            turn.final_text = "好的，按 B 做了。"
+            return
+        for step in ("看 a.py", "改 a.py", "跑命令：测试"):
+            turn.steps.append(step)
+            await asyncio.sleep(0.03)
+        turn.changed_files.append(str(tmp_path / "a.py"))
+        turn.final_text = "要你定：标题用哪个？\n\nA. 大\nB. 中\n\n推荐：B"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay, b.progress_every = 0.01, (0.01, 0.01)
+        b.registry.add(Session(num=1, name="封面", cwd=str(tmp_path)))
+        await b.on_raw(msg("把封面标题改大"))
+        await asyncio.sleep(0.4)
+        prog = [v for k, v in dt.cards.items() if k.startswith("p1-")]
+        assert len(prog) == 1 and len(prog[0]) >= 3
+        assert prog[0][-1]["title"].startswith("等你定") and "共 3 步" in prog[0][-1]["markdown"]
+        assert any("跑命令：测试" in d["markdown"] for d in prog[0])
+        oid = next(k for k in dt.cards if k.startswith("d1-"))
+        assert "选 B（推荐）" in dt.cards[oid][0]["sys_full_json_obj"]
+        await b.on_card({"userId": "stranger", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
+        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
+        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
+        await asyncio.sleep(0.2)
+        assert "你选了 B" in dt.cards[oid][-1]["markdown"]
+        b2 = Bridge(cfg, dt, data_dir=tmp_path / "data")  # 重启后还认得这张卡
+        assert b2.cards[oid]["picked"] == "B"
+
+    asyncio.run(go())
+    assert seen == ["把封面标题改大", "选 B：中"]

@@ -147,3 +147,38 @@ def test_translated_footer():
     t = report.Turn(started=0, ended=60, request="改标题", final_text="改好了", translated="DeepSeek",
                     changed_files=["/w/a.html"])
     assert "英文已由 DeepSeek 译成中文" in report.build("#1 测试", t, "/w")[1]
+
+
+def test_cards():
+    import json
+    from remote_claude import cards
+    assert cards.step_label("Read", {"file_path": "/a/b/app.py"}) == "看 app.py"
+    assert cards.step_label("Bash", {"command": "pytest -q", "description": "跑测试"}) == "跑命令：跑测试"
+    assert cards.step_label("ToolSearch", {}) is None
+    text = """要你定：封面标题用哪种字号？
+
+A. 64px，最醒目
+**B.** 56px，和正文更协调
+- C、保持 48px
+
+推荐：B，机房屏上不挤"""
+    d = cards.parse_decision(text)
+    assert d.question == "封面标题用哪种字号？"
+    assert [k for k, _ in d.options] == ["A", "B", "C"] and d.options[1][1] == "56px，和正文更协调"
+    assert d.recommend == "B"
+    assert cards.parse_decision("要你定：只有一个 A. 方案") is None
+    assert cards.parse_decision("做完了。A. 一 B. 二") is None
+    data = cards.decision_data("#2 封面", d)
+    btns = json.loads(data["sys_full_json_obj"])["msgButtons"]
+    assert [b["id"] for b in btns] == ["pick:A", "pick:B", "pick:C"] and btns[1]["text"] == "选 B（推荐）"
+    picked = cards.decision_data("#2 封面", d, picked="B")
+    assert json.loads(picked["sys_full_json_obj"])["msgButtons"] == [] and "你选了 B" in picked["markdown"]
+    assert cards.action_of('{"cardPrivateData": {"actionIds": ["pick:A"], "params": {}}}') == "pick:A"
+    assert cards.action_of({"whatever": {"id": "stop"}}) == "stop"
+    t = report.Turn(started=0, request="改封面", steps=[f"看 {i}.py" for i in range(9)])
+    p = cards.progress_data("#2 封面", t)
+    assert "4. 看 3.py" in p["markdown"] and "9. 看 8.py" in p["markdown"] and "看 2.py" not in p["markdown"]
+    assert json.loads(p["sys_full_json_obj"])["msgButtons"][0]["id"] == "stop"
+    t.ended = 120
+    f = cards.progress_data("#2 封面", t, final="做完了")
+    assert f["title"].startswith("做完了") and "共 9 步" in f["markdown"]

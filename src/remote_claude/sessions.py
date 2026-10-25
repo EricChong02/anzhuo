@@ -18,6 +18,7 @@ from claude_agent_sdk import (
 )
 
 from .folders import display
+from .cards import step_label
 from .report import Turn, brief
 
 log = logging.getLogger(__name__)
@@ -33,7 +34,8 @@ APPEND = """回复一律用简体中文；专有名词、代码、命令、路�
 自查结果：跑了哪些检查、结果如何；哪些没有验证要直说。
 截图：做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张），这里只写每张图是什么。
 某一段没有内容（比如没有要用户做的、没有改文件、没有截图），这一段整段不写，不要写“没有”“无”。
-需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。"""
+需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
+选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。"""
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -115,12 +117,15 @@ class Job:
 
 
 Notify = Callable[[Session, Turn], Awaitable[None]]
+Started = Callable[[Session, Turn, Job], Awaitable[None]]
 
 
 class Runner:
-    def __init__(self, registry: Registry, on_done: Notify, max_parallel: int = 3, default_effort: str | None = None):
+    def __init__(self, registry: Registry, on_done: Notify, max_parallel: int = 3, default_effort: str | None = None,
+                 on_start: Started | None = None):
         self.registry = registry
         self.on_done = on_done
+        self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
@@ -168,6 +173,8 @@ class Runner:
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
+                if self.on_start:
+                    asyncio.create_task(self.on_start(s, turn, job))
                 try:
                     await self._run(s, job, turn)
                 except Exception as e:  # noqa: BLE001 - 任何失败都要报给用户
@@ -259,6 +266,8 @@ class Runner:
                         last_text = "\n".join(texts)
                     for b in msg.content:
                         if isinstance(b, ToolUseBlock):
+                            if label := step_label(b.name, b.input or {}):
+                                turn.steps.append(label)
                             if b.name in EDIT_TOOLS:
                                 fp = b.input.get("file_path") or b.input.get("notebook_path")
                                 if fp:

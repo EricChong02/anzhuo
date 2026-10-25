@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -11,7 +12,7 @@ from pathlib import Path
 import dingtalk_stream
 from claude_agent_sdk import list_sessions
 
-from . import folders, report, router, translate
+from . import cards, folders, report, router, translate
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config
 from .dingtalk import DingTalk, Incoming, parse_incoming
@@ -59,7 +60,11 @@ class Bridge:
         self.dt = dt
         self.data_dir = data_dir
         self.registry = Registry(data_dir / "sessions.json")
-        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort)
+        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
+        self.progress: dict[int, str] = {}  # 对话编号 → 正在更新的进度卡
+        self.progress_every = (15.0, 45.0)  # 进度卡多久更新一次：前 5 分钟 / 之后（省钉钉调用次数）
+        self.cards_path = data_dir / "cards.json"
+        self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
         self.photo_buf: Incoming | None = None  # 只发了图、还没跟话时先攒着，等后面那句话一起交
         self.photo_task: asyncio.Task | None = None
@@ -79,7 +84,50 @@ class Bridge:
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
 
+    def _load_cards(self) -> dict[str, dict]:
+        try:
+            return json.loads(self.cards_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_cards(self) -> None:
+        keep = dict(list(self.cards.items())[-100:])
+        self.cards = keep
+        self.cards_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cards_path.write_text(json.dumps(keep, ensure_ascii=False))
+
+    async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
+        """几秒内答完的不发卡；做得久的发一张进度卡，同一张卡原地更新。"""
+        await asyncio.sleep(self.receipt_delay)
+        if job.finished or turn.ended:
+            return
+        oid = f"p{s.num}-{int(turn.started * 1000)}"
+        try:
+            await self.dt.create_card(self.user_id, oid, cards.progress_data(s.label, turn))
+        except Exception:  # noqa: BLE001 - 卡片发不出就退回一句文字
+            log.warning("发进度卡失败", exc_info=True)
+            return await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}")
+        self.progress[s.num] = oid
+        self.cards[oid] = {"kind": "progress", "num": s.num}
+        self._save_cards()
+        shown = -1
+        while self.progress.get(s.num) == oid:
+            if len(turn.steps) != shown:
+                shown = len(turn.steps)
+                try:
+                    await self.dt.update_card(oid, cards.progress_data(s.label, turn))
+                except Exception:  # noqa: BLE001
+                    log.debug("更新进度卡失败", exc_info=True)
+            await asyncio.sleep(self.progress_every[time.time() - turn.started > 300])
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if oid := self.progress.pop(s.num, None):
+            final = "停下了" if turn.interrupted else "出错了" if turn.is_error else \
+                "等你定" if report.needs_decision(turn.final_text) else "做完了"
+            try:
+                await self.dt.update_card(oid, cards.progress_data(s.label, turn, final=final))
+            except Exception:  # noqa: BLE001
+                log.debug("收尾进度卡失败", exc_info=True)
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
@@ -90,8 +138,45 @@ class Bridge:
             await self.say(title, body)
             for img in turn.images:
                 await self.dt.send_image(self.user_id, Path(img))
+            if not turn.is_error and (d := cards.parse_decision(turn.final_text)):
+                oid = f"d{s.num}-{int(time.time() * 1000)}"
+                await self.dt.create_card(self.user_id, oid, cards.decision_data(s.label, d))
+                self.cards[oid] = {"kind": "decision", "num": s.num, "question": d.question,
+                                   "options": d.options, "recommend": d.recommend}
+                self._save_cards()
         except Exception:
             log.exception("推送 #%s 的结果失败", s.num)
+
+    async def on_card(self, data: dict) -> None:
+        """卡片上的按钮被点了：停下，或把选择交回那个对话。"""
+        if data.get("userId") not in self.cfg.allowed_user_ids:
+            log.warning("忽略一次卡片点击：%s", data.get("userId"))
+            return
+        oid, action = data.get("outTrackId", ""), cards.action_of(data.get("content") or {})
+        info = self.cards.get(oid)
+        log.info("卡片点击：%s %s", oid, action)
+        if not info or not action:
+            return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
+        s = self.registry.get(info["num"])
+        if not s:
+            return await self.say("没有这个对话", f"#{info['num']} 已经不在了。")
+        if action == "stop":
+            stopped = await self.runner.stop(s.num)
+            if not stopped:
+                await self.say("停", f"{s.label} 已经做完了，不用停。")
+            return
+        if action.startswith("pick:") and info["kind"] == "decision":
+            if info.get("picked"):
+                return
+            letter = action.split(":", 1)[1]
+            options = dict(info["options"])
+            info["picked"] = letter
+            self._save_cards()
+            d = cards.Decision(info["question"], [tuple(o) for o in info["options"]], info.get("recommend"))
+            await self.dt.update_card(oid, cards.decision_data(s.label, d, picked=letter))
+            text = f"选 {letter}：{options.get(letter, '')}"
+            inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=text)
+            await self._message(Cmd("message", num=s.num, text=text), inc, routed=True)
 
     # ---------- 收消息 ----------
     async def on_raw(self, data: dict) -> None:
@@ -456,15 +541,7 @@ class Bridge:
         msg = opening or f"收到 · {s.label} 在做：{report.brief(text) or '看图'}"
         if ahead:
             msg += f"，前面还有 {ahead} 件，做完再做这件"
-        if opening or ahead:
-            await self.say("收到", msg)
-        else:
-            asyncio.create_task(self._receipt_later(job, msg))
-
-    async def _receipt_later(self, job: Job, msg: str) -> None:
-        """几秒内就答完的（闲聊、简单问答）不发“收到”，免得刷屏。"""
-        await asyncio.sleep(self.receipt_delay)
-        if not job.finished:
+        if opening or ahead:  # 其余的“收到”由进度卡代替（几秒内答完的不发）
             await self.say("收到", msg)
 
     # ---------- 运行 ----------
@@ -476,8 +553,14 @@ class Bridge:
                 asyncio.create_task(bridge.on_raw(callback.data))
                 return dingtalk_stream.AckMessage.STATUS_OK, "OK"
 
+        class CardHandler(dingtalk_stream.CallbackHandler):
+            async def process(self, callback: dingtalk_stream.CallbackMessage):
+                asyncio.create_task(bridge.on_card(callback.data))
+                return dingtalk_stream.AckMessage.STATUS_OK, {}
+
         cred = dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret)
         client = dingtalk_stream.DingTalkStreamClient(cred)
         client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
+        client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()

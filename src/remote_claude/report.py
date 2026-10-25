@@ -17,6 +17,7 @@ class Turn:
     ended: float = 0.0
     changed_files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
+    steps: list[str] = field(default_factory=list)  # 每一步说成人话，给进度卡用
     images: list[str] = field(default_factory=list)
     final_text: str = ""
     is_error: bool = False
