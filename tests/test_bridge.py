@@ -527,3 +527,43 @@ def test_inject_while_running(tmp_path, monkeypatch):
 
     asyncio.run(go())
     assert got == ["顺便把颜色改成蓝色"]
+
+
+def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
+    """#6 列了 A/B/C 在等你回答，当前对话却是 #4：你说“按C来做”应该交给 #6。"""
+    from remote_claude.app import asks_user
+    from remote_claude.sessions import Session
+    six = ("有空间。下面是几个方案。\n\n| 方案 | 改动 |\n|---|---|\n| A. 收窄面板 | 320 → 260 |\n"
+           "| B. 收起面板 | 点一下隐藏 |\n| C. 全屏试课 | 铺满 |\n\n我推荐 **C**。\n\n要我按 C 来做吗？")
+    assert asks_user(six) == "要我按 C 来做吗？"
+    assert asks_user("改好了，跑了测试，都通过。") == ""
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"))
+    seen = []
+
+    async def fake_run(self, s, job, turn):
+        seen.append((s.num, job.text))
+        turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    async def no_router(*a, **k):
+        raise AssertionError("这种回复不该再请小E 判断")
+
+    from remote_claude import router
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(router, "route", no_router)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 5
+        b.registry.add(Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？"))
+        b.registry.add(Session(num=4, name="开发", cwd=str(tmp_path)))  # 后加的，是当前对话
+        await b.on_raw(msg("按C来做"))
+        await asyncio.sleep(0.05)
+        assert b.registry.get(6).awaiting == ""
+
+    asyncio.run(go())
+    assert seen == [(6, "按C来做")]

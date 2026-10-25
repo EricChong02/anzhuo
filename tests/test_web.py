@@ -11,10 +11,12 @@ from remote_claude.web import Web, check_password, course_previews, hash_passwor
 
 def test_preview_allowed():
     ok = [("GET", "/studio-preview.html"), ("GET", "/engine/x.js"), ("GET", "/workspace/_drafts/a/course.json"),
-          ("POST", "/api/lesson-preview/check"), ("GET", "/api/drafts"), ("GET", "/assets/a.css")]
+          ("POST", "/api/lesson-preview/check"), ("GET", "/api/drafts"), ("GET", "/assets/a.css"),
+          ("GET", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/courses/topics/bx1/a/index.html")]
     bad = [("GET", "/teacher.html"), ("GET", "/"), ("GET", "/api/teacher/classes"), ("GET", "/api/students"),
            ("GET", "/api/draftsx"), ("GET", "/ws/teacher"), ("POST", "/engine/x.js"), ("GET", "/../etc/passwd"),
-           ("GET", "/library.html"), ("POST", "/api/login")]
+           ("GET", "/library.html"), ("POST", "/api/login"), ("GET", "/student.html"),
+           ("POST", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/workspace/../teacher.html")]
     assert all(preview_allowed(m, p) for m, p in ok)
     assert not any(preview_allowed(m, p) for m, p in bad)
 

@@ -49,6 +49,7 @@ PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
                "/api/ping", "/api/logs", "/api/fault")
 PREVIEW_PAGES = {"/studio-preview.html", "/lecture-preview.html"}
+COURSE_DIRS = ("/workspace/", "/courses/")  # 课件本身（草稿在 /workspace/，上架的在 /courses/）
 # CyberScope 只让“本机直连”读做课工作区（/workspace/ 课件、判题、草稿课列表），带代理来源头的一律当外来（auth.is_trusted_local）。
 # 进得了这里的人已经过了小E 的一次性链接登录，所以只对这三类请求去掉来源头；其余（含教师接口）照旧带着，后端照旧当外来。
 LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
@@ -66,7 +67,8 @@ def preview_allowed(method: str, path: str) -> bool:
     if method not in ("GET", "HEAD"):
         return False
     if path == "/" or path.endswith(".html"):
-        return path in PREVIEW_PAGES
+        # 平台页面只放两张预览页；课件里每一节的内容也是 .html（fragments/section-N.html、课的 index.html），放行课程目录下的
+        return path in PREVIEW_PAGES or path.startswith(COURSE_DIRS)
     return True
 
 

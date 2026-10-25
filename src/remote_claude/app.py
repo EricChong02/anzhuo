@@ -30,6 +30,19 @@ log = logging.getLogger(__name__)
 
 
 _REPLY = re.compile(r"(好的?|好吧|行|可以|对|是的?|嗯+|ok|OK|继续|接着|就这样|选?[A-Da-d1-9]|再.{0,6}一点|为什么|然后呢|还有呢)[。！!？?…，,]*")
+_CHOICE = re.compile(r"(就|那就)?(按|选|用|要)?\s*(方案)?\s*[A-Da-d]\s*(方案)?\s*(来做|来|吧|就行|好了|可以)?[。！!…，,]*")
+_OPTIONS = re.compile(r"^\s*(?:\|\s*)?(?:[-*]\s*)?(?:\*\*)?(?:方案|选项)?\s*[A-D]\s*(?:\*\*)?\s*[.．、:：)）]", re.M)
+
+
+def asks_user(text: str) -> str:
+    """这一轮最后是不是在等你回答（要你定、列了 A/B/C、或以问句收尾）；是就返回那句问话，给分派用。"""
+    body = text.strip()
+    if not body:
+        return ""
+    last = [ln.strip(" *#") for ln in body.splitlines() if ln.strip()][-1]
+    if report.needs_decision(body) or len(_OPTIONS.findall(body)) >= 2 or last.endswith(("？", "?")):
+        return report.brief(last if last.endswith(("？", "?")) else body, 40)
+    return ""
 
 
 def inline_overrides(text: str) -> tuple[str | None, str | None]:
@@ -53,7 +66,7 @@ def _looks_like_project(cwd: Path) -> bool:
 def _is_reply(text: str) -> bool:
     """一看就是对上一条的回复，不必请小E判断，直接交给当前对话（省一次调用）。"""
     t = text.strip()
-    return bool(_REPLY.fullmatch(t)) or len(t) <= 3
+    return bool(_REPLY.fullmatch(t) or _CHOICE.fullmatch(t)) or len(t) <= 3
 
 
 class Bridge:
@@ -211,6 +224,7 @@ class Bridge:
                 log.exception("记过程页失败")
         s.last_title = title
         s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
+        s.awaiting = "" if turn.is_error else asks_user(turn.final_text)
         self.registry.save()
         try:
             await self.say(title, body, board=False)
@@ -604,6 +618,10 @@ class Bridge:
             m = re.search(r"#(\d{1,4})", inc.quoted_text)
             num = int(m.group(1)) if m else None
         chatting = self.chat_at > self.work_at and time.time() - self.chat_at < CHAT_MEMORY
+        if num is None and cmd.text and not routed and _is_reply(cmd.text) and not chatting:
+            waiting = sorted((x for x in self.registry.visible() if x.awaiting), key=lambda x: -x.updated)
+            if waiting:  # “按C来做”“好的”这类回复，交给正在等你回答的那个对话（最近问的那个）
+                num = waiting[0].num
         if num is None and cmd.text and not routed and self.cfg.auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
             busy = {n for n in self.registry.sessions if self.runner.busy(n)}
@@ -654,6 +672,7 @@ class Bridge:
         await self.say("接着还是新开", f"这句要接着 {cur.label}，还是新开一个？回编号：\n\n1. 接着 {cur.label}\n2. 新开（{where}）")
 
     async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
+        s.awaiting = ""
         inbox = self.data_dir / "inbox" / str(s.num)
         stamp = f"{time.time():.0f}"
         images = [await self.dt.download(c, inbox / f"{stamp}-{i}.png") for i, c in enumerate(inc.image_codes)]

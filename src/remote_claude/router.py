@@ -34,6 +34,7 @@ SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工
 打招呼、闲聊这类不是任务，不要 new；要用到某个对话内容的（“刚才为什么这么改”“上面那个再解释下”）选 continue。
 只有用户要办一件和所有已有对话都不相关的事，才选 new。
 有对话“正在做”或几分钟前刚做完时，用户的话多半是说给它的：讨论它在做的东西、对它发来的卡片/报告/截图的反馈、抱怨、追问、出主意，都选 continue 它。拿不准是 reply 还是 continue 时，选 continue。
+标着“在等你回答”的对话刚问了用户问题；用户的话像是在回答它（选方案、同意、补充意见），就 continue 它，即使它不是当前对话。
 如果给了“你刚才直接回答用户的”，而这条消息是在接着那段话说（追问、纠正、补充，比如“她老公不是老师”“那如果是…呢”），就选 reply，结合前文接着回答；那段话要用到文件或动手做事时才选 new。
 选 new 时再给 kind：开发类工作（写代码、改程序、做功能、调试、做课件或课程页面，不限哪个项目）写 "dev"；
 简单任务（查资料、整理文件、问答、写一段文字、算东西）写 "simple"。其他情况 kind 写 null。"""
@@ -56,6 +57,8 @@ def _context(text: str, sessions: list[Session], current: int | None, shortnames
         mins = int((time.time() - s.updated) / 60)
         cur = "（当前对话）" if s.num == current else ""
         when = "正在做" if s.num in (busy or set()) else f"{mins} 分钟前"
+        if s.awaiting:
+            when += f"｜在等你回答：{s.awaiting}"
         last = f"｜上一轮：{s.last_summary}" if s.last_summary else (f"｜上次：{s.last_title}" if s.last_title else "")
         rows.append(f"- #{s.num}{cur} {s.name}｜文件夹 {display(Path(s.cwd))}｜{when}{last}")
     said = "".join(f"\n用户：{q[:300]}\n你：{a[:400]}" for q, a in chat or [])
