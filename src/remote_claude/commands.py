@@ -52,6 +52,8 @@ def parse(text: str) -> Cmd:
         return Cmd("delete", num=_num(m.group(1)))
     if m := re.fullmatch(r"改名\s*(#?\d+)\s+(.+)", t, re.S):
         return Cmd("rename", num=_num(m.group(1)), name=m.group(2).strip())
+    if t in ("网页", "登录", "过程"):
+        return Cmd("web")
     if t in ("额度", "用量"):
         return Cmd("quota")
     if m := re.fullmatch(r"(模型|深度)(?:\s*(#?\d+))?(?:\s+(\S+))?", t):
@@ -79,6 +81,7 @@ HELP = """**小E 用法**
 - `删 7` 收起 #7：不再出现在列表里，小E 也不再把话交给它；聊天记录还在，发 `#7 …` 就接着聊
 - `模型 sonnet` / `模型 7 opus` 换当前或 #7 的模型（opus、sonnet、haiku、fable、默认）　`深度 高`（低、中、高、很高、最高、默认）
 - `额度` 看 5 小时和本周额度用了多少
+- `网页` 拿一个进门链接：看最近每一轮的完整过程，改过课的能直接试课
 - 做得久的会发一张进度卡，原地更新在做哪一步，可以点“停下”；要你定的事会出按钮卡，点一下就交回对话
 - `接着桌面` 接上你最近在桌面端聊的那段（接上后桌面端那边先别再说话）
 - `最近 课程根` 看这个文件夹里最近的对话（含桌面端开的）　`接着 课程根 2` 接着其中第 2 个聊

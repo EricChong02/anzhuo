@@ -15,3 +15,9 @@ scratch_root = "~/Projects/_scratch/小E"
 "平台" = "~/Projects/04_项目/work/CyberScope"
 Projects = "~/Projects"
 "下载" = "~/Downloads"
+
+# 第二期：过程页与试课预览（不填 web_base 就不发链接）
+# web_base = "https://xiaoe.example.cn"
+# web_port = 8765
+# preview_upstream = "http://127.0.0.1:8000"
+# preview_root = "~/Projects/04_项目/work/CyberScope-courses-zy"

@@ -18,6 +18,8 @@ class Turn:
     changed_files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)  # 每一步说成人话，给进度卡用
+    timeline: list[dict] = field(default_factory=list)  # 完整过程：说了什么、做了什么（过程页用）
+    links: list[tuple[str, str]] = field(default_factory=list)  # 报告末尾的链接（完整过程、试课预览）
     images: list[str] = field(default_factory=list)
     final_text: str = ""
     is_error: bool = False
@@ -183,6 +185,8 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
     if turn.translated:
         facts += f" · 英文已由 {turn.translated} 译成中文"
     tail = ["---", facts]
+    if turn.links:
+        tail.append("　".join(f"[{name}]({url})" for name, url in turn.links))
     if files and "改了哪些" not in turn.final_text:
         shown = [_rel(f, cwd) for f in files[:12]]
         tail.append("改动的文件：" + "、".join(shown) + ("等" if len(files) > 12 else ""))

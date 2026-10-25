@@ -284,10 +284,13 @@ class Runner:
                     texts = [b.text for b in msg.content if isinstance(b, TextBlock) and b.text.strip()]
                     if texts:
                         last_text = "\n".join(texts)
+                        turn.timeline.append({"t": time.time(), "kind": "say", "text": last_text[:6000]})
                     for b in msg.content:
                         if isinstance(b, ToolUseBlock):
                             if label := step_label(b.name, b.input or {}):
                                 turn.steps.append(label)
+                                turn.timeline.append({"t": time.time(), "kind": "do", "text": label,
+                                                      "detail": _tool_detail(b.name, b.input or {})})
                             if b.name in EDIT_TOOLS:
                                 fp = b.input.get("file_path") or b.input.get("notebook_path")
                                 if fp:
@@ -309,6 +312,16 @@ class Runner:
                 log.debug("取上下文用量失败", exc_info=True)
         turn.final_text = last_text
         turn.effort = s.effort or self.default_effort
+
+
+def _tool_detail(name: str, inp: dict) -> str:
+    """过程页里一步的细节：命令原文、文件路径、搜索词等。"""
+    if name == "Bash":
+        return str(inp.get("command", ""))[:3000]
+    for key in ("file_path", "notebook_path", "pattern", "query", "url", "description", "skill"):
+        if inp.get(key):
+            return str(inp[key])[:500]
+    return json.dumps(inp, ensure_ascii=False)[:500]
 
 
 _MONTHS = {m: i for i, m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), 1)}

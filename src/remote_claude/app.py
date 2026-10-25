@@ -17,6 +17,7 @@ from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config
 from .dingtalk import DingTalk, Incoming, parse_incoming
 from .report import Turn
+from .web import Web
 from .sessions import Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
@@ -64,6 +65,7 @@ class Bridge:
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started)
         self.progress: dict[int, str] = {}  # 对话编号 → 正在更新的进度卡
         self.progress_every = (15.0, 45.0)  # 进度卡多久更新一次：前 5 分钟 / 之后（省钉钉调用次数）
+        self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root)
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
@@ -145,6 +147,15 @@ class Bridge:
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
+        if self.web.enabled and (turn.changed_files or turn.commands or turn.images or turn.is_error):
+            try:
+                tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0])
+                turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
+                turn.links += [(f"试课：{name}", self.web.link(url))
+                               for name, url in self.web._turn(tid).get("previews", [])]
+                title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
+            except Exception:  # noqa: BLE001 - 过程页出问题不影响报告
+                log.exception("记过程页失败")
         s.last_title = title
         s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
         self.registry.save()
@@ -289,6 +300,11 @@ class Bridge:
             return await self.say("已改名", s.label)
         if cmd.kind in ("model", "effort"):
             return await self._set_model(cmd)
+        if cmd.kind == "web":
+            if not self.web.enabled:
+                return await self.say("网页", "网页还没开通（配置里没有 web_base）。")
+            return await self.say("网页", f"[打开小E 网页]({self.web.link('/_x/')})\n\n一次性链接：点开后这台设备 30 天内免登录。"
+                                          "\n\n里面能看最近每一轮的完整过程，改过课的还能直接试课。")
         if cmd.kind == "quota":
             return await self._quota()
         if cmd.kind == "recent":
@@ -611,5 +627,7 @@ class Bridge:
         client = dingtalk_stream.DingTalkStreamClient(cred)
         client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
         client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
+        if self.web.enabled:
+            await self.web.start()
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()

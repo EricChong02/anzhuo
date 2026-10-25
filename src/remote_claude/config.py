@@ -29,6 +29,10 @@ class Config:
     default_effort: str | None = None  # 小E 对话的默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
     simple_model: str = "sonnet"  # 简单任务（查资料、整理文件、问答）用的模型
     dev_model: str = "opus"  # 开发类工作（写代码、做功能、做课件，不限哪个项目）用的模型
+    web_base: str = ""  # 过程页与试课预览的外网地址（如 https://xiaoe.ericlab.cn）；空 = 不发链接
+    web_port: int = 8765  # 本机网页服务端口，经 SSH 反向隧道接到阿里云
+    preview_upstream: str = "http://127.0.0.1:8000"  # 试课预览转给本机哪个 CyberScope 后端
+    preview_root: str = ""  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
@@ -46,6 +50,10 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         default_effort=raw.get("default_effort"),
         simple_model=raw.get("simple_model", "sonnet"),
         dev_model=raw.get("dev_model", "opus"),
+        web_base=str(raw.get("web_base", "")).rstrip("/"),
+        web_port=int(raw.get("web_port", 8765)),
+        preview_upstream=str(raw.get("preview_upstream", "http://127.0.0.1:8000")).rstrip("/"),
+        preview_root=str(raw.get("preview_root", "")),
     )
 
 

@@ -9,3 +9,7 @@
 ## 改小E 本身
 
 在钉钉里改本仓库时，跑着的对话就在小E 里面：不要直接跑 `scripts/install_launchd.sh` 或重启小E，会把自己打断。改完用 `scripts/restart_when_idle.py` 在后台等所有对话空闲再重启（用 `start_new_session` 脱离当前进程）。
+
+## 网页（第二期）
+
+外网只经阿里云 nginx + SSH 反向隧道进来，登录在 `web.py`（一次性链接换 30 天 Cookie）。改试课放行名单（`preview_allowed`）前想清楚：本机 8000 连着真名开发库，教师台、学生、班级相关的接口和 WebSocket 不能放出去。
