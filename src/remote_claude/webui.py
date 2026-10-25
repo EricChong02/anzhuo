@@ -328,8 +328,12 @@ function wireComposer(sendFn, onSent) {
   ta.oninput = sync;
   $('#file').onchange = e => add(e.target.files);
   ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile()); if (fs.length) add(fs); };
-  const coarse = matchMedia('(pointer:coarse)').matches;
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !coarse) { e.preventDefault(); go(); } };
+  // 回车发送（iPad 连不连键盘都算、电脑也是），Shift+回车换行；打中文选字时的回车不算。只有手机上回车是换行。
+  const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
+  ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
+  ta.onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
+  };
   async function go() {
     const text = ta.value.trim();
     if ((!text && !attach.length) || sending) return;
