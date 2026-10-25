@@ -189,3 +189,11 @@ A. 64px，最醒目
     assert cards.board_data([])["title"].endswith("都做完了")
     assert cards.board_data([], moved=True)["markdown"].startswith("进展挪到下面了")
     assert cards.action_of('{"cardPrivateData":{"params":{"id":"stop:12"}}}') == "stop:12"
+
+
+def test_push_message():
+    """手机通知：标题先说状态再说对话；正文是结论或要你回答的问题，第二行是你当时说的话；去掉 markdown 和五段小标题。"""
+    from remote_claude.report import push_message
+    assert push_message("天气", "明天厦门天气", "**明天**多云。\n\n做了什么：查了", False, "") == ("做完了 · 天气", "明天多云。\n你说的：明天厦门天气")
+    assert push_message("做课", "改封面", "要你定：用哪张？\nA. 深\nB. 浅", False, "用哪张？") == ("等你回答 · 做课", "用哪张？\n你说的：改封面")
+    assert push_message("清理", "清下载", "", True, "")[0] == "出错了 · 清理"

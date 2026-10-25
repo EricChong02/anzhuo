@@ -49,6 +49,31 @@ def brief(text: str, limit: int = 20) -> str:
     return first[:limit] + ("…" if len(first) > limit else "")
 
 
+_SECTIONS = ("要你做的", "要你定", "做了什么", "改了哪些", "自查结果", "截图")
+
+
+def _plain(line: str) -> str:
+    line = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", line)  # 链接只留文字
+    line = re.sub(r"[*`]+", "", line)
+    return re.sub(r"^\s*(?:#+|[-•>]|\d+[.、])\s*", "", line).strip()
+
+
+def push_message(name: str, request: str, final: str, is_error: bool, awaiting: str) -> tuple[str, str]:
+    """手机通知的标题和正文：标题先说状态再说是哪个对话；正文第一行是结论（或要你回答的问题），第二行提醒你当时说的是什么。"""
+    status = "出错了" if is_error else ("等你回答" if awaiting else "做完了")
+    lines = [_plain(ln) for ln in (final or "").splitlines()]
+    lines = [ln for ln in lines if ln and not ln.startswith(_SECTIONS) and ln not in ("---",)]
+    if awaiting:
+        head = _plain(awaiting)
+    elif lines:
+        head = lines[0] if len(lines[0]) <= 80 else (
+            lines[0][: max(lines[0].rfind(c, 0, 80) for c in "。！？；") + 1] or lines[0][:79] + "…")
+    else:
+        head = "没有具体回复，点开看看"
+    body = head + (f"\n你说的：{brief(_plain(request), 24)}" if request else "")
+    return f"{status} · {name}", body
+
+
 def model_name(model_id: str) -> str:
     m = re.match(r"claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)", model_id or "")
     return f"{m.group(1).capitalize()} {m.group(2)}.{m.group(3)}" if m else (model_id or "")
