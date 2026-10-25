@@ -219,7 +219,7 @@ function composerHTML(ph) {
 function headStatus() {
   const s = sessions.find(x => x.num === sel), el = $('#hst');
   if (!s || !el) return;
-  el.className = s.status; el.textContent = s.status === 'idle' ? s.cwd : statusText(s);
+  el.className = s.status; el.textContent = s.status === 'idle' ? s.cwd.split('/').filter(Boolean).pop() || s.cwd : statusText(s);
 }
 
 function openSession(num, fromPop) {
@@ -228,7 +228,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b>${esc(s.name)}</b><span id="hst">${esc(s.cwd)}</span></div><span id="headActs"></span></div>
+      <div class="ti"><b>${esc(s.name)}</b><span id="hst"></span></div><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
@@ -372,7 +372,9 @@ if (window.visualViewport) {
   const vv = visualViewport;
   const fit = () => {
     if (scrollX || scrollY) scrollTo(0, 0);
-    const kb = Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop));
+    // 用布局高度（clientHeight）算：iPhone 的 Safari 里 innerHeight 会跟着键盘一起变矮，拿它算会得 0
+    const full = document.documentElement.clientHeight || innerHeight;
+    const kb = Math.max(0, Math.round(full - vv.height - vv.offsetTop));
     document.documentElement.style.setProperty('--kb', kb + 'px');
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
