@@ -37,6 +37,6 @@ server {
 }
 NGX
 nginx -t && systemctl reload nginx
-curl -s -o /dev/null -w 'HTTPS 自测：%{http_code}\n' https://$HOST_NAME/_x/"
-sed -i '' 's|^# web_base = "https://xiaoe.ericlab.cn".*|web_base = "https://xiaoe.ericlab.cn"  # 过程页与试课预览（阿里云 nginx + SSH 反向隧道）|' ~/.config/remote-claude/config.toml
+curl -s -o /dev/null -w 'HTTPS 自测：%{http_code}（502 = Mac 那头网页还没开，重启小E 后就好）\n' --resolve $HOST_NAME:443:127.0.0.1 https://$HOST_NAME/_x/ || true"
+sed -i '' 's|^# web_base = "https://xiaoe.ericlab.cn".*$|web_base = "https://xiaoe.ericlab.cn"  # 过程页与试课预览（阿里云 nginx + SSH 反向隧道）|' ~/.config/remote-claude/config.toml
 grep -n '^web_base' ~/.config/remote-claude/config.toml
