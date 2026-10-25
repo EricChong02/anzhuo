@@ -145,13 +145,28 @@ class Runner:
         return num in self.turns or not self.queues.get(num, asyncio.Queue()).empty()
 
     def submit(self, s: Session, job: Job) -> int:
-        """放进这个对话的队列，返回前面还排着几件。"""
+        """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
+        turn, client = self.turns.get(s.num), self.clients.get(s.num)
+        if turn and client and turn.accepting and not turn.interrupted:
+            turn.injected += 1
+            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
+            asyncio.create_task(self._inject(s, client, job))
+            return -1
         q = self.queues.setdefault(s.num, asyncio.Queue())
         ahead = q.qsize() + (1 if s.num in self.turns else 0)
         q.put_nowait(job)
         if s.num not in self.workers or self.workers[s.num].done():
             self.workers[s.num] = asyncio.create_task(self._worker(s.num))
         return ahead
+
+    async def _inject(self, s: Session, client: ClaudeSDKClient, job: Job) -> None:
+        try:
+            await client.query(self._prompt(job))
+            job.finished = True
+        except Exception:  # noqa: BLE001 - 插不进去就排到下一轮
+            log.warning("插话给 #%s 失败，排到下一轮", s.num, exc_info=True)
+            q = self.queues.setdefault(s.num, asyncio.Queue())
+            q.put_nowait(job)
 
     async def stop(self, num: int) -> bool:
         q = self.queues.get(num)
@@ -272,7 +287,17 @@ class Runner:
         async with ClaudeSDKClient(options=options) as client:
             self.clients[s.num] = client
             await client.query(self._prompt(job))
-            async for msg in client.receive_response():
+            results: list[str] = []
+            seen_injected = 0
+            after_result = False
+            stream = client.receive_messages().__aiter__()
+            while True:
+                try:
+                    # 插过话又出了结果：再等几秒，插的话若没赶上这一轮，它会接着开一轮，要接着读完
+                    msg = await (asyncio.wait_for(stream.__anext__(), 4) if after_result else stream.__anext__())
+                except (StopAsyncIteration, asyncio.TimeoutError):
+                    break
+                after_result = False
                 if isinstance(msg, SystemMessage):
                     if "compact" in msg.subtype:
                         turn.compacted = True
@@ -298,6 +323,7 @@ class Runner:
                             elif b.name == "Bash":
                                 turn.commands.append(str(b.input.get("command", ""))[:200])
                 elif isinstance(msg, ResultMessage):
+                    turn.accepting = False
                     if msg.session_id:
                         s.claude_id = msg.session_id
                     if msg.is_error and not turn.interrupted:
@@ -305,12 +331,18 @@ class Runner:
                         turn.error = (msg.result or "; ".join(msg.errors or []) or msg.subtype or "未知错误")[:300]
                     elif msg.result:
                         last_text = msg.result
+                        results.append(msg.result)
+                    if turn.injected > seen_injected and not turn.interrupted:
+                        seen_injected = turn.injected
+                        after_result = True
+                        continue
+                    break
             try:
                 usage = await client.get_context_usage()
                 turn.context_pct = s.context_pct = float(usage["percentage"])
             except Exception:  # noqa: BLE001 - 拿不到上下文用量不影响报告
                 log.debug("取上下文用量失败", exc_info=True)
-        turn.final_text = last_text
+        turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or self.default_effort
 
 

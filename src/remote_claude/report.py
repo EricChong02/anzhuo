@@ -20,6 +20,8 @@ class Turn:
     steps: list[str] = field(default_factory=list)  # 每一步说成人话，给进度卡用
     timeline: list[dict] = field(default_factory=list)  # 完整过程：说了什么、做了什么（过程页用）
     links: list[tuple[str, str]] = field(default_factory=list)  # 报告末尾的链接（完整过程、试课预览）
+    injected: int = 0  # 做的过程中你插了几次话
+    accepting: bool = True  # 还能插话（出结果后就不能了，再说的话排到下一轮）
     images: list[str] = field(default_factory=list)
     final_text: str = ""
     is_error: bool = False
@@ -182,6 +184,8 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
         facts += f" · 改 {len(files)} 个文件 · 跑 {len(turn.commands)} 条命令"
         if turn.images:
             facts += f" · 截图 {len(turn.images)} 张见下"
+    if turn.injected:
+        facts += f" · 中途插话 {turn.injected} 次"
     if turn.translated:
         facts += f" · 英文已由 {turn.translated} 译成中文"
     tail = ["---", facts]

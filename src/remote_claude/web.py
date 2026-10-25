@@ -237,7 +237,9 @@ class Web:
         steps = []
         for e in r.get("timeline", []):
             t = time.strftime("%H:%M:%S", time.localtime(e["t"]))
-            if e["kind"] == "say":
+            if e["kind"] == "you":
+                steps.append(f"<div class='step'><span class='t'>{t}</span><div><b>你插话</b>：{_md(e['text'])}</div></div>")
+            elif e["kind"] == "say":
                 steps.append(f"<div class='step'><span class='t'>{t}</span><div class='say'>{_md(e['text'])}</div></div>")
             else:
                 detail = e.get("detail") or ""

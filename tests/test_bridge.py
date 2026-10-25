@@ -489,3 +489,41 @@ def test_board_follows(tmp_path, monkeypatch):
         assert stopped == [2] and b.board is None
 
     asyncio.run(go())
+
+
+def test_inject_while_running(tmp_path, monkeypatch):
+    """对话正在做时你再说话：直接插给它（不排队），回一句“插话给 #N 了”。"""
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    gate, got = asyncio.Event(), []
+
+    class FakeClient:
+        async def query(self, prompt):
+            async for m in prompt:
+                got.append(m["message"]["content"][-1]["text"])
+            gate.set()
+
+    async def fake_run(self, s, job, turn):
+        self.clients[s.num] = FakeClient()
+        await gate.wait()
+        turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        b.receipt_delay = 5
+        b.registry.add(Session(num=1, name="开发", cwd=str(tmp_path)))
+        await b.on_raw(msg("把按钮做大"))
+        await asyncio.sleep(0.05)
+        await b.on_raw(msg("顺便把颜色改成蓝色"))
+        await asyncio.sleep(0.1)
+        assert any(t == "插话" for t, _ in dt.sent)
+
+    asyncio.run(go())
+    assert got == ["顺便把颜色改成蓝色"]

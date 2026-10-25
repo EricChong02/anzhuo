@@ -662,6 +662,8 @@ class Bridge:
         job = Job(text=text, images=images)
         self.work_at = time.time()
         ahead = self.runner.submit(s, job)
+        if ahead == -1:
+            return await self.say("插话", f"插话给 {s.label} 了：它手上这一步做完就会看到，接着按你说的调整。")
         msg = opening or f"收到 · {s.label} 在做：{report.brief(text) or '看图'}"
         if ahead:
             msg += f"，前面还有 {ahead} 件，做完再做这件"
