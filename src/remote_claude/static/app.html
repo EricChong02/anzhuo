@@ -145,7 +145,9 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
 .lightbox{position:fixed;inset:0;z-index:50;touch-action:none;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:hidden}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none}
-.lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:24px;line-height:40px;text-align:center}
+.lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:2;height:44px;padding:0 16px 0 12px;border-radius:22px;background:#fff;color:#1c1c1e;
+  font-size:16px;font-weight:600;display:flex;align-items:center;gap:4px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.lightbox .x b{font-size:26px;line-height:1;font-weight:400}
 .sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px}
 .sheet .box{width:min(340px,100%);background:var(--panel);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
 .sheet b{display:block;font-size:17px;margin-bottom:4px} .sheet p{margin:0 0 14px;color:var(--mute);font-size:15px}
@@ -494,7 +496,7 @@ setupPush().catch(() => {});
 // 没放大时点空白、右上角 ×、返回手势都能关。电脑上滚轮缩放、双击放大。
 function viewImage(src) {
   const el = document.createElement('div'); el.className = 'lightbox';
-  el.innerHTML = `<img src="${esc(src)}" draggable="false"><button class="x" aria-label="关闭">×</button>`;
+  el.innerHTML = `<img src="${esc(src)}" draggable="false"><button class="x" aria-label="关闭"><b>×</b>关闭</button>`;
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
   const img = el.querySelector('img');
   let sc = 1, tx = 0, ty = 0, start = null, lastTap = 0, moved = false, closeTimer = 0;
@@ -524,8 +526,11 @@ function viewImage(src) {
     start = null;
     if (moved) return;
     const t = e.changedTouches[0], now = Date.now();
-    if (now - lastTap < 300) { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, t.clientX, t.clientY); apply(true); lastTap = 0; e.preventDefault(); }
-    else lastTap = now;
+    if (now - lastTap < 300) { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, t.clientX, t.clientY); apply(true); lastTap = 0; e.preventDefault(); return; }
+    lastTap = now;
+    if (e.target.closest('.x')) { e.preventDefault(); return history.back(); }
+    // 点在图片外面（没放大时）：等一下确认不是双击，就关掉
+    if (sc === 1 && e.target !== img) { e.preventDefault(); clearTimeout(closeTimer); closeTimer = setTimeout(() => { if (sc === 1) history.back(); }, 300); }
   });
   el.addEventListener('wheel', e => { e.preventDefault(); zoomAt(sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); apply(false); }, {passive: false});
   el.addEventListener('dblclick', e => { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, e.clientX, e.clientY); apply(true); });
