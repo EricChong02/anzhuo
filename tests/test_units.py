@@ -266,3 +266,27 @@ def test_compact_queue():
         assert r.compacting(6) == "queued"
 
     asyncio.run(go())
+
+
+def test_cleanup(tmp_path):
+    """60 天前的副本删掉、新的留着；90 天前的对话记录压缩归档，登记着的不动。"""
+    import gzip
+    import os
+    import time
+    from remote_claude import cleanup
+    now = time.time()
+    data, proj, arch = tmp_path / "data", tmp_path / "projects", tmp_path / "archive"
+    old, new = data / "outbox" / "4-1" / "a.png", data / "inbox" / "web" / "b.png"
+    for f in (old, new):
+        f.parent.mkdir(parents=True); f.write_bytes(b"x" * 10)
+    os.utime(old, (now - 61 * 86400,) * 2)
+    (proj / "p").mkdir(parents=True)
+    for name in ("old", "keep", "fresh"):
+        (proj / "p" / f"{name}.jsonl").write_text('{"a":1}\n' * 100)
+    for name in ("old", "keep"):
+        os.utime(proj / "p" / f"{name}.jsonl", (now - 91 * 86400,) * 2)
+    r = cleanup.run(data, {"keep"}, now, proj, arch)
+    assert not old.exists() and not old.parent.exists() and new.exists()
+    assert not (proj / "p" / "old.jsonl").exists() and (proj / "p" / "keep.jsonl").exists() and (proj / "p" / "fresh.jsonl").exists()
+    assert gzip.open(arch / "p" / "old.jsonl.gz").read().count(b"\n") == 100
+    assert r["removed"] == 1 and r["archived"] == 1

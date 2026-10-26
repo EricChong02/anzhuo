@@ -790,6 +790,18 @@ class Bridge:
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
+    async def _cleanup_loop(self) -> None:
+        """每天清一次旧副本、归档 90 天前的旧对话记录（见 cleanup.py）；登记着的对话不动。"""
+        from . import cleanup
+        while True:
+            await asyncio.sleep(600)
+            try:
+                keep = {s.claude_id for s in self.registry.sessions.values() if s.claude_id}
+                await asyncio.to_thread(cleanup.run, self.data_dir, keep)
+            except Exception:  # noqa: BLE001
+                log.exception("定期清理失败")
+            await asyncio.sleep(86400 - 600)
+
     async def run(self) -> None:
         bridge = self
 
@@ -811,5 +823,6 @@ class Bridge:
             await self.web.start()
         # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+        asyncio.create_task(self._cleanup_loop())
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()
