@@ -398,10 +398,15 @@ function headStatus() {
   el.className = s.status; el.textContent = s.status === 'idle' ? s.cwd.split('/').filter(Boolean).pop() || s.cwd : statusText(s);
 }
 
+// 历史只留一层：列表 → 某个对话。已经在对话（或新对话页）里再切到别的，就替换当前这一层，返回一次就回到列表
+function navTo(state, hash) {
+  const st = history.state;
+  if (st && (st.s || st.n)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
+}
 function openSession(num, fromPop) {
   partialText = ''; setTimeout(connectEvents);
   sel = num; lastKey = ''; attach = []; attachFiles = [];
-  if (!fromPop) history.pushState({s: num}, '', '#s' + num);
+  if (!fromPop) navTo({s: num}, '#s' + num);
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
@@ -714,7 +719,7 @@ function ago(t) {
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开
 function openNew(fromPop) {
   setTimeout(connectEvents);
-  sel = null; if (!fromPop) history.pushState({n: 1}, '', '#new'); $('#app').classList.add('in'); renderSide();
+  sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
   const said = Object.keys(FOLDER_SAY);
   const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '小E 看你说的话选地方'},
     ...drafts.slice(0, 3).map(x => ({v: 'c:' + x.dir, ic: 'course', t: `接着做《${x.title}》`, d: ago(x.mtime)})),
