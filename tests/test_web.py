@@ -392,3 +392,28 @@ def test_moved_course_link(tmp_path):
     assert w._moved_course("/workspace/_drafts/c1/course.json") == "/workspace/topics/data/c1/course.json"
     assert w._moved_course("/workspace/_drafts/c2/course.json") == ""
     assert w._moved_course("/workspace/_drafts/none/course.json") == ""
+
+
+def test_devices(tmp_path):
+    """登录的设备：列出几台、哪台是这台；退出别的那台它就进不来了；不能用这个退出自己。"""
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        phone = TestClient(TestServer(w.app()))
+        await phone.start_server()
+        pc = TestClient(phone.server)
+        try:
+            await phone.post("/_x/login", data={"username": "u", "password": "p"},
+                             headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0) AppleWebKit Safari/605"})
+            await pc.post("/_x/login", data={"username": "u", "password": "p"},
+                          headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/150 Safari/537 Edg/150"})
+            d = (await (await phone.get("/_x/api/devices")).json())["devices"]
+            assert len(d) == 2 and d[0]["me"] and d[0]["name"] == "iPhone · Safari" and d[1]["name"] == "Windows 电脑 · Edge"
+            assert (await phone.post("/_x/api/devices/logout", json={"id": d[0]["id"]})).status == 404   # 自己这台不走这里
+            assert (await (await phone.post("/_x/api/devices/logout", json={"id": d[1]["id"]})).json())["ok"]
+            assert (await pc.get("/_x/api/sessions")).status == 401
+            assert len((await (await phone.get("/_x/api/devices")).json())["devices"]) == 1
+        finally:
+            await pc.close()
+            await phone.close()
+
+    asyncio.run(go())

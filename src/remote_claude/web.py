@@ -175,11 +175,12 @@ class Web:
             d = json.loads(self.store_path.read_text())
         except (OSError, json.JSONDecodeError):
             d = {}
-        return {"sessions": d.get("sessions", {})}
+        return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {})}
 
     def _save(self) -> None:
         now = time.time()
         self.store["sessions"] = {k: v for k, v in self.store["sessions"].items() if v > now}
+        self.store["devices"] = {k: v for k, v in self.store.get("devices", {}).items() if k in self.store["sessions"]}
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.store_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.store))
@@ -192,7 +193,13 @@ class Web:
 
     def _logged_in(self, request: web.Request) -> bool:
         sid = request.cookies.get(COOKIE, "")
-        return bool(sid) and self.store["sessions"].get(sid, 0) > time.time()
+        ok = bool(sid) and self.store["sessions"].get(sid, 0) > time.time()
+        if ok:   # 记一下这台设备最近什么时候用过（5 分钟记一次，不每次写盘）
+            dev = self.store.setdefault("devices", {}).setdefault(sid, {"created": time.time()})
+            if time.time() - dev.get("seen", 0) > 300:
+                dev.update(seen=time.time(), ua=request.headers.get("User-Agent", "")[:300], ip=self._client_ip(request))
+                self._save()
+        return ok
 
     @staticmethod
     def _client_ip(request: web.Request) -> str:
@@ -256,11 +263,59 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         self.fails.pop(ip, None)
         sid = secrets.token_urlsafe(32)
         self.store["sessions"][sid] = time.time() + SESSION_DAYS * 86400
+        self.store.setdefault("devices", {})[sid] = {"created": time.time(), "seen": time.time(), "ip": ip,
+                                                     "ua": request.headers.get("User-Agent", "")[:300]}
         self._save()
         resp = web.HTTPFound(nxt)
         resp.set_cookie(COOKIE, sid, max_age=SESSION_DAYS * 86400, httponly=True, samesite="Lax",
                         secure=self.base.startswith("https://"), path="/")
         raise resp
+
+    @staticmethod
+    def _device_name(ua: str) -> str:
+        """把浏览器标识说成人话：iPhone · Safari、Windows 电脑 · Edge……"""
+        kind = ("iPad" if "iPad" in ua else "iPhone" if "iPhone" in ua else "安卓手机" if "Android" in ua
+                else "Windows 电脑" if "Windows" in ua else "Mac" if "Macintosh" in ua else "更早登录的设备")
+        app = ("Edge" if "Edg/" in ua else "微信" if "MicroMessenger" in ua else "钉钉" if "DingTalk" in ua
+               else "Chrome" if ("Chrome/" in ua or "CriOS" in ua) else "Firefox" if "Firefox" in ua else "Safari" if "Safari" in ua
+               else "主屏幕 app" if kind in ("iPhone", "iPad") else "")
+        return f"{kind} · {app}" if app else kind
+
+    def _device_id(self, sid: str) -> str:
+        return hashlib.sha1(sid.encode()).hexdigest()[:12]   # 给网页看的编号，不露出真正的登录凭证
+
+    async def _api_devices(self, request: web.Request) -> web.Response:
+        """登录着的设备：哪台、最近什么时候用过、从哪个网络来，当前这台标出来。"""
+        me = request.cookies.get(COOKIE, "")
+        now = time.time()
+        rows = []
+        for sid, exp in self.store["sessions"].items():
+            if exp <= now:
+                continue
+            d = self.store.get("devices", {}).get(sid, {})
+            ip = d.get("ip", "")
+            rows.append({"id": self._device_id(sid), "name": self._device_name(d.get("ua", "")), "me": sid == me,
+                         "seen": d.get("seen") or d.get("created") or 0, "created": d.get("created") or 0,
+                         "ip": ".".join(ip.split(".")[:2] + ["*", "*"]) if ip.count(".") == 3 else ip,
+                         "push": bool(d.get("endpoint"))})
+        rows.sort(key=lambda r: (not r["me"], -r["seen"]))
+        return web.json_response({"devices": rows})
+
+    async def _api_device_logout(self, request: web.Request) -> web.Response:
+        """退出某一台（不能用来退出自己这台，那个走“退出登录”）。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        want = str((await request.json()).get("id") or "")
+        me = request.cookies.get(COOKIE, "")
+        for sid in list(self.store["sessions"]):
+            if self._device_id(sid) == want and sid != me:
+                dev = self.store.get("devices", {}).pop(sid, {})
+                self.store["sessions"].pop(sid, None)
+                if dev.get("endpoint"):
+                    self.push.remove(dev["endpoint"])
+                self._save()
+                return web.json_response({"ok": True})
+        return web.json_response({"ok": False}, status=404)
 
     async def _api_logout(self, request: web.Request) -> web.Response:
         """退出登录：只退这台设备，或 all=true 时所有设备都退（手机丢了用）；这台设备的手机通知也一并停掉。"""
@@ -269,6 +324,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         data = await request.json()
         if data.get("all"):
             self.store["sessions"] = {}
+            self.store["devices"] = {}
             self.push.subs = []
             self.push._save()
         else:
@@ -370,7 +426,12 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         try:
-            self.push.add(await request.json())
+            sub = await request.json()
+            self.push.add(sub)
+            sid = request.cookies.get(COOKIE, "")
+            if sid in self.store["sessions"]:
+                self.store.setdefault("devices", {}).setdefault(sid, {})["endpoint"] = sub.get("endpoint")
+                self._save()
         except ValueError:
             return web.json_response({"ok": False}, status=400)
         return web.json_response({"ok": True})
@@ -590,7 +651,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(num)
         if not s:
             raise web.HTTPNotFound()
-        key = (s.claude_id, s.updated)
+        # GPT 对话的内容来自小E 每轮的记录：记录写好比“做完”晚几秒，把记录份数也算进去，免得缓存住一个空的
+        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))) if s.engine == "codex" else 0)
         cached = self._threads.get(num)
         if cached and cached[0] == key:
             items = cached[1]
@@ -852,8 +914,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def _sig_thread(self, num: int) -> str:
         b = self.bridge
         s, t = b.registry.get(num), b.runner.turns.get(num)
+        recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s and s.engine == "codex" else 0
         return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
-                           len(b.outgoing.get(num, []))])
+                           len(b.outgoing.get(num, [])), recs])
 
     async def _api_events(self, request: web.Request) -> web.StreamResponse:
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
@@ -950,6 +1013,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
         app.router.add_post(f"{PREFIX}/api/push", self._api_push)
         app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)
+        app.router.add_get(f"{PREFIX}/api/devices", self._api_devices)
+        app.router.add_post(f"{PREFIX}/api/devices/logout", self._api_device_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/events", self._api_events)
         app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
