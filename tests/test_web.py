@@ -417,3 +417,17 @@ def test_devices(tmp_path):
             await phone.close()
 
     asyncio.run(go())
+
+
+def test_records_match_by_time_while_running():
+    """正在做的那轮还没有记录：按时间对，文件挂在它所属的那条回复上，不整体错一位。"""
+    from remote_claude import thread
+    items = [{"who": "you", "text": "a"}, {"who": "claude", "text": "A", "ts": 100.0},
+             {"who": "you", "text": "b"}, {"who": "claude", "text": "B", "ts": 200.0},
+             {"who": "you", "text": "c"}, {"who": "claude", "text": "正在写…", "ts": 300.0}]
+    recs = [{"id": "4-90", "started": 90, "ended": 101, "files": []},
+            {"id": "4-190", "started": 190, "ended": 201, "files": [{"name": "设计.md"}]}]
+    out = thread.attach_records(items, recs)
+    cl = [i for i in out if i["who"] == "claude"]
+    assert [i.get("tid") for i in cl] == ["4-90", "4-190", None]
+    assert cl[1]["files"] == [{"name": "设计.md"}] and "files" not in cl[2]

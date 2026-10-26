@@ -575,7 +575,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"{PREFIX}/t/{r['id']}/file/{i}"} for i, f in enumerate(r.get("files", []))]
-                out.append({"id": r["id"], "title": r.get("title", ""), "previews": r.get("previews", []), "files": fs,
+                out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
                             "model": r.get("model", ""),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
@@ -678,8 +678,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 items = thread.attach_records(self._codex_history(num), self._records(num))
             elif s.claude_id:
                 try:
-                    msgs = await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd)
-                    items = thread.attach_records(thread.history(msgs), self._records(num))
+                    times: dict = {}
+                    msgs = await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd, times)
+                    items = thread.attach_records(thread.history(msgs, times=times), self._records(num))
                 except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)

@@ -2,6 +2,8 @@
 中间的工具调用不逐条列，只记步数；完整过程另有过程页。"""
 from __future__ import annotations
 
+import time
+
 from .cards import step_label
 
 PROCESS_KEEP = 15  # 最近几轮带“工作过程”（再早的看过程页），免得一个长对话整页太重
@@ -25,7 +27,7 @@ def _user_text(content) -> str | None:
     return "\n".join(p for p in head + texts if p)
 
 
-def full_messages(session_id: str, cwd: str | None):
+def full_messages(session_id: str, cwd: str | None, times: dict | None = None):
     """读整段对话记录，压缩过的也接上压缩前的部分。
     SDK 的 get_session_messages 只从最近一次压缩往后读（压缩点之前的被摘要顶替），网页上就看不到早先的对话了；
     这里顺着压缩点的 logicalParentUuid 把前面几段接回去，压缩摘要本身显示成一条“已压缩”提示。"""
@@ -50,6 +52,13 @@ def full_messages(session_id: str, cwd: str | None):
             part.append(cur)
             cur = by_uuid.get(cur.get("parentUuid") or "")
         chain = part[::-1] + chain
+    if times is not None:   # 每条的时间（uuid → 秒），网页按时间把每轮记录对到回复上
+        from datetime import datetime
+        for e in chain:
+            try:
+                times[e["uuid"]] = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).timestamp()
+            except (KeyError, ValueError, AttributeError):
+                pass
     out = []
     for e in chain:
         att = e.get("attachment") if e.get("type") == "attachment" else None
@@ -86,9 +95,10 @@ def _detail(name: str, inp: dict) -> str:
     return ""
 
 
-def history(messages, limit: int = 300) -> list[dict]:
+def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]:
     items: list[dict] = []
     reply, steps, process = "", 0, []
+    ts = 0.0  # 回复那段话的时间
 
     def flush():
         nonlocal reply, steps, process
@@ -97,6 +107,8 @@ def history(messages, limit: int = 300) -> list[dict]:
             if process and process[-1]["k"] == "say" and process[-1]["text"] == reply[:1500]:
                 process.pop()
             items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:]})
+            if times is not None:
+                items[-1]["ts"] = ts
         reply, steps, process = "", 0, []
 
     for m in messages:
@@ -124,6 +136,7 @@ def history(messages, limit: int = 300) -> list[dict]:
                     process.append({"k": "think", "text": b["thinking"][:1500]})
                 elif kind == "text" and b.get("text", "").strip():
                     reply = b["text"]
+                    ts = (times or {}).get(getattr(m, "uuid", ""), 0.0)
                     process.append({"k": "say", "text": b["text"][:1500]})
                 elif kind == "tool_use":
                     steps += 1
@@ -141,7 +154,18 @@ def history(messages, limit: int = 300) -> list[dict]:
 def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
     """把小E 记下的每轮记录（过程页编号、试课链接）按先后对到最近几轮回复上。"""
     replies = [it for it in items if it["who"] == "claude"]
-    for it, rec in zip(reversed(replies), reversed(records)):
+    if replies and all(it.get("ts") for it in replies):
+        # 按时间对：回复写在哪一轮的起止时间里就是哪一轮的（正在做的那轮还没记录，按顺序对会整体错一位）
+        pairs, free = [], list(reversed(replies))
+        for rec in reversed(records):
+            lo, hi = rec.get("started") or 0, (rec.get("ended") or time.time()) + 10
+            hit = next((it for it in free if lo - 2 <= it["ts"] <= hi), None)
+            if hit:
+                free.remove(hit)
+                pairs.append((hit, rec))
+    else:
+        pairs = list(zip(reversed(replies), reversed(records)))
+    for it, rec in pairs:
         it["tid"] = rec["id"]
         it["previews"] = rec.get("previews", [])
         it["title"] = rec.get("title", "")
