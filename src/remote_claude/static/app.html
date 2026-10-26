@@ -327,7 +327,8 @@ function md(src) {
   src = String(src).replace(/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/g, (m, p) => `（出处：${p.split('/').pop()}）`);
   const lines = esc(src).split('\n'); const out = []; let tbl = [];
   const inline = t => t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<a href="$2" target="_blank">$1</a>');
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, (m, t, u) => /^\/(Users|private|tmp|var|Volumes|opt)\//.test(u)
+      ? `<b>${t}</b>` : `<a href="${u}" target="_blank">${t}</a>`);  // Mac 上的本机路径在手机上点不开，只留文字
   const flush = () => {
     if (!tbl.length) return;
     const rows = tbl.filter(r => !/^\|\s*:?-{2,}/.test(r)).map(r => r.replace(/^\||\|$/g, '').split('|'));

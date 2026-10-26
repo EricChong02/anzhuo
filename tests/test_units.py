@@ -296,3 +296,16 @@ def test_guard_force_restart():
     from remote_claude.guard import danger
     assert danger("nohup sh -c 'sleep 90; launchctl kickstart -k gui/501/com.zhuangyi.remote-claude' &")
     assert danger("launchctl list | grep remote-claude") is None
+
+
+def test_codex_handoff_links(tmp_path):
+    """GPT 把要交的文件写成 [下载…](/本机/路径) 链接：能交的拿出来发，链接只留文字；说明文档、源码的链接不动。"""
+    from remote_claude.sessions import handoff
+    z = tmp_path / "包.zip"; z.write_bytes(b"PK")
+    md = tmp_path / "先看这里.md"; md.write_text("x")
+    png = tmp_path / "a.png"; png.write_bytes(b"x")
+    text = f"[下载脚本包：包.zip]({z})\n\n详细见[《先看这里》]({md})\n[丢了](/nope/x.zip)\n交给你：{png}"
+    out, imgs, files = handoff(text, str(tmp_path))
+    assert files == [str(z)] and imgs == [str(png)]
+    assert "**下载脚本包：包.zip**" in out and f"[《先看这里》]({md})" in out and "[丢了](/nope/x.zip)" in out
+    assert "交给你" not in out

@@ -484,10 +484,44 @@ class Runner:
         turn.effort = s.effort or self.default_effort
 
 
+IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+# 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
+GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")
+LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+)\)")
+
+
+def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
+    """GPT 回复里要交给你的截图和文件：最后一行“交给你：路径”；它常常只写成 [下载…](/本机/路径) 链接，
+    这种链接你在手机上点不开，指向能交的文件就拿出来照常发（网页、钉钉），链接只留文字。"""
+    imgs: list[str] = []
+    files: list[str] = []
+
+    def take(raw: str) -> bool:
+        fp = Path(raw.strip("`'\"")).expanduser()
+        if not fp.is_absolute():
+            fp = Path(cwd) / fp
+        if not fp.is_file() or str(fp) in imgs + files:
+            return fp.is_file()
+        (imgs if fp.suffix.lower() in IMG_EXT else files).append(str(fp))
+        return True
+
+    keep = []
+    for line in text.splitlines():
+        m = re.match(r"^\s*交给你[:：]\s*(.+)$", line)
+        if m:
+            for raw in re.split(r"[,，、;；\s]+", m.group(1)):
+                if raw:
+                    take(raw)
+            continue
+        keep.append(LINK.sub(lambda m: f"**{m.group(1)}**" if Path(m.group(2)).suffix.lower() in GIVE_EXT and take(m.group(2))
+                             else m.group(0), line))
+    return "\n".join(keep).strip(), imgs, files
+
+
 CODEX_FIRST = ("回复一律用简体中文；专有名词、代码、命令、路径保持原样。动手做了事的，最后用这几段汇报，写给不看代码的人："
                "“要你做的 / 做了什么 / 改了哪些 / 自查结果”，没内容的段不写。需要用户在几个方案里选时，第一行写“要你定：”加一句问题，"
                "选项写成“A. …”，推荐写成“推荐：A，理由”。要把截图或文件（PDF、表格等）交给用户看，在回复最后单独一行写“交给你：”"
-               "加文件的绝对路径（多个用顿号隔开）。\n\n")
+               "加文件的绝对路径（多个用顿号隔开）；用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。\n\n")
 
 
 async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
@@ -602,20 +636,9 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
     turn.partial = ""
     if job.text != COMPACT:
         turn.final_text = texts[-1] if texts else ""
-    # 要交给你的截图 / 文件：它在回复最后写“交给你：路径”，拿出来照常发（网页、钉钉）
-    keep = []
-    for line in turn.final_text.splitlines():
-        m = re.match(r"^\s*交给你[:：]\s*(.+)$", line)
-        if not m:
-            keep.append(line)
-            continue
-        for raw in re.split(r"[,，、;；\s]+", m.group(1)):
-            fp = Path(raw.strip("`'\"")).expanduser()
-            if not fp.is_absolute():
-                fp = Path(s.cwd) / fp
-            if fp.is_file():
-                (turn.images if fp.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp") else turn.files).append(str(fp))
-    turn.final_text = "\n".join(keep).strip()
+    turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
+    turn.images += imgs
+    turn.files += files
     turn.effort = effort
 
 
