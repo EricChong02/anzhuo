@@ -8,9 +8,11 @@
 <style>
 [hidden]{display:none!important}
 :root{--bg:#fafaf9;--side:#f2f2ef;--panel:#fff;--bubble:#ececE8;--ink:#1c1c1e;--mute:#6b6b70;--line:rgba(0,0,0,.08);
-  --acc:#2f6fdf;--accsoft:rgba(47,111,223,.10);--amber:#c58a06;--red:#c0392b;--green:#1f9d55;--glass:rgba(255,255,255,.78);--shadow:0 6px 24px rgba(0,0,0,.06)}
+  --acc:#2f6fdf;--accsoft:rgba(47,111,223,.10);--amber:#c58a06;--red:#c0392b;--green:#1f9d55;--glass:rgba(255,255,255,.78);--shadow:0 6px 24px rgba(0,0,0,.06);
+  --claude:#bf5a38;--claude-soft:rgba(217,119,87,.15);--gpt:#2c2c2e;--gpt-soft:rgba(28,28,30,.08)}
 @media (prefers-color-scheme:dark){:root{--bg:#161616;--side:#1b1b1b;--panel:#222;--bubble:#2b2b2b;--ink:#ececec;--mute:#9b9b9b;--line:rgba(255,255,255,.09);
-  --acc:#7aa7ff;--accsoft:rgba(122,167,255,.14);--amber:#f5c04a;--red:#f08070;--green:#4ade80;--glass:rgba(34,34,34,.78);--shadow:0 6px 24px rgba(0,0,0,.3)}}
+  --acc:#7aa7ff;--accsoft:rgba(122,167,255,.14);--amber:#f5c04a;--red:#f08070;--green:#4ade80;--glass:rgba(34,34,34,.78);--shadow:0 6px 24px rgba(0,0,0,.3);
+  --claude:#ec9a7a;--claude-soft:rgba(236,154,122,.16);--gpt:#e8e8ea;--gpt-soft:rgba(255,255,255,.12)}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
@@ -44,7 +46,9 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .quota{padding:12px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .qrow{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute);margin:3px 0}
 .qrow span{min-width:44px} .qrow em{font-style:normal;color:var(--ink);margin-right:4px} .quota.two .qrow span{min-width:96px}
-.eng{display:inline-block;font-size:12px;font-weight:600;color:var(--mute);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-right:6px;vertical-align:2px} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.eng{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;font-size:12.5px;font-weight:700;line-height:1;margin-right:8px;vertical-align:2px;flex:none}
+.eng.c{color:var(--claude);background:var(--claude-soft)} .eng.g{color:var(--gpt);background:var(--gpt-soft)}
+.mp.c{color:var(--claude)} .mp.g{color:var(--gpt)} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
 .qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
 .pill.warn{color:var(--amber);border-color:var(--amber)}
@@ -62,6 +66,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:10px 16px;min-height:58px;
   background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(16px);backdrop-filter:saturate(1.4) blur(16px);border-bottom:1px solid var(--line)}
 .head .ti{flex:1;min-width:0} .head .ti b{display:block;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head .ti b.wt{display:flex;align-items:center;min-width:0} .head .ti b.wt .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .head .ti span{font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
 .head .ti span.running{color:var(--acc)} .head .ti span.awaiting{color:var(--amber)} .head .ti span.error{color:var(--red)}
 .pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:17px;border:1px solid var(--line);background:var(--panel);font-size:14.5px;color:var(--ink)}
@@ -315,6 +320,8 @@ const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ?
   || (s.unread ? '做完了 · ' + ago(s.updated) : ago(s.updated)));
 
 function md(src) {
+  // Codex 回复里的出处标记 :codex-file-citation{path="…"} 显示成“（出处：文件名）”
+  src = String(src).replace(/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/g, (m, p) => `（出处：${p.split('/').pop()}）`);
   const lines = esc(src).split('\n'); const out = []; let tbl = [];
   const inline = t => t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, '<a href="$2" target="_blank">$1</a>');
@@ -366,11 +373,13 @@ function renderUsage(u) {
 }
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 
+// Claude / GPT 的小标签：Claude 暖橙、GPT 石墨色，都是浅底；和状态圆点（蓝黄绿红）分开
+const engTag = e => e === 'codex' ? '<span class="eng g" title="GPT（Codex）">G</span>' : '<span class="eng c" title="Claude">C</span>';
 function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
   const row = s => `<button class="item ${s.status} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
-      <span class="tx"><div class="nm">${s.engine === 'codex' ? '<span class="eng">GPT</span>' : ''}${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
+      <span class="tx"><div class="nm">${engTag(s.engine)}${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
   const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued'].includes(s.status)],
     ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel], ['其他', s => s.status === 'idle' && !(s.unread && s.num !== sel)]]
     .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
@@ -404,7 +413,8 @@ function renderModel(st, onPick, isNew) {
     : st.model === 'gpt' ? [[...GPT.slice(0, 2), '这个对话用 GPT，不能中途换成 Claude']] : MODEL_OPTS;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
-  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
+  const tint = st.model === 'gpt' ? 'g' : st.model === 'auto' ? '' : 'c';
+  el.innerHTML = `<button class="mp ${tint} ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
       ${models.map(([k, t, d]) =>
         `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b><small>${d}</small></span>${ok}</button>`).join('')}
@@ -437,7 +447,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b>${esc(s.name)}</b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
+      <div class="ti"><b class="wt">${s.engine ? engTag(s.engine) : ''}<span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
