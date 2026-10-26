@@ -598,6 +598,12 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 proc.pop()
             items.append({"who": "claude", "text": r.get("final_text") or r.get("error") or "（没有回复）",
                           "steps": sum(1 for e in tl if e.get("kind") == "do"), "process": proc[-80:]})
+        lt = getattr(self.bridge.runner, "last", {}).get(num) if self.bridge else None
+        if lt and not any(p.stem == f"{num}-{int(lt.started)}" for p in self.turns_dir.glob(f"{num}-*.json")):
+            # 刚做完、记录还没写好（翻译、存档要几秒）：先用这一轮本身显示，免得回复“消失”一下
+            items += [{"who": "you", "text": e["text"]} for e in lt.timeline if e.get("kind") == "you"]
+            items.append({"who": "claude", "text": lt.final_text or lt.error or "（没有回复）",
+                          "steps": len(lt.steps), "process": []})
         return items[-300:]
 
     def _drafts(self) -> list[dict]:
@@ -637,13 +643,19 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             unread = status in ("idle", "awaiting", "error") and bool(s.claude_id) and s.updated > s.seen + 1
             rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
+                         "engine": getattr(s, "engine", "claude"),
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         return web.json_response({"sessions": rows, "drafts": self._drafts(),
                                   "folders": list(b.cfg.folders), "current": b.registry.current,
-                                  "limits": [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or ""}
-                                             for k, (u, r) in b.runner.limits.items()]})
+                                  "limits": self._limits(b.runner.limits),
+                                  "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible())})
+
+    @staticmethod
+    def _limits(d: dict) -> list[dict]:
+        return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or ""} for k, (u, r) in d.items()]
 
     async def _api_thread(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -652,7 +664,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not s:
             raise web.HTTPNotFound()
         # GPT 对话的内容来自小E 每轮的记录：记录写好比“做完”晚几秒，把记录份数也算进去，免得缓存住一个空的
-        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))) if s.engine == "codex" else 0)
+        lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
+        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))) if s.engine == "codex" else 0,
+               lt.ended if lt else 0)
         cached = self._threads.get(num)
         if cached and cached[0] == key:
             items = cached[1]
@@ -704,10 +718,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         mid = (turn.model if turn and turn.model else "") or (recs[-1].get("model") if recs else "") or s.model or ""
         eff = s.effort or b.runner.default_effort
         pick = s.model or mid
-        usage = {"model": "GPT（Codex）" if s.engine == "codex" else model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
+        usage = {"model": (mid if mid.startswith("GPT") else "GPT（Codex）") if s.engine == "codex" else model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""),
                  "ekey": eff or "",
-                 "context": round(s.context_pct) if s.context_pct is not None and s.engine != "codex" else None,
+                 "context": round(s.context_pct) if s.context_pct is not None else None,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,

@@ -43,7 +43,8 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .course svg{color:var(--acc)}
 .quota{padding:12px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .qrow{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute);margin:3px 0}
-.qrow span{min-width:44px} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.qrow span{min-width:44px} .qrow em{font-style:normal;color:var(--ink);margin-right:4px}
+.eng{display:inline-block;font-size:12px;font-weight:600;color:var(--mute);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-right:6px;vertical-align:2px} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
 .qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
 .pill.warn{color:var(--amber);border-color:var(--amber)}
@@ -257,6 +258,7 @@ function procHTML(list, pid) {
     : e.k === 'say' ? `<div class="pi say">${ICON.say}<span class="pt">${md(e.text)}</span></div>`
     : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
 }
+let limitsGpt = [], hasGpt = false;
 let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
@@ -333,22 +335,26 @@ function md(src) {
 }
 
 function renderQuota() {
-  const q = $('#quota'); q.hidden = !limits.length;
-  q.innerHTML = limits.map(l => `<div class="qrow ${l.pct >= 80 ? 'warn' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><span>${esc(l.name)}</span>
+  // 额度：Claude 一组；用过 GPT 再加一组（各自的 5 小时 / 本周）
+  const q = $('#quota'), both = limitsGpt.length && hasGpt;
+  q.hidden = !limits.length && !both;
+  const rows = (ls, who) => ls.map(l => `<div class="qrow ${l.pct >= 80 ? 'warn' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><span>${who ? `<em>${who}</em>` : ''}${esc(l.name)}</span>
     <span class="bar"><i style="width:${Math.min(100, l.pct)}%"></i></span><b>${l.pct}%</b></div>`).join('');
+  q.innerHTML = both ? rows(limits, 'Claude') + rows(limitsGpt, 'GPT') : rows(limits, '');
 }
 
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
-  const warn = ctxWarn || limits.some(l => l.pct >= 80);
+  const ls = u.mkey === 'gpt' ? limitsGpt : limits;
+  const warn = ctxWarn || ls.some(l => l.pct >= 80);
   el.innerHTML = `<button class="pill ${warn ? 'warn' : ''}" id="usagePill">${u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量'}</button>`
     + (usageOpen ? `<div class="usage"><div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
-      ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
+      ${ls.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${u.mkey === 'gpt' ? 'GPT ' : ''}${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
       ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}
-      ${u.mkey === 'gpt' ? '' : `<button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
+      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
-        : u.busy ? '它在干活，做完才能压缩' : '压缩上下文'}</button>`}</div>` : '');
+        : u.busy ? '它在干活，做完才能压缩' : '压缩上下文'}</button></div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
@@ -362,7 +368,7 @@ function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
   const row = s => `<button class="item ${s.status} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
-      <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
+      <span class="tx"><div class="nm">${s.engine === 'codex' ? '<span class="eng">GPT</span>' : ''}${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
   const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued'].includes(s.status)],
     ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel], ['其他', s => s.status === 'idle' && !(s.unread && s.num !== sel)]]
     .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
@@ -372,7 +378,7 @@ function renderSide() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; limits = d.limits || []; renderSide(); renderQuota(); headStatus(); watchStatus(); }
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; renderSide(); renderQuota(); headStatus(); watchStatus(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 

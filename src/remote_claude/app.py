@@ -227,7 +227,7 @@ class Bridge:
     async def compact(self, num: int | None) -> str:
         """压缩某个对话的上下文：发 /compact 给它；正在做就排到这一轮之后。返回给网页的一句话。"""
         s = self.registry.get(num or self.registry.current)
-        if not s or not s.claude_id:
+        if not s or not (s.claude_id or s.codex_id):
             msg = "这个对话还没开始，没什么可压缩的。"
             await self.say("压缩", msg)
             return msg
@@ -248,7 +248,7 @@ class Bridge:
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
-        title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
+        title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
         if self.web.enabled:
             try:
                 tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0] if title else "回复")
@@ -257,7 +257,7 @@ class Bridge:
                 turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
                 turn.links += [(f"试课：{name}", self.web.link(url))
                                for name, url in self.web._turn(tid).get("previews", [])]
-                title, body = report.build(s.label, turn, s.cwd, self.runner.limits)
+                title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
             except LookupError:
                 pass
             except Exception:  # noqa: BLE001 - 过程页出问题不影响报告
@@ -794,6 +794,16 @@ class Bridge:
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
+    async def _gpt_usage_loop(self) -> None:
+        """GPT（Codex）的额度：有 GPT 对话时每 10 分钟读一次，侧栏和报告里用。"""
+        while True:
+            if any(s.engine == "codex" for s in self.registry.visible()):
+                try:
+                    await self.runner.refresh_gpt_usage(force=True)
+                except Exception:  # noqa: BLE001
+                    log.debug("读 GPT 额度失败", exc_info=True)
+            await asyncio.sleep(600)
+
     async def _cleanup_loop(self) -> None:
         """每天清一次旧副本、归档 90 天前的旧对话记录（见 cleanup.py）；登记着的对话不动。"""
         from . import cleanup
@@ -828,5 +838,6 @@ class Bridge:
         # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         asyncio.create_task(self._cleanup_loop())
+        asyncio.create_task(self._gpt_usage_loop())
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()
