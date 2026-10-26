@@ -374,7 +374,8 @@ function renderUsage(u) {
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 
 // Claude / GPT 的小标签：Claude 暖橙、GPT 石墨色，都是浅底；和状态圆点（蓝黄绿红）分开
-const engTag = e => e === 'codex' ? '<span class="eng g" title="GPT（Codex）">G</span>' : '<span class="eng c" title="Claude">C</span>';
+// 只按服务器明说的来标；没说（比如小E 还没更新到带这个字段的版本）就不标，免得把 GPT 认成 Claude
+const engTag = e => e === 'codex' ? '<span class="eng g" title="GPT（Codex）">G</span>' : e === 'claude' ? '<span class="eng c" title="Claude">C</span>' : '';
 function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
@@ -447,7 +448,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b class="wt">${s.engine ? engTag(s.engine) : ''}<span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
+      <div class="ti"><b class="wt">${engTag(s.engine)}<span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
