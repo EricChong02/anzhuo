@@ -244,3 +244,25 @@ def test_guard_hook_waits_for_answer():
         assert not r.answer_confirm(3, True)   # 没有在等的就不算
 
     asyncio.run(go())
+
+
+def test_compact_queue():
+    """正在压缩时说的话不插进压缩那一轮，排到压完之后；压缩点两次只排一次。"""
+    import asyncio
+    import time
+    from remote_claude.report import Turn
+    from remote_claude.sessions import COMPACT, Job, Runner, Session
+
+    async def go():
+        r = Runner(registry=None, on_done=None)
+        s = Session(num=6, name="做课", cwd="/tmp")
+        r.turns[6], r.clients[6] = Turn(started=time.time(), request="压缩上下文"), object()
+        r.workers[6] = asyncio.get_running_loop().create_future()   # 假装有人在干活，别真开 worker
+        assert r.compacting(6) == "running"
+        assert r.submit(s, Job(text="把这节课上线")) == 1            # 排队，不是插话（-1）
+        assert [j.text for j in r.queued(6)] == ["把这节课上线"]
+        r.turns[6] = Turn(started=time.time(), request="改封面")
+        r.submit(s, Job(text=COMPACT))
+        assert r.compacting(6) == "queued"
+
+    asyncio.run(go())

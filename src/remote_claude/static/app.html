@@ -82,6 +82,9 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .pt.wait{color:var(--mute)}
+.qtag{display:block;margin-top:6px;font-size:14px;color:var(--mute)}
+.queue{color:var(--mute);font-size:15px;padding:0 4px}
+.live .lsub{margin-top:8px;color:var(--mute);font-size:15px}
 .live .partial{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:16px;line-height:1.65}
 .caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
@@ -295,7 +298,7 @@ function ago(t) {
   if (s < 2 * 86400) return '昨天';
   return (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
-const statusText = s => ({running: `在做 · 第 ${s.steps} 步`, queued: '排队中', awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你回答', error: '出错了'}[s.status]
+const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ? '正在压缩上下文' : `在做 · 第 ${s.steps} 步`, queued: '排队中', awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你回答', error: '出错了'}[s.status]
   || (s.unread ? '做完了 · ' + ago(s.updated) : ago(s.updated)));
 
 function md(src) {
@@ -333,11 +336,13 @@ function renderUsage(u) {
     + (usageOpen ? `<div class="usage"><div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
       ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
       ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}
-      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px">压缩上下文</button></div>` : '');
+      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting ? 'disabled' : ''}>${
+        u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压' : '压缩上下文'}</button></div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
-    await api('compact/' + sel, {}); b.textContent = '已开始，大约一分钟';
+    const r = await api('compact/' + sel, {}).catch(() => null); b.textContent = r ? '已交给它，进度看对话里' : '没交出去，再点一次';
+    lastKey = ''; loadThread();
   };
 }
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
@@ -562,8 +567,10 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
+  const queued = new Set(d.queue || []);
+  const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   let h = d.items.map((it, idx) => {
-    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${esc(it.text)}</div>`;
+    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${esc(it.text)}${it.pending && queued.has(it.text.slice(0, 80)) ? '<span class="qtag">排队中，前面的做完就做</span>' : ''}</div>`;
     if (it.who === 'note') return `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
@@ -580,10 +587,14 @@ function renderThread(d) {
   if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
-    h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · ${L.minutes} 分钟${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
+    if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div>
+      <div class="lsub">压完它还记得聊过的要点；你这时说的话会排在压缩之后，压完接着做</div></div>`;
+    else h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · ${L.minutes} 分钟${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
       ${(L.process || []).length ? procHTML(L.process.slice(-14), 'live') : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }
+  const restQ = (d.queue || []).filter(q => !shownQ.has(q));
+  if (restQ.length) h += `<div class="queue">接下来：${restQ.map(esc).join('；')}</div>`;
   if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>
       <pre>${esc(d.live.confirm.cmd)}</pre><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
       <div class="tip">20 分钟不回就当不允许，它会换别的办法或问你</div></div>`;
@@ -615,7 +626,7 @@ function renderThread(d) {
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(last.previews[0][1])}" target="_blank">${ICON.play}试课</a>` : '';
-  $('#ta').placeholder = d.live ? '插话…' : d.awaiting ? '回答它的问题…' : '说点什么…';
+  $('#ta').placeholder = d.live && d.live.compact ? '说点什么（压完接着做）' : d.live ? '插话…' : d.awaiting ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
   document.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
     document.querySelectorAll('.opt').forEach(x => x.disabled = true);

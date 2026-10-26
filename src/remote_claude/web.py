@@ -25,6 +25,7 @@ from aiohttp import web
 
 from . import thread, translate
 from .push import Push
+from .sessions import COMPACT
 from .cards import parse_decision
 from .commands import Cmd
 from .dingtalk import Incoming
@@ -528,6 +529,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             turn = b.runner.turns.get(s.num)
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
+            elif turn and b.runner.compacting(s.num) == "running":
+                status, detail = "running", "正在压缩上下文"
             elif turn:
                 status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟 · 第 {len(turn.steps)} 步"
             elif b.runner.busy(s.num):
@@ -595,7 +598,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     e.update(self._zh_proc(e))
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
-                    "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None}
+                    "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
+                    "compact": b.runner.compacting(num) == "running"}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
@@ -605,9 +609,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         pick = s.model or mid
         usage = {"model": model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""), "ekey": eff or "",
-                 "context": round(s.context_pct) if s.context_pct is not None else None}
+                 "context": round(s.context_pct) if s.context_pct is not None else None,
+                 "compacting": b.runner.compacting(num)}
+        queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
-                                  "live": live, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
+                                  "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
 
     def _zh_or_later(self, text: str) -> str:
         """英文的先原样给，后台译好存起来，下次刷新就是中文。"""

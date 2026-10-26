@@ -153,7 +153,9 @@ class Runner:
     def submit(self, s: Session, job: Job) -> int:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
         turn, client = self.turns.get(s.num), self.clients.get(s.num)
-        if turn and client and turn.accepting and not turn.interrupted and job.text != COMPACT:
+        # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后
+        if (turn and client and turn.accepting and not turn.interrupted and job.text != COMPACT
+                and turn.request != _request_title(Job(text=COMPACT))):
             turn.injected += 1
             turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
             asyncio.create_task(self._inject(s, client, job))
@@ -173,6 +175,18 @@ class Runner:
             log.warning("插话给 #%s 失败，排到下一轮", s.num, exc_info=True)
             q = self.queues.setdefault(s.num, asyncio.Queue())
             q.put_nowait(job)
+
+    def queued(self, num: int) -> list[Job]:
+        """还排着没开始的（按顺序）。"""
+        q = self.queues.get(num)
+        return list(q._queue) if q else []  # noqa: SLF001 - asyncio.Queue 没有公开的查看方法
+
+    def compacting(self, num: int) -> str:
+        """这个对话的压缩：正在压返回 "running"，排着返回 "queued"，没有返回 ""。"""
+        turn = self.turns.get(num)
+        if turn and turn.request == _request_title(Job(text=COMPACT)):
+            return "running"
+        return "queued" if any(j.text == COMPACT for j in self.queued(num)) else ""
 
     def answer_confirm(self, num: int, allow: bool) -> bool:
         """你在手机 / 钉钉 / 网页上点了允许或不允许。"""

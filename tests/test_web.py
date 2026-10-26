@@ -159,6 +159,12 @@ def test_chat_api(tmp_path, monkeypatch):
             self.stopped.append(n)
             return True
 
+        def compacting(self, n):
+            return ""
+
+        def queued(self, n):
+            return []
+
     class FakeBridge:
         def __init__(self):
             s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？", claude_id="sid6")
@@ -208,7 +214,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert "小E" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium"}
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": ""}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}

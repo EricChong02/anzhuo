@@ -229,6 +229,8 @@ class Bridge:
             msg = "这个对话还没开始，没什么可压缩的。"
             await self.say("压缩", msg)
             return msg
+        if state := self.runner.compacting(s.num):   # 点了两次也只压一次
+            return f"{s.label} " + ("正在压缩，大约一分钟。" if state == "running" else "已经排着要压缩了，手上的做完就压。")
         self._compact_from[s.num] = s.context_pct
         ahead = self.runner.submit(s, Job(text=COMPACT))
         msg = f"{s.label} 开始压缩上下文" + (f"，等手上 {ahead} 件做完再压" if ahead else "") + "，大约一分钟。"
