@@ -509,6 +509,25 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 continue
         return out
 
+    def _codex_history(self, num: int) -> list[dict]:
+        """Codex 对话的一来一回：Codex 的记录格式不一样，直接用小E 自己记的每轮（你说的话 + 过程 + 最后的回复）。"""
+        items: list[dict] = []
+        for p in sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1])):
+            try:
+                r = json.loads(p.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            tl = r.get("timeline") or []
+            said = [e["text"] for e in tl if e.get("kind") == "you"] or [r.get("request") or ""]
+            items += [{"who": "you", "text": t} for t in said if t]
+            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {})}
+                    for e in tl if e.get("kind") in ("think", "say", "do")]
+            if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
+                proc.pop()
+            items.append({"who": "claude", "text": r.get("final_text") or r.get("error") or "（没有回复）",
+                          "steps": sum(1 for e in tl if e.get("kind") == "do"), "process": proc[-80:]})
+        return items[-300:]
+
     def _drafts(self) -> list[dict]:
         root = Path(self.preview_root).expanduser() if self.preview_root else None
         if not root or not (root / "_drafts").is_dir():
@@ -566,7 +585,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             items = cached[1]
         else:
             items = []
-            if s.claude_id:
+            if s.engine == "codex":
+                items = thread.attach_records(self._codex_history(num), self._records(num))
+            elif s.claude_id:
                 try:
                     msgs = await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd)
                     items = thread.attach_records(thread.history(msgs), self._records(num))
@@ -610,8 +631,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         mid = (turn.model if turn and turn.model else "") or (recs[-1].get("model") if recs else "") or s.model or ""
         eff = s.effort or b.runner.default_effort
         pick = s.model or mid
-        usage = {"model": model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
-                 "mkey": next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""), "ekey": eff or "",
+        usage = {"model": "GPT（Codex）" if s.engine == "codex" else model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
+                 "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""),
+                 "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
@@ -724,7 +746,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
         """网页上选的模型（opus / sonnet / haiku）和深度（low…max）；没选或不认得的返回 None。"""
         from .app import EFFORTS, MODELS
-        return MODELS.get(str(data.get("model") or "")), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
+        m = str(data.get("model") or "")
+        return ("gpt" if m == "gpt" else MODELS.get(m)), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
 
     async def _api_settings(self, request: web.Request) -> web.Response:
         """改某个对话的模型和思考深度，下一轮起生效（正在做的这一轮不变）。"""
@@ -734,6 +757,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not s:
             raise web.HTTPNotFound()
         model, effort = self._model_effort(await request.json())
+        if model == "gpt" or (s.engine == "codex" and model):
+            model = None   # 一个对话从头到尾用同一家：中途不在 Claude 和 GPT 之间换
         s.model = model or s.model
         s.effort = effort or s.effort
         self.bridge.registry.save()

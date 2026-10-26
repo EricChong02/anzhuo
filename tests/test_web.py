@@ -241,8 +241,10 @@ def test_chat_api(tmp_path, monkeypatch):
             # 选模型和思考深度：新开时带上；已有对话改了存下来，下一轮生效；不认得的不理
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "sonnet", "effort": "high"})
             assert b.new_model == ("claude-sonnet-5-5", "high")
-            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "gpt", "effort": "超高"})
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "llama", "effort": "超高"})
             assert b.new_model == (None, None)
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "gpt"})
+            assert b.new_model == ("gpt", None)                       # 用 Codex（GPT）新开
             b.registry.save = lambda: None
             assert (await (await c.post("/_x/api/settings/7", json={"model": "haiku", "effort": "xhigh"})).json())["ok"]
             assert (b.registry.sessions[7].model, b.registry.sessions[7].effort) == ("claude-haiku-5-5", "xhigh")

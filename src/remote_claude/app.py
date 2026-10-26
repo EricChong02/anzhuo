@@ -53,6 +53,8 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
     model = effort = None
     if m := re.search(r"(?:用|换成|改用|切到|模型)\s*(opus|sonnet|haiku|fable)", text, re.I):
         model = MODELS[m.group(1).lower()]
+    elif re.search(r"(?:用|交给|让)\s*(codex|gpt|chatgpt)", text, re.I):
+        model = "gpt"
     if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
         effort = EFFORTS[m.group(1)]
     return model, effort
@@ -695,11 +697,13 @@ class Bridge:
         model = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=model)
         said_model, said_effort = inline_overrides(text)
+        if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
+            s.engine, model, said_model, s.model = "codex", None, None, None
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
+        why = "GPT · Codex" if s.engine == "codex" else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:

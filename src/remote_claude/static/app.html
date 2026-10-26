@@ -384,12 +384,15 @@ let mpOpen = false, mpRedraw = null;
 function renderModel(st, onPick, isNew) {
   const el = $('#mpw'); if (!el) return;
   mpRedraw = () => renderModel(st, onPick, isNew);
-  const mname = st.model === 'auto' ? '自动' : (MODEL_OPTS.find(m => m[0] === st.model) || [, '默认'])[1];
+  const GPT = ['gpt', 'GPT', 'ChatGPT 自带的 Codex，用会员额度；聊天、干活都行'];
+  const mname = st.model === 'auto' ? '自动' : ([...MODEL_OPTS, GPT].find(m => m[0] === st.model) || [, '默认'])[1];
+  const models = isNew ? [['auto', '自动', '做课开发用 Opus，简单事用 Sonnet'], ...MODEL_OPTS, GPT]
+    : st.model === 'gpt' ? [[...GPT.slice(0, 2), '这个对话用 GPT，不能中途换成 Claude']] : MODEL_OPTS;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
-      ${(isNew ? [['auto', '自动', '做课开发用 Opus，简单事用 Sonnet'], ...MODEL_OPTS] : MODEL_OPTS).map(([k, t, d]) =>
+      ${models.map(([k, t, d]) =>
         `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b><small>${d}</small></span>${ok}</button>`).join('')}
       <div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div>
       <div class="tip">${isNew ? '越高想得越细，也越慢、越费额度' : '从下一轮起生效'}</div></div>` : '');

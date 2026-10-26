@@ -63,6 +63,8 @@ class Session:
     awaiting: str = ""  # 上一轮最后在等你回答（问了什么）；你回了话就清掉
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
+    engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
+    codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
 
     @property
     def label(self) -> str:
@@ -142,6 +144,7 @@ class Runner:
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.clients: dict[int, ClaudeSDKClient] = {}
+        self.procs: dict[int, asyncio.subprocess.Process] = {}  # 正在跑的 Codex
         self.turns: dict[int, Turn] = {}
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
@@ -154,7 +157,7 @@ class Runner:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
         turn, client = self.turns.get(s.num), self.clients.get(s.num)
         # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后
-        if (turn and client and turn.accepting and not turn.interrupted and job.text != COMPACT
+        if (turn and client and s.engine != "codex" and turn.accepting and not turn.interrupted and job.text != COMPACT
                 and turn.request != _request_title(Job(text=COMPACT))):
             turn.injected += 1
             turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
@@ -231,6 +234,9 @@ class Runner:
         client = self.clients.get(num)
         if num in self.turns:
             self.turns[num].interrupted = True
+        if proc := self.procs.get(num):
+            proc.terminate()
+            return True
         if client:
             await client.interrupt()
             return True
@@ -343,6 +349,8 @@ class Runner:
         yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
 
     async def _run(self, s: Session, job: Job, turn: Turn) -> None:
+        if s.engine == "codex":
+            return await _codex_run(self, s, job, turn)
         if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
             raise FolderBlocked("、".join(display(p) for p in stuck))
         options = ClaudeAgentOptions(
@@ -435,6 +443,94 @@ class Runner:
                 log.debug("取上下文用量失败", exc_info=True)
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or self.default_effort
+
+
+CODEX = Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")  # ChatGPT 桌面版自带的 Codex
+CODEX_FIRST = ("回复一律用简体中文；专有名词、代码、命令、路径保持原样。动手做了事的，最后用这几段汇报，写给不看代码的人："
+               "“要你做的 / 做了什么 / 改了哪些 / 自查结果”，没内容的段不写。需要用户在几个方案里选时，第一行写“要你定：”加一句问题，"
+               "选项写成“A. …”，推荐写成“推荐：A，理由”。\n\n")
+
+
+async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
+    """用 Codex 跑一轮：codex exec --json，读它吐出来的事件，翻成和 Claude 一样的步骤、说明、回复。
+    只能写对话所在的文件夹（workspace-write，可联网）；接着聊用 resume。中途不能插话，说的话排到下一轮。"""
+    if not CODEX.exists():
+        raise RuntimeError("没找到 ChatGPT 桌面版自带的 Codex（/Applications/ChatGPT.app）")
+    if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
+        raise FolderBlocked("、".join(display(p) for p in stuck))
+    effort = s.effort or self.default_effort or "medium"
+    common = ["--json", "--skip-git-repo-check", "-c", f"model_reasoning_effort={effort}",
+              "-c", 'sandbox_mode="workspace-write"', "-c", "sandbox_workspace_write.network_access=true"]
+    for p in job.images:
+        common += ["-i", str(p)]
+    prompt = job.text or "（见图）"
+    if s.codex_id:
+        args = [str(CODEX), "exec", "resume", s.codex_id, *common, prompt]
+    else:
+        args = [str(CODEX), "exec", *common, *sum((["--add-dir", d] for d in s.add_dirs), []), CODEX_FIRST + prompt]
+    proc = await asyncio.create_subprocess_exec(*args, cwd=s.cwd, stdin=asyncio.subprocess.DEVNULL,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                limit=64 * 1024 * 1024)
+    self.procs[s.num] = proc
+    errbuf = bytearray()
+
+    async def drain():  # 报错输出另开一路读走，免得堆满了卡住 Codex
+        while chunk := await proc.stderr.read(65536):
+            errbuf.extend(chunk[-20000:])
+    drainer = asyncio.create_task(drain())
+    turn.model = "GPT（Codex）"
+    turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
+    texts: list[str] = []
+    try:
+        async for raw in proc.stdout:
+            try:
+                ev = json.loads(raw)
+            except ValueError:
+                continue
+            t, item = ev.get("type"), ev.get("item") or {}
+            kind = item.get("type")
+            if t == "thread.started" and ev.get("thread_id"):
+                s.codex_id = ev["thread_id"]
+            elif t == "item.completed" and kind == "agent_message" and (item.get("text") or "").strip():
+                texts.append(item["text"].strip())
+                turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"][:6000]})
+            elif t == "item.completed" and kind == "reasoning" and (item.get("text") or "").strip():
+                turn.timeline.append({"t": time.time(), "kind": "think", "text": item["text"][:4000]})
+            elif t == "item.started" and kind == "command_execution":
+                cmd = str(item.get("command") or "")
+                cmd = re.sub(r"^/bin/(?:zsh|bash) -lc ", "", cmd).strip("'\"")
+                label = "跑命令：" + brief(cmd, 18)
+                turn.steps.append(label)
+                turn.commands.append(cmd[:200])
+                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": cmd[:3000]})
+            elif t == "item.completed" and kind == "file_change":
+                for ch in item.get("changes") or []:
+                    fp = ch.get("path") if isinstance(ch, dict) else None
+                    if fp:
+                        turn.changed_files.append(fp)
+                        label = f"改 {Path(fp).name}"
+                        turn.steps.append(label)
+                        turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": fp})
+            elif t == "item.completed" and kind == "web_search":
+                label = "上网查：" + brief(str(item.get("query") or ""), 18)
+                turn.steps.append(label)
+                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": str(item.get("query") or "")})
+            elif t in ("turn.failed", "error"):
+                turn.is_error = True
+                turn.error = str((ev.get("error") or {}).get("message") or ev.get("message") or "Codex 出错了")[:300]
+        await proc.wait()
+        await drainer
+    finally:
+        self.procs.pop(s.num, None)
+        if proc.returncode is None:
+            proc.kill()
+    if proc.returncode and not turn.interrupted and not turn.is_error and not texts:
+        await drainer
+        err = bytes(errbuf).decode("utf-8", "replace").strip().splitlines()
+        turn.is_error = True
+        turn.error = ("Codex 没跑起来：" + (err[-1] if err else f"退出码 {proc.returncode}"))[:300]
+    turn.final_text = texts[-1] if texts else ""
+    turn.effort = effort
 
 
 def _tool_detail(name: str, inp: dict) -> str:
