@@ -82,6 +82,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .pt.wait{color:var(--mute)}
+.tick{font-weight:inherit;font-variant-numeric:tabular-nums}
 .yimgs{margin:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end} .yimgs img{width:92px;height:92px;object-fit:cover;border-radius:10px;display:block}
 .qtag{display:block;margin-top:6px;font-size:14px;color:var(--mute)}
 .queue{color:var(--mute);font-size:15px;padding:0 4px}
@@ -561,6 +562,9 @@ addEventListener('popstate', e => { const lb = document.querySelectorAll('.light
 
 addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
 
+// 进行中用了多久：按秒走，每秒自己跳（不用等服务器）
+const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`; };
+setInterval(() => document.querySelectorAll('.tick').forEach(t => { t.textContent = dur(Date.now() / 1000 - +t.dataset.t0); }), 1000);
 // 你发的图：气泡里一排小图，点开看大图
 const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
 function renderThread(d) {
@@ -596,7 +600,7 @@ function renderThread(d) {
     const L = d.live, first = L.total - L.steps.length + 1;
     if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div>
       <div class="lsub">压完它还记得聊过的要点；你这时说的话会排在压缩之后，压完接着做</div></div>`;
-    else h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · ${L.minutes} 分钟${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
+    else h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · <b class="tick" data-t0="${Date.now() / 1000 - (L.elapsed ?? L.minutes * 60)}">${dur(L.elapsed ?? L.minutes * 60)}</b>${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
       ${(L.process || []).length ? procHTML(L.process.slice(-14), 'live') : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }

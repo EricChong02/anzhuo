@@ -599,6 +599,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 if e["k"] in ("think", "say"):
                     e.update(self._zh_proc(e))
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
+                    "elapsed": int(time.time() - turn.started),
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
                     "compact": b.runner.compacting(num) == "running"}
