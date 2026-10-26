@@ -82,6 +82,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:13.5px}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .pt.wait{color:var(--mute)}
+.yimgs{margin:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end} .yimgs img{width:92px;height:92px;object-fit:cover;border-radius:10px;display:block}
 .qtag{display:block;margin-top:6px;font-size:14px;color:var(--mute)}
 .queue{color:var(--mute);font-size:15px;padding:0 4px}
 .live .lsub{margin-top:8px;color:var(--mute);font-size:15px}
@@ -423,7 +424,7 @@ function openSession(num, fromPop) {
   const feed = $('#feed');
   feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
   $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
-  wireComposer(text => api('send', {num, text, images: attach, files: attachFiles}), text => { (pending[num] ||= []).push({text, t: Date.now()}); });
+  wireComposer(text => api('send', {num, text, images: attach, files: attachFiles}), (text, imgs) => { (pending[num] ||= []).push({text, imgs, t: Date.now()}); });
   renderSide(); headStatus(); loadThread();
 }
 
@@ -560,6 +561,8 @@ addEventListener('popstate', e => { const lb = document.querySelectorAll('.light
 
 addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
 
+// 你发的图：气泡里一排小图，点开看大图
+const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
@@ -568,10 +571,13 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
+  // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
+  const prevN = replyCount[d.num], fresh = prevN !== undefined && replies.length > prevN && (near || wasLive[d.num]);
+  replyCount[d.num] = replies.length; wasLive[d.num] = !!d.live;
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   let h = d.items.map((it, idx) => {
-    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${esc(it.text)}${it.pending && queued.has(it.text.slice(0, 80)) ? '<span class="qtag">排队中，前面的做完就做</span>' : ''}</div>`;
+    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${youImgs((it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}${it.pending && queued.has(it.text.slice(0, 80)) ? '<span class="qtag">排队中，前面的做完就做</span>' : ''}</div>`;
     if (it.who === 'note') return `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
@@ -584,7 +590,7 @@ function renderThread(d) {
     })() : '';
     return `<div class="cl ${fold ? 'fold' : ''}">${proc}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
-  h += pending[d.num].map(p => `<div class="you pending">${esc(p.text)}</div>`).join('');
+  h += pending[d.num].map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`).join('');
   if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
@@ -636,8 +642,11 @@ function renderThread(d) {
     (pending[d.num] ||= []).push({text, t: Date.now()});
     await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
   });
-  if (near) feed.scrollTop = feed.scrollHeight;
+  const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
+  if (fresh && lastCl) feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
+  else if (near) feed.scrollTop = feed.scrollHeight;
 }
+const replyCount = {}, wasLive = {};
 
 async function loadThread() {
   if (!sel) return;
@@ -699,7 +708,7 @@ function wireComposer(sendFn, onSent) {
     sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
     // 一按发送就先显示在对话里（长文字带图上传要几秒），没发出去再撤回
     const shown = text || (attachFiles.length ? '[附件]' : '[图片]'), num0 = sel;
-    if (onSent) { onSent(shown); lastKey = ''; loadThread(); }
+    if (onSent) { onSent(shown, attach.slice()); lastKey = ''; loadThread(); }
     const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); lastKey = ''; loadThread(); };
     try {
       const r = await sendFn(text);

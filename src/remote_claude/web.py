@@ -161,6 +161,8 @@ class Web:
         except (OSError, json.JSONDecodeError):
             self._zh = {}
         self._zh_busy: set[str] = set()
+        self._uimg: dict[str, tuple[bytes, str]] = {}   # 你发过的图，最近取过的留在内存
+        self._uimg_miss: set[str] = set()
         self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
 
     @property
@@ -844,6 +846,20 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             pass
         return resp
 
+    async def _api_uimg(self, request: web.Request) -> web.Response:
+        """对话里你发过的图。"""
+        s = self.bridge.registry.get(int(request.match_info["num"]))
+        ref = f"{request.match_info['uuid']}/{request.match_info['k']}"
+        if not s or not s.claude_id or ref in self._uimg_miss:
+            raise web.HTTPNotFound()
+        got = self._uimg.get(ref) or await asyncio.to_thread(thread.user_image, s.claude_id, s.cwd, ref)
+        if not got:
+            self._uimg_miss.add(ref)
+            raise web.HTTPNotFound()
+        self._uimg[ref] = got
+        self._uimg = dict(list(self._uimg.items())[-60:])
+        return web.Response(body=got[0], content_type=got[1], headers={"Cache-Control": "private, max-age=86400"})
+
     async def _api_confirm(self, request: web.Request) -> web.Response:
         """危险操作：你点了允许 / 不允许。"""
         if not self._same_origin(request):
@@ -892,6 +908,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
         app.router.add_get(f"{PREFIX}/api/events", self._api_events)
+        app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)

@@ -53,6 +53,20 @@ def full_messages(session_id: str, cwd: str | None):
     return [sdk._to_session_message(e) for e in chain if sdk._is_visible_message(e)]
 
 
+def user_image(session_id: str, cwd: str | None, ref: str) -> tuple[bytes, str] | None:
+    """你发过的某张图（ref = 消息编号/第几张）：从对话记录里取出来给网页显示。"""
+    import base64
+    uuid, _, k = ref.partition("/")
+    for m in full_messages(session_id, cwd):
+        if getattr(m, "uuid", "") == uuid and isinstance(m.message, dict) and isinstance(m.message.get("content"), list):
+            imgs = [b for b in m.message["content"] if isinstance(b, dict) and b.get("type") == "image"]
+            if k.isdigit() and int(k) < len(imgs):
+                src = imgs[int(k)].get("source") or {}
+                if src.get("type") == "base64":
+                    return base64.b64decode(src.get("data", "")), src.get("media_type") or "image/png"
+    return None
+
+
 def _detail(name: str, inp: dict) -> str:
     if name == "Bash":
         return str(inp.get("command", ""))[:400]
@@ -86,7 +100,13 @@ def history(messages, limit: int = 300) -> list[dict]:
             if text.startswith("This session is being continued"):
                 items.append({"who": "note", "text": "（更早的对话内容已压缩）"})
                 continue
-            items.append({"who": "you", "text": text.strip()})
+            n_img = sum(1 for b in content if isinstance(b, dict) and b.get("type") == "image") if isinstance(content, list) else 0
+            if n_img and getattr(m, "uuid", ""):
+                # 带图的话：网页上直接显示图（/_x/api/uimg/…），文字里去掉“[图片]”占位
+                body = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
+                items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
+            else:
+                items.append({"who": "you", "text": text.strip()})
         elif m.type == "assistant" and isinstance(content, list):
             for b in content:
                 kind = b.get("type") if isinstance(b, dict) else None
