@@ -290,3 +290,9 @@ def test_cleanup(tmp_path):
     assert not (proj / "p" / "old.jsonl").exists() and (proj / "p" / "keep.jsonl").exists() and (proj / "p" / "fresh.jsonl").exists()
     assert gzip.open(arch / "p" / "old.jsonl.gz").read().count(b"\n") == 100
     assert r["removed"] == 1 and r["archived"] == 1
+
+
+def test_guard_force_restart():
+    from remote_claude.guard import danger
+    assert danger("nohup sh -c 'sleep 90; launchctl kickstart -k gui/501/com.zhuangyi.remote-claude' &")
+    assert danger("launchctl list | grep remote-claude") is None

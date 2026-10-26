@@ -464,6 +464,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
     # ---------- 试课预览：转给本机 CyberScope ----------
+    def _moved_course(self, course: str) -> str:
+        """/workspace/_drafts/<课>/course.json 已不在（课上架挪进 topics/）→ 新地址；没挪就空。"""
+        m = re.fullmatch(r"/workspace/_drafts/([^/]+)/course\.json", course)
+        root = Path(self.preview_root).expanduser() if self.preview_root else None
+        if not m or not root or (root / "_drafts" / m[1] / "course.json").is_file():
+            return ""
+        hit = next((p for p in sorted((root / "topics").glob(f"*/{m[1]}/course.json"))), None)
+        return f"/workspace/{hit.relative_to(root).as_posix()}" if hit else ""
+
     async def _proxy(self, request: web.Request) -> web.StreamResponse:
         if not self.preview_upstream or not preview_allowed(request.method, request.path):
             return self._page("不开放", "<h1>这个地址不开放</h1><p class='meta'>外网只能打开课程预览。</p>", 403)
@@ -471,6 +480,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             self._client = aiohttp.ClientSession(auto_decompress=False, timeout=aiohttp.ClientTimeout(total=120))
         drop = HOP | (PROXY_SOURCE if request.path.startswith(LOCAL_ONLY) else set())
         inject = request.method == "GET" and request.path in FEEDBACK_PAGES
+        if inject and (moved := self._moved_course(request.query.get("course", ""))):
+            return web.HTTPFound(request.rel_url.update_query(course=moved).path_qs)  # 早先记下的草稿链接：课上架后跳到新位置
         if inject:
             drop = drop | {"accept-encoding", "if-none-match", "if-modified-since"}  # 要改页面，取不压缩、完整的一份
         headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}

@@ -379,3 +379,16 @@ def test_course_feedback(tmp_path):
             await c.close()
 
     asyncio.run(go())
+
+
+def test_moved_course_link(tmp_path):
+    """早先记下的草稿试课链接：课上架挪进 topics 后自动跳到新位置；还在草稿里的不动。"""
+    root = tmp_path / "root"
+    (root / "topics" / "data" / "c1").mkdir(parents=True)
+    (root / "topics" / "data" / "c1" / "course.json").write_text("{}")
+    (root / "_drafts" / "c2").mkdir(parents=True)
+    (root / "_drafts" / "c2" / "course.json").write_text("{}")
+    w = Web("http://x.example", 0, tmp_path, "", str(root))
+    assert w._moved_course("/workspace/_drafts/c1/course.json") == "/workspace/topics/data/c1/course.json"
+    assert w._moved_course("/workspace/_drafts/c2/course.json") == ""
+    assert w._moved_course("/workspace/_drafts/none/course.json") == ""

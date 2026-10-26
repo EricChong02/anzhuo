@@ -18,6 +18,7 @@ _RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(DROP\s+TABLE|DELETE\s+FROM|TRUNCATE\s+TABLE|DROP\s+DATABASE)\b", re.I), "改数据库：删表或删数据"),
     (re.compile(r"\bsudo\s"), "用管理员权限执行（sudo）"),
     (re.compile(r"\blaunchctl\s+(bootout|unload|remove)\b"), "停掉系统后台服务（launchctl）"),
+    (re.compile(r"\blaunchctl\s+kickstart\b[^;&|]*-k"), "强制重启后台服务（会打断正在干活的对话）"),
     (re.compile(r"\b(diskutil\s+(erase|partition|zero)|mkfs|dd\s+if=)"), "改磁盘（抹盘、分区）"),
     (re.compile(r"\bch(mod|own)\s+-R\b"), "批量改文件权限"),
     (re.compile(r"\bfind\b[^;&|]*\s(-delete\b|-exec\s+rm\b)"), "批量删文件（find -delete）"),

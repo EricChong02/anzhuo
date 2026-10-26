@@ -37,7 +37,9 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 某一段没有内容（比如没有要用户做的、没有改文件、没有截图），这一段整段不写，不要写“没有”“无”。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
-用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。"""
+用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
+小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
+"""
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
