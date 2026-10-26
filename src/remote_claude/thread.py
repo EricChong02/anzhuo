@@ -50,7 +50,17 @@ def full_messages(session_id: str, cwd: str | None):
             part.append(cur)
             cur = by_uuid.get(cur.get("parentUuid") or "")
         chain = part[::-1] + chain
-    return [sdk._to_session_message(e) for e in chain if sdk._is_visible_message(e)]
+    out = []
+    for e in chain:
+        att = e.get("attachment") if e.get("type") == "attachment" else None
+        if isinstance(att, dict) and att.get("type") == "queued_command" and att.get("prompt"):
+            # 干活中途插的话：记录里存成“附件”，不是普通的一条，照样当你说的话显示
+            prompt = att["prompt"]
+            out.append(sdk.SessionMessage(type="user", uuid=e.get("uuid", ""), session_id=e.get("sessionId", ""),
+                                          message={"role": "user", "content": prompt}, parent_tool_use_id=None))
+        elif sdk._is_visible_message(e):
+            out.append(sdk._to_session_message(e))
+    return out
 
 
 def user_image(session_id: str, cwd: str | None, ref: str) -> tuple[bytes, str] | None:
