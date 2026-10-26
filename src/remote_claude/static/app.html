@@ -43,7 +43,7 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .course svg{color:var(--acc)}
 .quota{padding:12px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .qrow{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mute);margin:3px 0}
-.qrow span{min-width:44px} .qrow em{font-style:normal;color:var(--ink);margin-right:4px}
+.qrow span{min-width:44px} .qrow em{font-style:normal;color:var(--ink);margin-right:4px} .quota.two .qrow span{min-width:96px}
 .eng{display:inline-block;font-size:12px;font-weight:600;color:var(--mute);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-right:6px;vertical-align:2px} .qrow .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
 .qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
@@ -341,6 +341,7 @@ function renderQuota() {
   const rows = (ls, who) => ls.map(l => `<div class="qrow ${l.pct >= 80 ? 'warn' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><span>${who ? `<em>${who}</em>` : ''}${esc(l.name)}</span>
     <span class="bar"><i style="width:${Math.min(100, l.pct)}%"></i></span><b>${l.pct}%</b></div>`).join('');
   q.innerHTML = both ? rows(limits, 'Claude') + rows(limitsGpt, 'GPT') : rows(limits, '');
+  q.classList.toggle('two', !!both);
 }
 
 function renderUsage(u) {
