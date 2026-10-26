@@ -1,9 +1,9 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="小E">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="案头">
 <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
-<title>小E</title>
+<title>案头</title>
 <link rel="apple-touch-icon" href="/_x/icon.png"><link rel="manifest" href="/_x/manifest.json">
 <style>
 [hidden]{display:none!important}
@@ -24,6 +24,8 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .side{background:var(--side);display:flex;flex-direction:column;min-height:0}
 .brand{display:flex;align-items:center;padding:18px 14px 10px 20px}
 .brand b{font-size:20px;flex:1;letter-spacing:.5px}
+.brand img{width:28px;height:28px;border-radius:7px;margin-right:9px;flex:none}
+.sum{padding:0 20px 4px;color:var(--mute);font-size:14px} .sum .r{color:var(--acc)} .sum .w{color:var(--amber)}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--ink)}
 .icon-btn:hover{background:var(--line)}
 .scroll{overflow:auto;flex:1;padding:0 10px 20px}
@@ -213,7 +215,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
   .app.in .side{display:none} .app:not(.in) .main{display:none} .back{display:grid}
   .app:not(.in) .fab{display:grid} #newBtn{display:none}
-  .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px}
+  .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px} .brand img{width:34px;height:34px;border-radius:9px} .sum{font-size:15px;padding:0 22px 4px}
   .head{padding-top:calc(10px + env(safe-area-inset-top))}
   .scroll{padding:0 8px 24px} .quota{padding-right:96px} .um{display:none} .usage{right:10px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:16.5px} .item .st{font-size:14.5px}
   .label{font-size:14.5px;padding:18px 12px 6px}
@@ -224,7 +226,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
-    <div class="brand"><b>小E</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
+    <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
+    <div class="sum" id="sum"></div>
     <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
       <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
       <button class="item" id="logoutBtn"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg><span class="nm">登录的设备</span></button>
@@ -232,7 +235,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
     <div class="quota" id="quota" hidden></div>
   </aside>
   <button class="fab" id="fab" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-  <section class="main" id="main"><div class="blank"><b>小E</b>选一个对话，或开个新的</div></section>
+  <section class="main" id="main"><div class="blank"><b>案头</b>选一个对话，或开个新的</div></section>
 </div>
 <div class="notice" id="notice"></div>
 <script>
@@ -284,7 +287,7 @@ function watchStatus() {
   }
   prevStatus = now;
   const n = sessions.filter(s => s.status === 'awaiting' || s.status === 'error' || (s.unread && s.num !== sel)).length;
-  document.title = n ? `(${n}) 小E` : '小E';
+  document.title = n ? `(${n}) 案头` : '案头';
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
@@ -295,7 +298,7 @@ function setOffline(off) {
   if (!off) { if (el) el.remove(); return; }
   if (el) return;
   el = document.createElement('div'); el.id = 'offline'; el.className = 'offline';
-  el.innerHTML = '<i></i>连不上 Mac：可能睡着、断网，或小E 正在更新。连上后自动恢复';
+  el.innerHTML = '<i></i>连不上 Mac：可能睡着、断网，或案头正在更新。连上后自动恢复';
   document.body.appendChild(el);
 }
 async function api(path, body) {
@@ -386,7 +389,20 @@ function renderSide() {
     .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
   $('#list').innerHTML = groups.map(([t, xs]) => (groups.length > 1 || t !== '其他' ? `<div class="label">${t}</div>` : '') + xs.map(row).join('')).join('')
     || '<div class="note" style="padding:10px">还没有对话</div>';
+  renderSum();
   document.querySelectorAll('#list .item').forEach(b => b.onclick = () => openSession(+b.dataset.n));
+}
+
+// 标题下一行：问候 + 几件在做、几件等你，一眼看清现在的情况
+const OWNER = '庄老师';
+function renderSum() {
+  const h = new Date().getHours(), hi = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+  const run = sessions.filter(s => ['running', 'queued'].includes(s.status)).length, wait = sessions.filter(s => ['awaiting', 'error'].includes(s.status)).length;
+  const bits = [esc(hi + '，' + OWNER)];
+  if (run) bits.push(`<span class="r">${run} 件在做</span>`);
+  if (wait) bits.push(`<span class="w">${wait} 件等你</span>`);
+  if (!run && !wait) bits.push('都做完了');
+  $('#sum').innerHTML = bits.join(' · ');
 }
 
 async function loadSessions() {
@@ -515,7 +531,7 @@ async function setupPush() {
   b.onclick = async () => {
     b.querySelector('.nm').textContent = '正在开启…';
     if (await Notification.requestPermission() === 'granted') { await subscribe().catch(() => {}); b.hidden = true; }
-    else b.querySelector('.nm').textContent = '没允许通知，可到 设置 → 通知 → 小E 里打开';
+    else b.querySelector('.nm').textContent = '没允许通知，可到 设置 → 通知 → 案头 里打开';
   };
 }
 setupPush().catch(() => {});
@@ -796,7 +812,7 @@ function openNew(fromPop) {
   setTimeout(connectEvents);
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
   const said = Object.keys(FOLDER_SAY);
-  const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '小E 看你说的话选地方'},
+  const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '看你说的话自动选地方'},
     ...drafts.slice(0, 3).map(x => ({v: 'c:' + x.dir, ic: 'course', t: `接着做《${x.title}》`, d: ago(x.mtime)})),
     ...said.filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1], d: FOLDER_SAY[f][2]})),
     {v: 'scratch', ic: 'chat', t: '不碰文件', d: '查资料、问问题'},

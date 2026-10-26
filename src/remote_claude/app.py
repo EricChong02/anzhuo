@@ -297,13 +297,13 @@ class Bridge:
         """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
         cur = self.registry.get(self.registry.current)
         if not cur or cur not in self.registry.visible():
-            return await self.say("回复", f"{answer}\n\n---\n\n小E 直接回的（Haiku），没占用任何对话")
+            return await self.say("回复", f"{answer}\n\n---\n\n案头直接回的（Haiku），没占用任何对话")
         oid = f"r{cur.num}-{int(time.time() * 1000)}"
         try:
             await self.dt.create_card(self.user_id, oid, cards.reply_data(answer, cur.label))
         except Exception:  # noqa: BLE001
             log.warning("发回复卡失败", exc_info=True)
-            return await self.say("回复", f"{answer}\n\n---\n\n小E 直接回的（Haiku）。要说给 {cur.label}，发“#{cur.num} 原话”")
+            return await self.say("回复", f"{answer}\n\n---\n\n案头直接回的（Haiku）。要说给 {cur.label}，发“#{cur.num} 原话”")
         self.record("小E", answer, title="回复卡", forward_to=cur.num)
         self.cards[oid] = {"kind": "reply", "num": cur.num, "text": text, "answer": answer}
         self._save_cards()
@@ -411,7 +411,7 @@ class Bridge:
             await self.handle(inc)
         except Exception as e:  # noqa: BLE001
             log.exception("处理消息失败")
-            await self.say("出错了", f"小E 处理这条消息时出错：{type(e).__name__}: {str(e)[:200]}")
+            await self.say("出错了", f"案头处理这条消息时出错：{type(e).__name__}: {str(e)[:200]}")
 
     async def handle(self, inc: Incoming) -> None:
         if inc.kind == "audio" and not inc.text:
@@ -469,7 +469,7 @@ class Bridge:
         if cmd.kind == "web":
             if not self.web.enabled:
                 return await self.say("网页", "网页还没开通（配置里没有 web_base）。")
-            return await self.say("网页", f"小E 网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
+            return await self.say("网页", f"案头网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
                                           "里面有在做的课（一点就试课）和最近每一轮的完整过程。")
         if cmd.kind == "compact":
             return await self.compact(cmd.num)
@@ -521,7 +521,7 @@ class Bridge:
         if self.registry.current == s.num:
             self.registry.current = None
         self.registry.save()
-        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，小E 也不会再把话交给它。"
+        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，案头也不会再把话交给它。"
                                   f"聊天记录还在，要找回发“#{s.num} 接着说的话”。")
 
     async def _set_model(self, cmd: Cmd) -> None:

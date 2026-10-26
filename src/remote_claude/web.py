@@ -226,19 +226,19 @@ class Web:
         note = f'<p class="err">{html.escape(msg)}</p>' if msg else ""
         body = f"""<style>
 main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}}
-.login{{width:100%;max-width:360px}} .login h1{{font-size:26px;margin:0 0 6px}} .login .sub{{color:var(--mute);margin:0 0 24px}}
-.login input{{width:100%;font:inherit;font-size:17px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px;outline:none}}
+.login{{width:100%;max-width:360px}} .login h1{{font-size:26px;margin:0 0 6px;display:flex;align-items:center;gap:10px}} .login h1 img{{width:36px;height:36px;border-radius:9px}} .login .sub{{color:var(--mute);margin:0 0 24px}}
+.login input{{box-sizing:border-box;width:100%;font:inherit;font-size:17px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px;outline:none}}
 .login input:focus{{border-color:var(--acc)}}
 .login button{{width:100%;font:inherit;font-size:17px;font-weight:600;color:#fff;background:var(--acc);border:0;border-radius:12px;padding:12px;margin-top:4px}}
 .err{{color:#c2410c;margin:0 0 12px}}
 </style>
 <form class="login" method="post" action="{PREFIX}/login">
-<h1>小E</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
+<h1><img src="{PREFIX}/icon.png" alt="">案头</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
 <input name="username" placeholder="账号" autocomplete="username" inputmode="numeric" required>
 <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
 <button>登录</button></form>"""
-        return self._page("登录 · 小E", body, status)
+        return self._page("登录 · 案头", body, status)
 
     async def _login_get(self, request: web.Request) -> web.Response:
         nxt = self._safe_next(request.query.get("next", f"{PREFIX}/"))
@@ -380,25 +380,27 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
     def _denied(self, request: web.Request) -> web.Response:
         if request.method == "GET" and "/api/" not in request.path:
             raise web.HTTPFound(f"{PREFIX}/login?next={quote(request.rel_url.path_qs, safe='')}")
-        return web.json_response({"detail": "需要先登录小E 网页"}, status=401)
+        return web.json_response({"detail": "需要先登录案头"}, status=401)
 
     async def _app_page(self, request: web.Request) -> web.Response:
         from .webui import app_html
         return web.Response(text=app_html(), content_type="text/html", headers={"Cache-Control": "no-store"})
 
     async def _icon(self, request: web.Request) -> web.StreamResponse:
-        return web.FileResponse(Path(__file__).parent / "static" / "icon.png", headers={"Cache-Control": "max-age=86400"})
+        name = "icon-512.png" if request.path.endswith("512.png") else "icon.png"
+        return web.FileResponse(Path(__file__).parent / "static" / name, headers={"Cache-Control": "max-age=86400"})
 
     async def _manifest(self, request: web.Request) -> web.Response:
-        return web.json_response({"name": "小E", "short_name": "小E", "start_url": f"{PREFIX}/", "display": "standalone",
+        return web.json_response({"name": "案头", "short_name": "案头", "start_url": f"{PREFIX}/", "display": "standalone",
                                   "background_color": "#fafaf9", "theme_color": "#fafaf9",
-                                  "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"}]})
+                                  "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"},
+                                            {"src": f"{PREFIX}/icon-512.png", "sizes": "512x512", "type": "image/png"}]})
 
     async def _sw(self, request: web.Request) -> web.Response:
         # 点通知：先把要打开的对话编号记进缓存（iPhone 冷启动时不一定带上地址），再叫醒已开着的页面或新开一个
         js = """self.addEventListener('push', e => {
   const d = e.data ? e.data.json() : {};
-  e.waitUntil(self.registration.showNotification(d.title || '小E', {body: d.body || '', tag: d.tag || undefined, data: {num: d.num || null}, icon: '/_x/icon.png'}));
+  e.waitUntil(self.registration.showNotification(d.title || '案头', {body: d.body || '', tag: d.tag || undefined, data: {num: d.num || null}, icon: '/_x/icon.png'}));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
@@ -462,7 +464,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 url = f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"
                 drafts.append(f'<a class="btn" href="{html.escape(url)}">试课：{html.escape(title)}</a>')
         top = f"<h1>在做的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
-        return self._page("小E · 最近的活", top + "<h1>最近的活</h1>" + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
+        return self._page("案头 · 最近的活", top + "<h1>最近的活</h1>" + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
     async def _turn_page(self, request: web.Request) -> web.Response:
         r = self._turn(request.match_info["tid"])
@@ -563,7 +565,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return resp
         except aiohttp.ClientError:
             return self._page("预览没开", "<h1>本机的课程预览没开</h1><p class='meta'>Mac 上的 CyberScope（8000 端口）"
-                              "没在运行。在钉钉里让小E 帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
+                              "没在运行。在钉钉里让案头帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
 
     # ---------- 网页对话框的接口 ----------
     def _records(self, num: int) -> list[dict]:
@@ -1004,7 +1006,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
+        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
                             f"{PREFIX}/health"):
             return await handler(request)
         if not self._logged_in(request):
@@ -1019,6 +1021,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/", self._app_page)
         app.router.add_get(f"{PREFIX}/history", self._index)
         app.router.add_get(f"{PREFIX}/icon.png", self._icon)
+        app.router.add_get(f"{PREFIX}/icon-512.png", self._icon)
         app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
         app.router.add_get(f"{PREFIX}/sw.js", self._sw)
         app.router.add_get(f"{PREFIX}/feedback.js", self._feedback_js)

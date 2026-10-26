@@ -40,14 +40,14 @@ def main() -> None:
     if alive():
         if st.get("alerted"):
             mins = int((time.time() - st.get("since", time.time())) / 60)
-            push("小E 恢复了", f"Mac 又连上了（断了约 {mins} 分钟）")
+            push("案头恢复了", f"Mac 又连上了（断了约 {mins} 分钟）")
         st = {"fails": 0, "alerted": False, "since": 0}
     else:
         st["fails"] = st.get("fails", 0) + 1
         if st["fails"] == 1:
             st["since"] = time.time()
         if st["fails"] >= DOWN_AFTER and not st.get("alerted"):
-            push("小E 连不上了", "Mac 可能睡着、断网或关机了，派的活暂时收不到")
+            push("案头连不上了", "Mac 可能睡着、断网或关机了，派的活暂时收不到")
             st["alerted"] = True
     STATE.write_text(json.dumps(st))
 

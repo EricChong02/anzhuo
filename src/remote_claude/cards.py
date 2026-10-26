@@ -147,9 +147,9 @@ def confirm_data(label: str, what: str, cmd: str, num: int, result: str = "") ->
 
 def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
     """小E 直接回答的卡片：附“交给 #N”按钮，判断错了一点就把原话转给那个对话。"""
-    tips = f"已转给 {label}" if forwarded else "小E 直接回的（Haiku），没占用对话。这句其实是说给对话的？点下面"
+    tips = f"已转给 {label}" if forwarded else "案头直接回的（Haiku），没占用对话。这句其实是说给对话的？点下面"
     buttons = [] if forwarded else [{"text": f"交给 {_short(label, 14)}", "color": "blue", "id": "fwd", "request": True}]
-    return {"title": "小E 回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
+    return {"title": "案头回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
 
 
 _OUR_ID = re.compile(r"^(stop(?::\d+)?|fwd|pick:[A-D]|allow:\d+|deny:\d+)$")
