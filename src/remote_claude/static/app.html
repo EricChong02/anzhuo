@@ -142,8 +142,9 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   box-shadow:0 8px 24px rgba(47,111,223,.35);place-items:center;z-index:5} .fab svg{width:24px;height:24px}
 .composer{pointer-events:auto;max-width:760px;margin:0 auto;background:var(--panel);
   border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow);padding:8px}
-.composer .row{display:flex;align-items:flex-end;gap:6px}
-.composer textarea{flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 4px;max-height:38vh;min-height:40px;line-height:1.5}
+.composer .row{display:flex;align-items:center;gap:6px} .composer .row .gap{flex:1}
+/* 字在上面占满整行，附件 / 模型 / 发送在下面一排（像 Claude 手机版），字不会被挤成窄条 */
+.composer textarea{display:block;width:100%;box-sizing:border-box;border:0;outline:none;background:transparent;font:inherit;font-size:16px;color:var(--ink);resize:none;padding:8px 8px 4px;max-height:30vh;min-height:40px;line-height:1.5}
 .lightbox{position:fixed;inset:0;z-index:50;touch-action:none;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:hidden}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none}
 .lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:2;height:44px;padding:0 16px 0 12px;border-radius:22px;background:#fff;color:#1c1c1e;
@@ -385,9 +386,9 @@ async function loadSessions() {
 
 function composerHTML(ph) {
   return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="warn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
-    <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
-    <span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
+    <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
+    <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
@@ -715,7 +716,9 @@ function shrink(file) {
 function wireComposer(sendFn, onSent) {
   const ta = $('#ta'), btn = $('#send');
   const sync = () => {
-    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, innerHeight * .38) + 'px';
+    // 最高只到“键盘上方看得见的区域”的三成：键盘弹起时 innerHeight 不变，按它算会长到顶栏下面被挡住
+    const vis = window.visualViewport ? visualViewport.height : innerHeight;
+    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
     btn.disabled = sending || (!ta.value.trim() && !attach.length && !attachFiles.length);
     $('#thumbs').hidden = !attach.length && !attachFiles.length;
     $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
@@ -822,6 +825,7 @@ if (window.visualViewport) {
     const full = document.documentElement.clientHeight || innerHeight;
     const kb = Math.max(0, Math.round(full - vv.height - vv.offsetTop));
     document.documentElement.style.setProperty('--kb', kb + 'px');
+    const t = $('#ta'); if (t && t.oninput) t.oninput();   // 键盘弹起后看得见的区域变小，输入框高度跟着收
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
   addEventListener('focusout', () => setTimeout(fit, 60));
