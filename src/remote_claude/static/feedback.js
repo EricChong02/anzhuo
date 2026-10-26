@@ -50,7 +50,7 @@
     const screen = typeof window.__CS_SCREEN_IDX === 'number' ? window.__CS_SCREEN_IDX : -1;
     const where = [i >= 0 ? `第 ${i + 1} 节「${secs[i].title || secs[i].id}」` : '', screen >= 0 ? `第 ${screen + 1} 屏` : ''].filter(Boolean).join(' · ') || '当前这一屏';
     const sh = document.createElement('div'); sh.className = 'xe-sh';
-    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where">《${esc(m.title || '这门课')}》${esc(where)}</div>
+    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where">${m.title ? `《${esc(m.title)}》` : ''}${esc(where)}</div>
       <textarea placeholder="哪里要改？比如：标题太小、这句话太长、图挡住了按钮"></textarea>
       <div class="xe-row"><label>加截图<input type="file" accept="image/*" hidden></label><span class="xe-th"></span>
       <button class="xe-cancel">取消</button><button class="xe-send" disabled>交给做课的对话</button></div></div>`;

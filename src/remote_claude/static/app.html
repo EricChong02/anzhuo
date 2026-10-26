@@ -340,9 +340,9 @@ function renderUsage(u) {
     + (usageOpen ? `<div class="usage"><div class="${ctxWarn ? 'w' : ''}"><span>上下文</span>${u.context != null ? u.context + '%' : '—'}</div>
       ${limits.map(l => `<div class="${l.pct >= 80 ? 'w' : ''}"><span>${esc(l.name)}额度</span>${l.pct}%</div>${l.reset ? `<span class="r">${esc(l.reset)} 重置</span>` : ''}`).join('')}
       ${ctxWarn ? '<div class="w" style="display:block">上下文过七成，再长会自动压缩</div>' : ''}
-      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
+      ${u.mkey === 'gpt' ? '' : `<button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
-        : u.busy ? '它在干活，做完才能压缩' : '压缩上下文'}</button></div>` : '');
+        : u.busy ? '它在干活，做完才能压缩' : '压缩上下文'}</button>`}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
@@ -580,7 +580,10 @@ function renderThread(d) {
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const said = new Set(d.items.filter(i => i.who === 'you').map(i => i.text.trim()));
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
+  (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
+  const localImgs = sentImgs;
   pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
+  d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
   // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
@@ -589,7 +592,7 @@ function renderThread(d) {
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   let h = d.items.map((it, idx) => {
-    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${youImgs((it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}${it.pending && queued.has(it.text.slice(0, 80)) ? '<span class="qtag">排队中，前面的做完就做</span>' : ''}</div>`;
+    if (it.who === 'you') return `<div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}${it.pending && queued.has(it.text.slice(0, 80)) ? '<span class="qtag">排队中，前面的做完就做</span>' : ''}</div>`;
     if (it.who === 'note') return `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
@@ -658,7 +661,7 @@ function renderThread(d) {
   if (fresh && lastCl) feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
   else if (near) feed.scrollTop = feed.scrollHeight;
 }
-const replyCount = {}, wasLive = {};
+const replyCount = {}, wasLive = {}, sentImgs = new Map();
 
 async function loadThread() {
   if (!sel) return;

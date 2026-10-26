@@ -694,8 +694,8 @@ class Bridge:
         name = report.brief(text, 16) or "新对话"
         if kind is None:
             kind = "dev" if _looks_like_project(cwd) else "simple"
-        model = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=model)
+        auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto)
         said_model, said_effort = inline_overrides(text)
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None

@@ -645,7 +645,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         usage = {"model": "GPT（Codex）" if s.engine == "codex" else model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""),
                  "ekey": eff or "",
-                 "context": round(s.context_pct) if s.context_pct is not None else None,
+                 "context": round(s.context_pct) if s.context_pct is not None and s.engine != "codex" else None,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
@@ -814,6 +814,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         cdir = m.group(2)
         title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
         sec_no, sec_title, screen = data.get("section_no") or 0, str(data.get("section_title") or ""), data.get("screen")
+        if not sec_title and data.get("section"):   # 页面没读到课程文件时，小E 自己从课程文件里查节名
+            try:
+                secs = json.loads((Path(self.preview_root).expanduser() / m.group(1) / cdir / "course.json").read_text()).get("sections") or []
+                k = next(i for i, x in enumerate(secs) if x.get("id") == data["section"])
+                sec_no, sec_title = k + 1, secs[k].get("title") or ""
+            except (OSError, ValueError, StopIteration, AttributeError):
+                pass
         where = "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "", f"第 {int(screen) + 1} 屏" if isinstance(screen, int) and screen >= 0 else ""])
         text = str(data.get("text") or "").strip()
         msg = (f"（试课反馈）《{title}》{where}（{m.group(1)}/{cdir}，节 id {data.get('section') or '未知'}）：\n"

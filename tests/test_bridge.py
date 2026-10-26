@@ -649,3 +649,23 @@ def test_quiet_dingtalk(tmp_path, monkeypatch):
     assert dt.cards == {}                                          # 没发工作台
     assert not any(t in ("收到", "插话") for t in titles)          # 没发开工、收到、插话
     assert any(t.startswith("做完了") for t in titles)              # 做完的报告照发
+
+
+def test_start_keeps_picked_model(tmp_path):
+    """网页上选的模型真的用上：选 Sonnet 就是 Sonnet，选 GPT 就是 Codex；没选按任务类型挑。（真 Bridge，不是假的）"""
+    from remote_claude.dingtalk import Incoming
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+
+    async def go():
+        b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
+        b.runner.submit = lambda s, job: 0          # 不真跑
+        inc = Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text="x")
+        await b._new([], "写首诗", inc, model="claude-sonnet-5-5", effort="high")
+        await b._new([], "聊聊天", inc, model="gpt")
+        await b._new([], "随便问问", inc)
+        ss = sorted(b.registry.sessions.values(), key=lambda s: s.num)
+        assert (ss[0].engine, ss[0].model, ss[0].effort) == ("claude", "claude-sonnet-5-5", "high")
+        assert (ss[1].engine, ss[1].model) == ("codex", None)
+        assert ss[2].engine == "claude" and ss[2].model
+
+    asyncio.run(go())
