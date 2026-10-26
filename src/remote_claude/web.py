@@ -610,7 +610,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         usage = {"model": model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""), "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
-                 "compacting": b.runner.compacting(num)}
+                 "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
