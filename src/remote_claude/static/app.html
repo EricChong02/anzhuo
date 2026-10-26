@@ -47,10 +47,10 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .qrow .bar i{display:block;height:100%;background:var(--acc);border-radius:2px} .qrow b{font-weight:500;color:var(--ink);min-width:38px;text-align:right}
 .qrow.warn .bar i{background:var(--amber)} .qrow.warn b{color:var(--amber)}
 .pill.warn{color:var(--amber);border-color:var(--amber)}
-.notice{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translate(-50%,-140%);z-index:20;display:flex;align-items:center;gap:10px;
+.notice{position:fixed;left:50%;top:calc(78px + env(safe-area-inset-top));transform:translate(-50%,-24px);opacity:0;z-index:20;display:flex;align-items:center;gap:10px;
   max-width:min(92vw,440px);padding:10px 16px;border-radius:16px;background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
-  border:1px solid var(--line);box-shadow:var(--shadow);font-size:15px;transition:transform .25s ease,visibility .25s;cursor:pointer;visibility:hidden}
-.notice.on{transform:translate(-50%,0);visibility:visible} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  border:1px solid var(--line);box-shadow:var(--shadow);font-size:15px;transition:transform .25s ease,opacity .25s,visibility .25s;cursor:pointer;visibility:hidden}
+.notice.on{transform:translate(-50%,0);opacity:1;visibility:visible} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px 16px;min-width:250px;font-size:15px}
 .usage div{display:flex;justify-content:space-between;gap:20px;padding:4px 0} .usage div span{color:var(--mute)} .usage .w{color:var(--amber)}
 .usage .r{font-size:14px;color:var(--mute);display:block;padding:0 0 4px}
