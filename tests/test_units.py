@@ -325,10 +325,10 @@ def test_cleanup(tmp_path):
     for name in ("old", "keep"):
         os.utime(proj / "p" / f"{name}.jsonl", (now - 91 * 86400,) * 2)
     r = cleanup.run(data, {"keep"}, now, proj, arch)
-    assert not old.exists() and not old.parent.exists() and new.exists()
+    assert old.exists() and new.exists()   # 对话里的截图、文件副本不删
     assert not (proj / "p" / "old.jsonl").exists() and (proj / "p" / "keep.jsonl").exists() and (proj / "p" / "fresh.jsonl").exists()
     assert gzip.open(arch / "p" / "old.jsonl.gz").read().count(b"\n") == 100
-    assert r["removed"] == 1 and r["archived"] == 1
+    assert r["removed"] == 0 and r["archived"] == 1
 
 
 def test_guard_force_restart():
@@ -374,4 +374,4 @@ def test_tidy_scratch_and_purge(tmp_path):
     reg = Registry(tmp_path / "r.json")
     reg.add(Session(num=1, name="a", cwd="/", hidden=True, hidden_at=now - 31 * 86400))
     reg.add(Session(num=2, name="b", cwd="/", hidden=True, hidden_at=now - 5 * 86400))
-    assert cleanup.purge_deleted(reg, now) == [1] and list(reg.sessions) == [2]
+    assert len(reg.sessions) == 2   # 删除的对话不从名单去掉（对话内容不删）

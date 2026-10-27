@@ -820,7 +820,6 @@ class Bridge:
             try:
                 keep = {s.claude_id for s in self.registry.sessions.values() if s.claude_id}
                 await asyncio.to_thread(cleanup.run, self.data_dir, keep)
-                cleanup.purge_deleted(self.registry)
                 using = {s.cwd for s in self.registry.sessions.values() if s.pinned or (not s.hidden and time.time() - s.updated < 60 * 86400)}
                 await asyncio.to_thread(cleanup.tidy_scratch, folders._expand(self.cfg.scratch_root), using)
                 await self._monthly_checkup()

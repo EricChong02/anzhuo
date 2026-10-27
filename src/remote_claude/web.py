@@ -55,7 +55,6 @@ def check_password(password: str, stored: str) -> bool:
 
 PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
 CATS = ("做课", "平台", "案头", "杂事")
-KEEP_DELETED = 30 * 86400  # 删除的对话 30 天内搜得到、能找回
 
 
 def category(s, folders: dict) -> str:
@@ -758,8 +757,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         ql, now = q.lower(), time.time()
         out: dict[str, list] = {"title": [], "said": [], "deleted": []}
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
-            if s.hidden and now - (s.hidden_at or s.updated) > KEEP_DELETED:
-                continue
             row = {"num": s.num, "name": s.name, "category": category(s, b.cfg.folders), "updated": s.updated,
                    "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
             if ql in s.name.lower():
