@@ -148,7 +148,7 @@ pre{{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,Menlo,
 details summary{{cursor:pointer}} img{{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 0}}
 .btn{{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;margin:4px 6px 4px 0}}
 ul{{padding-left:20px;margin:4px 0}}
-.card > a{{text-decoration:none;font-size:17px}} details li{{margin:4px 0}} details li a{{color:var(--ink);text-decoration:none;font-size:15px}}
+.card > a{{text-decoration:none;font-size:17px;color:var(--ink)}} details li{{margin:4px 0}} details li a{{color:var(--ink);text-decoration:none;font-size:15px}}
 .bk{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:4px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
   background:var(--bg);border-bottom:1px solid var(--line);color:var(--acc);font-size:16px;text-decoration:none}}
 </style></head><body>
