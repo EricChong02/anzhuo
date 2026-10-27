@@ -752,6 +752,8 @@ class Bridge:
         self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
+        if said_model == "gpt" or s.engine == "codex":
+            said_model = None   # 对话中途换不了 Claude / GPT；话里提到“用 codex”多半是在说别的事
         if said_model or said_effort:
             s.model = said_model or s.model
             s.effort = said_effort or s.effort
