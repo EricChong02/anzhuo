@@ -39,6 +39,7 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
 用户已授权：活做完并自查通过后，提交、推送、上线这类收尾直接做，不要停下来问“要不要提交 / 推送 / 上线”，在报告里写明做了就行；危险命令有审核员把关，被拦下就换安全的做法，或在报告里说明。只有方案、内容上的取舍才用“要你定”问用户。
+这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
 小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
 
@@ -433,11 +434,12 @@ class Runner:
             results: list[str] = []
             seen_injected = 0
             after_result = False
+            wait_more = 4
             stream = client.receive_messages().__aiter__()
             while True:
                 try:
                     # 插过话又出了结果：再等几秒，插的话若没赶上这一轮，它会接着开一轮，要接着读完
-                    msg = await (asyncio.wait_for(stream.__anext__(), 4) if after_result else stream.__anext__())
+                    msg = await (asyncio.wait_for(stream.__anext__(), wait_more) if after_result else stream.__anext__())
                 except (StopAsyncIteration, asyncio.TimeoutError):
                     break
                 after_result = False
@@ -481,6 +483,11 @@ class Runner:
                     turn.accepting = False
                     if msg.session_id:
                         s.claude_id = msg.session_id
+                    if not msg.is_error and NOISE.match(msg.result or ""):
+                        # 上一轮留下的后台任务通知先被答了一句“No response requested.”，你这句还排在后面：接着读，别当成回复
+                        after_result, wait_more = True, 60
+                        continue
+                    wait_more = 4
                     if msg.is_error and not turn.interrupted:
                         turn.is_error = True
                         turn.error = (msg.result or "; ".join(msg.errors or []) or msg.subtype or "未知错误")[:300]
@@ -501,6 +508,7 @@ class Runner:
         turn.effort = s.effort or self.default_effort
 
 
+NOISE = re.compile(r"^\s*No response requested\.?\s*$", re.I)
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 # 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
 GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")

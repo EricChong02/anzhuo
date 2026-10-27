@@ -348,3 +348,10 @@ def test_codex_handoff_links(tmp_path):
     assert files == [str(z)] and imgs == [str(png)]
     assert "**下载脚本包：包.zip**" in out and f"[《先看这里》]({md})" in out and "[丢了](/nope/x.zip)" in out
     assert "交给你" not in out
+
+
+def test_noise_result():
+    """后台任务通知被答的那句空话认得出来，正常回复不误伤。"""
+    from remote_claude.sessions import NOISE
+    assert NOISE.match("No response requested.") and NOISE.match(" no response requested \n")
+    assert not NOISE.match("No response requested. 但我顺便看了一下进度：还在跑。")
