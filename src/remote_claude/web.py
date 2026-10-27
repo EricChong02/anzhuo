@@ -148,6 +148,7 @@ pre{{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,Menlo,
 details summary{{cursor:pointer}} img{{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 0}}
 .btn{{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;margin:4px 6px 4px 0}}
 ul{{padding-left:20px;margin:4px 0}}
+.card > a{{text-decoration:none;font-size:17px}} details li{{margin:4px 0}} details li a{{color:var(--ink);text-decoration:none;font-size:15px}}
 .bk{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:4px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
   background:var(--bg);border-bottom:1px solid var(--line);color:var(--acc);font-size:16px;text-decoration:none}}
 </style></head><body>
@@ -460,17 +461,33 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         raise web.HTTPFound(f"{PREFIX}/")
 
     async def _index(self, request: web.Request) -> web.Response:
-        rows = []
-        files = sorted(self.turns_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
-        for p in files:
+        """历史记录：按对话列（不是按每一轮）。点对话名回到那个对话接着聊；展开“每一轮”看各轮的完整过程页。"""
+        convs: dict[int, list[dict]] = {}
+        for p in self.turns_dir.glob("*.json"):
             try:
                 r = json.loads(p.read_text())
-            except (OSError, json.JSONDecodeError):
+                convs.setdefault(int(r["id"].split("-")[0]), []).append(r)
+            except (OSError, json.JSONDecodeError, KeyError, ValueError):
                 continue
-            when = time.strftime("%m-%d %H:%M", time.localtime(r["ended"] or r["started"]))
-            pv = "".join(f' · <a href="{html.escape(u)}">试课 {html.escape(n)}</a>' for n, u in r.get("previews", []))
-            rows.append(f'<div class="card"><a href="{PREFIX}/t/{r["id"]}">{html.escape(r["label"])} · '
-                        f'{html.escape(r["request"] or "")}</a><div class="meta">{when} · {html.escape(r["title"])}{pv}</div></div>')
+        reg = getattr(self.bridge, "registry", None) if self.bridge else None
+        folders = getattr(getattr(self.bridge, "cfg", None), "folders", {}) if self.bridge else {}
+        last = lambda r: r.get("ended") or r.get("started") or 0
+        rows = []
+        for num, rs in sorted(convs.items(), key=lambda kv: -max(map(last, kv[1])))[:60]:
+            rs.sort(key=last, reverse=True)
+            s = reg.get(num) if reg else None
+            name = s.name if s else re.sub(r"^#\d+\s*", "", rs[0].get("label", "")) or f"#{num}"
+            bits = [category(s, folders)] if s else []
+            bits += [f"{len(rs)} 轮", time.strftime("%m-%d %H:%M", time.localtime(last(rs[0]))), rs[0].get("title", "")]
+            if s and s.hidden:
+                bits.append("已删除")
+            turns = "".join(
+                f'<li><a href="{PREFIX}/t/{html.escape(r["id"])}">{time.strftime("%m-%d %H:%M", time.localtime(last(r)))} · '
+                f'{html.escape(r.get("request") or r.get("title") or "")}</a></li>' for r in rs[:30])
+            more = f'<li class="meta">更早的 {len(rs) - 30} 轮略</li>' if len(rs) > 30 else ""
+            rows.append(f'<div class="card"><a href="{PREFIX}/?s={num}"><b>{html.escape(name)}</b></a>'
+                        f'<div class="meta">{html.escape(" · ".join(b for b in bits if b))}</div>'
+                        f'<details><summary class="meta">每一轮</summary><ul>{turns}{more}</ul></details></div>')
         drafts = []
         root = Path(self.preview_root).expanduser() if self.preview_root else None
         if root and (root / "_drafts").is_dir():
@@ -482,7 +499,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 url = f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"
                 drafts.append(f'<a class="btn" href="{html.escape(url)}">试课：{html.escape(title)}</a>')
         top = f"<h1>在做的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
-        return self._page("案头 · 最近的活", top + "<h1>最近的活</h1>" + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
+        return self._page("案头 · 历史记录", top + "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
+                          + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
     async def _turn_page(self, request: web.Request) -> web.Response:
         r = self._turn(request.match_info["tid"])
@@ -490,7 +508,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return self._page("没有这一轮", "<h1>没有这一轮的记录</h1>", 404)
         mins = max(1, round(((r["ended"] or r["started"]) - r["started"]) / 60))
         when = time.strftime("%m-%d %H:%M", time.localtime(r["started"]))
-        out = [f'<p class="meta"><a href="{PREFIX}/">← 最近的活</a></p>',
+        out = [f'<p class="meta"><a href="{PREFIX}/history">← 历史记录</a></p>',
                f"<h1>{html.escape(r['title'])}：{html.escape(r['request'] or r['label'])}</h1>",
                f"<p class='meta'>{html.escape(r['label'])} · {when} 起 · {mins} 分钟 · "
                f"{html.escape(display(Path(r['cwd'])))} · {html.escape(r.get('model') or '')}</p>"]
