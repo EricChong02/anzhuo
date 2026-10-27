@@ -799,8 +799,12 @@ class Bridge:
 
     # ---------- 运行 ----------
     async def _gpt_usage_loop(self) -> None:
-        """GPT（Codex）的额度：有 GPT 对话时每 10 分钟读一次，侧栏和报告里用。"""
+        """额度：Claude 的每 10 分钟读一次（重启后不用等第一轮做完，侧栏一打开就有）；有 GPT 对话时 GPT 的也读。"""
         while True:
+            try:
+                await self.runner.refresh_usage(force=True)
+            except Exception:  # noqa: BLE001
+                log.debug("读 Claude 额度失败", exc_info=True)
             if any(s.engine == "codex" for s in self.registry.visible()):
                 try:
                     await self.runner.refresh_gpt_usage(force=True)
