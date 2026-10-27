@@ -508,7 +508,7 @@ class Runner:
         turn.effort = s.effort or self.default_effort
 
 
-NOISE = re.compile(r"^\s*No response requested\.?\s*$", re.I)
+NOISE = re.compile(r"^\s*(No response requested\.?)?\s*$", re.I)   # 空结果也算：后台通知有时连一句话都不答就出结果
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 # 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
 GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")

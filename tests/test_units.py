@@ -353,5 +353,5 @@ def test_codex_handoff_links(tmp_path):
 def test_noise_result():
     """后台任务通知被答的那句空话认得出来，正常回复不误伤。"""
     from remote_claude.sessions import NOISE
-    assert NOISE.match("No response requested.") and NOISE.match(" no response requested \n")
+    assert NOISE.match("No response requested.") and NOISE.match("") and NOISE.match(" no response requested \n")
     assert not NOISE.match("No response requested. 但我顺便看了一下进度：还在跑。")
