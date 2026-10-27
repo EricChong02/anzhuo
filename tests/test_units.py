@@ -355,3 +355,23 @@ def test_noise_result():
     from remote_claude.sessions import NOISE
     assert NOISE.match("No response requested.") and NOISE.match("") and NOISE.match(" no response requested \n")
     assert not NOISE.match("No response requested. 但我顺便看了一下进度：还在跑。")
+
+
+def test_tidy_scratch_and_purge(tmp_path):
+    """临时文件夹 60 天没动、没对话在用 → 进废纸篓；删除 30 天以上的对话从名单去掉。"""
+    import os
+    import time
+    from remote_claude import cleanup
+    from remote_claude.sessions import Registry, Session
+    now = time.time()
+    root, trash = tmp_path / "s", tmp_path / "Trash"
+    for n in ("old", "inuse", "fresh"):
+        (root / n).mkdir(parents=True); (root / n / "a.txt").write_text("x")
+    for n in ("old", "inuse"):
+        os.utime(root / n / "a.txt", (now - 61 * 86400,) * 2); os.utime(root / n, (now - 61 * 86400,) * 2)
+    assert cleanup.tidy_scratch(root, {str(root / "inuse")}, now, trash) == ["old"]
+    assert (trash / "案头临时-old" / "a.txt").exists() and (root / "inuse").exists() and (root / "fresh").exists()
+    reg = Registry(tmp_path / "r.json")
+    reg.add(Session(num=1, name="a", cwd="/", hidden=True, hidden_at=now - 31 * 86400))
+    reg.add(Session(num=2, name="b", cwd="/", hidden=True, hidden_at=now - 5 * 86400))
+    assert cleanup.purge_deleted(reg, now) == [1] and list(reg.sessions) == [2]

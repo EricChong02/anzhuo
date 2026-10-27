@@ -820,9 +820,36 @@ class Bridge:
             try:
                 keep = {s.claude_id for s in self.registry.sessions.values() if s.claude_id}
                 await asyncio.to_thread(cleanup.run, self.data_dir, keep)
+                cleanup.purge_deleted(self.registry)
+                using = {s.cwd for s in self.registry.sessions.values() if s.pinned or (not s.hidden and time.time() - s.updated < 60 * 86400)}
+                await asyncio.to_thread(cleanup.tidy_scratch, folders._expand(self.cfg.scratch_root), using)
+                await self._monthly_checkup()
             except Exception:  # noqa: BLE001
                 log.exception("定期清理失败")
             await asyncio.sleep(86400 - 600)
+
+    async def _monthly_checkup(self) -> None:
+        """每月 1 号起派一次 AI 体检：新开一个对话，列出建议清理的东西，最后用“要你定”问你，你点头才挪进废纸篓。"""
+        from .cleanup import CHECKUP
+        mark = self.data_dir / "checkup.json"
+        month = time.strftime("%Y-%m")
+        try:
+            done = json.loads(mark.read_text()).get("month")
+        except (OSError, ValueError):
+            done = None
+        if done is None:   # 头一次：从下个月 1 号开始
+            mark.write_text(json.dumps({"month": month}))
+            return
+        if done == month:
+            return
+        mark.write_text(json.dumps({"month": month}))
+        num = self.registry.reserve_num()
+        inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=CHECKUP)
+        await self._start(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
+                          model=MODELS["sonnet"], effort="low")
+        if s := self.registry.get(num):
+            s.name, s.renamed, s.category = f"{time.strftime('%-m')} 月清理体检", True, "杂事"
+            self.registry.save()
 
     async def run(self) -> None:
         bridge = self
