@@ -307,6 +307,7 @@ async function api(path, body) {
   catch (e) { setOffline(true); throw e; }
   if (r.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); throw new Error('login'); }
   if (r.status === 502 || r.status === 503 || r.status === 504) { setOffline(true); throw new Error('offline'); }
+  if (r.status === 413) throw new Error('big');
   setOffline(false);
   return r.json();
 }
@@ -787,7 +788,7 @@ function wireComposer(sendFn, onSent) {
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
       } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { undo(); if (e.message !== 'login') warn('没发出去，再试一次'); }
+    } catch (e) { undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 100MB），分几次发' : '没发出去，再试一次'); }
     sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
   }
   btn.onclick = go; sync();
