@@ -190,7 +190,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:4px 4px 6px}
 .thumb{position:relative} .thumb img{height:64px;border-radius:10px;display:block}
 .thumb button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:14px;line-height:22px}
-.warn{color:var(--amber);font-size:14px;padding:2px 8px 6px}
+.warn{color:var(--amber);font-size:14px;padding:2px 8px 6px} .warn.prog{color:var(--mute);font-variant-numeric:tabular-nums}
 
 /* 空状态、新对话 */
 .blank{margin:auto;text-align:center;color:var(--mute);padding:24px}
@@ -311,6 +311,26 @@ async function api(path, body) {
   setOffline(false);
   return r.json();
 }
+
+// 带附件的发送：fetch 看不到上传进度，改用 XHR，边传边报“已传多少”
+function upload(path, body, onProg) {
+  return new Promise((ok, bad) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/_x/api/' + path);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded, e.total); };
+    x.onerror = () => { setOffline(true); bad(new Error('offline')); };
+    x.onload = () => {
+      if (x.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
+      if ([502, 503, 504].includes(x.status)) { setOffline(true); return bad(new Error('offline')); }
+      if (x.status === 413) return bad(new Error('big'));
+      setOffline(false);
+      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(e); }
+    };
+    x.send(JSON.stringify(body));
+  });
+}
+const sendApi = (body, onProg) => (body.files || []).length || (body.images || []).length ? upload('send', body, onProg) : api('send', body);
 
 function ago(t) {
   const s = Date.now() / 1000 - t, d = new Date(t * 1000);
@@ -473,7 +493,7 @@ function openSession(num, fromPop) {
   const feed = $('#feed');
   feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
   $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
-  wireComposer(text => api('send', {num, text, images: attach, files: attachFiles}), (text, imgs) => { (pending[num] ||= []).push({text, imgs, t: Date.now()}); });
+  wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { (pending[num] ||= []).push({text, imgs, t: Date.now()}); });
   renderSide(); headStatus(); loadThread();
 }
 
@@ -783,12 +803,18 @@ function wireComposer(sendFn, onSent) {
     if (onSent) { onSent(shown, attach.slice()); lastKey = ''; loadThread(); }
     const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); lastKey = ''; loadThread(); };
     try {
-      const r = await sendFn(text);
+      const mb = n => (n / 1048576).toFixed(1);
+      const r = await sendFn(text, (a, b) => {
+        const done = a >= b, el = $('#warn');
+        el.hidden = false; el.classList.add('prog');
+        el.textContent = done ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
+      });
+      $('#warn').classList.remove('prog'); warn('');
       if (r.ok) {
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
       } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 100MB），分几次发' : '没发出去，再试一次'); }
+    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 100MB），分几次发' : '没发出去，再试一次'); }
     sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
   }
   btn.onclick = go; sync();
@@ -838,7 +864,7 @@ function openNew(fromPop) {
   const ms = {model: 'auto', effort: 'medium'}; let touched = false;
   renderModel(ms, () => { touched = true; }, true);
   const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
-  wireComposer(text => api('send', {...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, images: attach, files: attachFiles}));
+  wireComposer((text, onProg) => sendApi({...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, images: attach, files: attachFiles}, onProg));
   if (!matchMedia('(max-width:600px) and (pointer:coarse)').matches) $('#ta').focus();
 }
 $('#newBtn').onclick = () => openNew();
