@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from .cards import step_label
 
@@ -174,3 +175,18 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         if rec.get("final_text") and rec.get("translated"):
             it["text"] = rec["final_text"]  # 钉钉里发的是译好的中文，网页也用它
     return items
+
+
+_PATHS: dict[str, Path] = {}
+
+
+def transcript_path(session_id: str) -> Path | None:
+    """Claude 对话记录文件在哪（搜索时按它的修改时间判断要不要重读）。"""
+    p = _PATHS.get(session_id)
+    if p and p.exists():
+        return p
+    hits = list((Path.home() / ".claude" / "projects").glob(f"*/{session_id}.jsonl"))
+    if hits:
+        _PATHS[session_id] = hits[0]
+        return hits[0]
+    return None

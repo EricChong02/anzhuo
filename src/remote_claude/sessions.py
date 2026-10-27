@@ -69,6 +69,11 @@ class Session:
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
     engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
     codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
+    pinned: bool = False  # 网页里置顶
+    category: str = ""  # 你手动归的类别（做课/平台/案头/杂事）；空 = 按文件夹自动分
+    renamed: bool = False  # 你手动改过名：自动起名不再动它
+    titled: bool = False  # 已经自动起过短名字
+    hidden_at: float = 0.0  # 删除（收起）的时间：30 天内搜得到、能找回
 
     @property
     def label(self) -> str:
@@ -87,7 +92,8 @@ class Registry:
         if not self.path.exists():
             return
         raw = json.loads(self.path.read_text())
-        self.sessions = {int(k): Session(**v) for k, v in raw.get("sessions", {}).items()}
+        known = set(Session.__dataclass_fields__)
+        self.sessions = {int(k): Session(**{f: x for f, x in v.items() if f in known}) for k, v in raw.get("sessions", {}).items()}
         self.current = raw.get("current")
         self.next_num = raw.get("next_num", max(self.sessions, default=0) + 1)
 
@@ -118,7 +124,7 @@ class Registry:
         """没被收起的对话：没删、7 天内动过（正在做或排队的总算在内）。"""
         now = time.time()
         return [s for s in self.sessions.values()
-                if not s.hidden and (now - s.updated < STALE or s.status in ("running", "queued"))]
+                if not s.hidden and (s.pinned or now - s.updated < STALE or s.status in ("running", "queued"))]
 
 
 class FolderBlocked(Exception):
@@ -156,7 +162,8 @@ class Runner:
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
         self.default_effort = default_effort or user_setting("effortLevel") or ""
-        self.auto_review = True  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
+        self.auto_review = True
+        self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
     def busy(self, num: int) -> bool:
         return num in self.turns or not self.queues.get(num, asyncio.Queue()).empty()
@@ -333,7 +340,18 @@ class Runner:
                     self.registry.save()
             await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
             job.finished = True
+            # 名字还是第一句话截出来的（截断带“…”或就是这句话）才起；你在别处起过的名字（如“开发小E（钉钉助手）”）不动
+            if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT) \
+                    and (s.name.endswith("…") or s.name == brief(job.text, 16)):
+                asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
             await self.on_done(s, turn)
+
+    async def _auto_title(self, s: Session, asked: str, answer: str) -> None:
+        """头一轮做完，按“你要做的事 + 它的回复”起个短名字（原来是你第一句话的开头，长、看不出在做什么）。"""
+        from .naming import short_title
+        if (t := await short_title(asked, answer)) and not s.renamed:
+            s.name, s.titled = t, True
+            self.registry.save()
 
     async def refresh_gpt_usage(self, force: bool = False) -> None:
         """Codex（GPT）的额度：开个连接读一下，2 分钟内不重复读。"""

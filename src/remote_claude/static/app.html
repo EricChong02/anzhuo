@@ -25,6 +25,26 @@ svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke
 .brand{display:flex;align-items:center;padding:18px 14px 10px 20px}
 .brand b{font-size:20px;flex:1;letter-spacing:.5px}
 .brand img{width:28px;height:28px;border-radius:7px;margin-right:9px;flex:none}
+.find{display:flex;align-items:center;gap:8px;height:38px;margin:8px 14px 4px;padding:0 12px;border-radius:12px;background:var(--line);color:var(--mute)}
+.find svg{width:16px;height:16px;flex:none} .find input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:15px;color:var(--ink);outline:none}
+.find:focus-within{background:var(--panel);box-shadow:0 0 0 1.5px var(--acc)} .find .clr{display:none;color:var(--mute);font-size:20px;line-height:1;padding:4px}
+.find.has .clr{display:block}
+.cats{display:flex;gap:6px;overflow-x:auto;padding:6px 14px 2px;scrollbar-width:none} .cats::-webkit-scrollbar{display:none}
+.cat{flex:none;height:30px;padding:0 12px;border-radius:15px;border:1px solid var(--line);font-size:14px;color:var(--ink);display:flex;align-items:center;gap:5px}
+.cat small{color:var(--mute);font-size:12.5px} .cat.on{background:var(--ink);border-color:var(--ink);color:var(--bg)} .cat.on small{color:inherit;opacity:.65}
+.item .more{display:none;flex:none;width:30px;height:30px;border-radius:8px;color:var(--mute);place-items:center;font-size:18px;letter-spacing:1px}
+@media (hover:hover){.item:hover .more{display:grid} .item .more:hover{background:var(--line)}}
+.item .hit{font-size:13.5px;color:var(--mute);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .item .ctag{margin-left:auto;font-size:12.5px;color:var(--mute)}
+mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1px}
+.amenu{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.3);display:flex;align-items:flex-end;justify-content:center;padding:12px 12px calc(16px + env(safe-area-inset-bottom))}
+.amenu .box{width:min(420px,100%);background:var(--panel);border-radius:18px;padding:8px;box-shadow:var(--shadow)}
+.amenu .t{font-size:13.5px;color:var(--mute);padding:8px 12px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.amenu button{display:flex;align-items:center;gap:12px;width:100%;height:50px;font-size:16.5px;padding:0 12px;border-radius:12px;color:var(--ink);text-align:left}
+.amenu button:hover{background:var(--line)} .amenu button.on{color:var(--acc);font-weight:600} .amenu .v{margin-left:auto;font-size:14px;color:var(--mute)}
+.amenu .del{color:#c0392b} .amenu .sep{height:1px;background:var(--line);margin:4px 8px}
+.amenu input{width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:16.5px;padding:0 12px;margin:4px 0 8px;box-sizing:border-box}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom));z-index:80;background:#2b2b2b;color:#fff;border-radius:22px;height:44px;display:flex;align-items:center;gap:6px;padding:0 6px 0 18px;font-size:15px;white-space:nowrap;max-width:92vw}
+.toast span{overflow:hidden;text-overflow:ellipsis} .toast button{color:#8fb6ff;font-weight:600;padding:0 12px;height:36px;font-size:15px}
 .sum{padding:0 20px 4px;color:var(--mute);font-size:14px} .sum .r{color:var(--acc)} .sum .w{color:var(--amber)}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--ink)}
 .icon-btn:hover{background:var(--line)}
@@ -233,6 +253,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   <aside class="side">
     <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
     <div class="sum" id="sum"></div>
+    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
+    <div class="cats" id="cats"></div>
     <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
       <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
       <button class="item" id="logoutBtn"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg><span class="nm">登录的设备</span></button>
@@ -409,16 +431,122 @@ const engTag = e => e === 'codex' ? '<span class="eng g" title="GPT（Codex）">
 function renderSide() {
   $('#courses').innerHTML = drafts.length ? '<div class="label">在做的课</div>' + drafts.map(x =>
     `<a class="item course" href="${esc(x.url)}" target="_blank">${ICON.play}<span class="tx"><div class="nm">${esc(x.title)}</div></span></a>`).join('') : '';
+  if (query) return renderSearch();
+  const counts = {}; sessions.forEach(x => counts[x.category] = (counts[x.category] || 0) + 1);
+  $('#cats').innerHTML = [['全部', sessions.length], ...CATS.filter(c => counts[c]).map(c => [c, counts[c]])]
+    .map(([c, n]) => `<button class="cat ${c === cat ? 'on' : ''}" data-c="${c}">${c} <small>${n}</small></button>`).join('');
+  document.querySelectorAll('#cats .cat').forEach(b => b.onclick = () => { cat = b.dataset.c; localStorage.setItem('cat', cat); renderSide(); });
   const row = s => `<button class="item ${s.status} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
-      <span class="tx"><div class="nm">${engTag(s.engine)}${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span></button>`;
+      <span class="tx"><div class="nm">${engTag(s.engine)}${esc(s.name)}</div><div class="st"><span class="dot"></span>${esc(statusText(s))}</div></span><span class="more" data-m="${s.num}">⋯</span></button>`;
+  const mine = s => cat === '全部' || s.category === cat, now = Date.now() / 1000;
+  const busy = s => ['awaiting', 'error', 'running', 'queued'].includes(s.status) || (s.unread && s.num !== sel);
+  // 要你回的、在做的、刚做完没看的不管选了哪类都在最上面，免得漏掉；其余按置顶、最近 7 天、更早
   const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued'].includes(s.status)],
-    ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel], ['其他', s => s.status === 'idle' && !(s.unread && s.num !== sel)]]
+    ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel],
+    ['置顶', s => !busy(s) && s.pinned && mine(s)], ['最近', s => !busy(s) && !s.pinned && mine(s) && now - s.updated < 7 * 86400],
+    ['更早', s => !busy(s) && !s.pinned && mine(s) && now - s.updated >= 7 * 86400]]
     .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
-  $('#list').innerHTML = groups.map(([t, xs]) => (groups.length > 1 || t !== '其他' ? `<div class="label">${t}</div>` : '') + xs.map(row).join('')).join('')
-    || '<div class="note" style="padding:10px">还没有对话</div>';
+  $('#list').innerHTML = groups.map(([t, xs]) => `<div class="label">${t === '置顶' ? PIN : ''}${t}</div>` + xs.map(row).join('')).join('')
+    || `<div class="note" style="padding:10px">${cat === '全部' ? '还没有对话' : '这一类还没有对话'}</div>`;
+  wireRows();
   renderSum();
-  document.querySelectorAll('#list .item').forEach(b => b.onclick = () => openSession(+b.dataset.n));
 }
+
+// ---------- 列表：类别、搜索、长按菜单（置顶 / 改名 / 归类 / 删除） ----------
+const CATS = ['做课', '平台', '案头', '杂事'];
+const PIN = '<svg viewBox="0 0 24 24" style="width:13px;height:13px;vertical-align:-1px;margin-right:4px"><path d="M12 17v5M9 3h6l-1 6 4 4H6l4-4z"/></svg>';
+let cat = localStorage.getItem('cat') || '全部', query = '', searchSeq = 0;
+if (cat !== '全部' && !CATS.includes(cat)) cat = '全部';
+function wireRows() {
+  document.querySelectorAll('#list .item[data-n]').forEach(b => {
+    let timer = 0, longed = false, x0 = 0, y0 = 0;
+    b.onclick = e => {
+      if (longed) { longed = false; return; }
+      const m = e.target.closest('.more'); if (m) { e.stopPropagation(); return rowMenu(+b.dataset.n); }
+      if (b.dataset.del) return restore(+b.dataset.n, true);
+      openSession(+b.dataset.n);
+    };
+    // 手机上长按 0.5 秒出菜单；手指挪动（在滚列表）就不算
+    b.addEventListener('touchstart', e => { longed = false; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      timer = setTimeout(() => { longed = true; navigator.vibrate && navigator.vibrate(10); rowMenu(+b.dataset.n); }, 500); }, {passive: true});
+    b.addEventListener('touchmove', e => { if (Math.hypot(e.touches[0].clientX - x0, e.touches[0].clientY - y0) > 8) clearTimeout(timer); }, {passive: true});
+    b.addEventListener('touchend', () => clearTimeout(timer));
+    b.oncontextmenu = e => { e.preventDefault(); rowMenu(+b.dataset.n); };
+  });
+}
+async function manage(num, action, value) {
+  const r = await api('manage/' + num, {action, value});
+  if (!r.ok) { toast(r.error || '没改成，再试一次'); return false; }
+  await loadSessions(); if (query) renderSearch(); return true;
+}
+function sheet(html) {
+  const el = document.createElement('div'); el.className = 'amenu'; el.innerHTML = `<div class="box">${html}</div>`;
+  el.onclick = e => { if (e.target === el) el.remove(); };
+  document.body.appendChild(el); return el;
+}
+function rowMenu(num) {
+  const s = sessions.find(x => x.num === num); if (!s) return;
+  const el = sheet(`<div class="t">${esc(s.name)}</div>
+    <button data-a="pin">${PIN}${s.pinned ? '取消置顶' : '置顶'}</button>
+    <button data-a="rename"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>改名</button>
+    <button data-a="cat"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 7h6l2 2h10v10H3z"/></svg>归到…<span class="v">${esc(s.category)} ›</span></button>
+    <div class="sep"></div><button class="del" data-a="del"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>删除</button>`);
+  el.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const a = b.dataset.a;
+    if (a === 'pin') { el.remove(); manage(num, 'pin', !s.pinned); }
+    else if (a === 'rename') {
+      el.querySelector('.box').innerHTML = `<div class="t">改名</div><input id="rn" value="${esc(s.name)}" maxlength="40" enterkeyhint="done"><button class="on" id="rok">好</button>`;
+      const inp = el.querySelector('#rn'); inp.focus(); inp.select();
+      const ok = async () => { const v = inp.value.trim(); if (!v) return; el.remove(); manage(num, 'rename', v); };
+      el.querySelector('#rok').onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) ok(); };
+    } else if (a === 'cat') {
+      el.querySelector('.box').innerHTML = `<div class="t">“${esc(s.name)}”归到</div>` + CATS.map(c =>
+        `<button data-c="${c}" class="${c === s.category ? 'on' : ''}">${c}${c === s.category ? '<span class="v">现在</span>' : ''}</button>`).join('')
+        + (s.manual_cat ? '<div class="sep"></div><button data-c="">按文件夹自动分</button>' : '');
+      el.querySelectorAll('[data-c]').forEach(x => x.onclick = () => { el.remove(); manage(num, 'category', x.dataset.c); });
+    } else if (a === 'del') {
+      el.remove();
+      if (await manage(num, 'delete')) {
+        if (sel === num) goList();
+        toast(`已删除“${s.name.slice(0, 10)}${s.name.length > 10 ? '…' : ''}”`, '撤销', () => restore(num));
+      }
+    }
+  });
+}
+async function restore(num, open) {
+  if (await manage(num, 'restore') && open) { $('#q').value = ''; setQuery(''); openSession(num); }
+}
+let toastEl = null, toastTimer = 0;
+function toast(text, btn, fn) {
+  if (toastEl) toastEl.remove(); clearTimeout(toastTimer);
+  toastEl = document.createElement('div'); toastEl.className = 'toast';
+  toastEl.innerHTML = `<span>${esc(text)}</span>${btn ? `<button>${esc(btn)}</button>` : ''}`;
+  if (btn) toastEl.querySelector('button').onclick = () => { toastEl.remove(); toastEl = null; fn(); };
+  document.body.appendChild(toastEl);
+  toastTimer = setTimeout(() => { if (toastEl) { toastEl.remove(); toastEl = null; } }, 5000);
+}
+// 搜索：标题、你说过的话、它的回复；删除 30 天内的也搜得到（点一下找回）
+function setQuery(v) {
+  query = v.trim(); $('#find').classList.toggle('has', !!v);
+  $('#cats').hidden = !!query; renderSide();
+}
+const hl = (t, q) => { const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
+async function renderSearch() {
+  const q = query, seq = ++searchSeq;
+  if (!$('#list').querySelector('.sres')) $('#list').innerHTML = '<div class="note sres" style="padding:10px">搜索中…</div>';
+  let d; try { d = await api('search?q=' + encodeURIComponent(q)); } catch (e) { return; }
+  if (seq !== searchSeq || q !== query) return;
+  const row = (r, del) => `<button class="item" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nm">${engTag(r.engine)}${hl(r.name, q)}</div>
+    <div class="st"><span class="dot"></span>${del ? (r.hidden_at ? ago(r.hidden_at) + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}<span class="ctag">${esc(r.category)}</span></div>
+    ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
+  const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
+  $('#list').innerHTML = `<div class="sres"></div>` + (parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
+    || `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>`);
+  wireRows();
+}
+{ let t = 0; $('#q').oninput = e => { clearTimeout(t); const v = e.target.value; $('#find').classList.toggle('has', !!v); t = setTimeout(() => setQuery(v), 300); }; }
+$('#q').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; setQuery(''); } };
+$('#qclr').onclick = e => { e.preventDefault(); $('#q').value = ''; setQuery(''); $('#q').blur(); };
 
 // 标题下一行：问候 + 几件在做、几件等你，一眼看清现在的情况
 const OWNER = '庄老师';

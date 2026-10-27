@@ -54,6 +54,23 @@ def check_password(password: str, stored: str) -> bool:
         return False
 
 PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
+CATS = ("做课", "平台", "案头", "杂事")
+KEEP_DELETED = 30 * 86400  # 删除的对话 30 天内搜得到、能找回
+
+
+def category(s, folders: dict) -> str:
+    """对话归哪一类：你手动归过的为准；否则按文件夹自动分（课程根 → 做课、平台仓库 → 平台、案头自己 → 案头，其余杂事）。"""
+    if s.category in CATS:
+        return s.category
+    cwd = str(Path(s.cwd).expanduser())
+    under = lambda key: bool(folders.get(key)) and (cwd + "/").startswith(str(Path(folders[key]).expanduser()) + "/")
+    if "remote-claude" in cwd or "案头" in s.name or "小E" in s.name:
+        return "案头"
+    if under("课程根"):
+        return "做课"
+    if under("平台"):
+        return "平台"
+    return "杂事"
 
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
@@ -163,7 +180,8 @@ class Web:
         self._zh_busy: set[str] = set()
         self._uimg: dict[str, tuple[bytes, str]] = {}   # 你发过的图，最近取过的留在内存
         self._uimg_miss: set[str] = set()
-        self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self._zh_failed: set[str] = set()
+        self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
 
     @property
     def enabled(self) -> bool:
@@ -626,7 +644,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b = self.bridge
         now = time.time()
         rows = []
-        for s in b.registry.visible():
+        for s in [x for x in b.registry.sessions.values() if not x.hidden]:
             turn = b.runner.turns.get(s.num)
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
@@ -646,6 +664,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
+                         "pinned": s.pinned, "category": category(s, b.cfg.folders), "manual_cat": s.category in CATS,
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
@@ -658,6 +677,86 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     @staticmethod
     def _limits(d: dict) -> list[dict]:
         return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or ""} for k, (u, r) in d.items()]
+
+    async def _api_manage(self, request: web.Request) -> web.Response:
+        """列表里长按一条对话：置顶 / 取消置顶、改名、归类、删除（收起）、找回。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        b = self.bridge
+        s = b.registry.get(int(request.match_info["num"]))
+        if not s:
+            raise web.HTTPNotFound()
+        data = await request.json()
+        act, val = data.get("action"), str(data.get("value") or "").strip()
+        if act == "pin":
+            s.pinned = bool(data.get("value"))
+        elif act == "rename":
+            if not val:
+                return web.json_response({"ok": False, "error": "名字不能空着"})
+            s.name, s.renamed = val[:40], True
+        elif act == "category":
+            s.category = val if val in CATS else ""
+        elif act == "delete":
+            if s.num in b.runner.turns or b.runner.busy(s.num):
+                return web.json_response({"ok": False, "error": "还在做，先停下再删"})
+            s.hidden, s.hidden_at, s.pinned = True, time.time(), False
+            if b.registry.current == s.num:
+                b.registry.current = None
+        elif act == "restore":
+            s.hidden, s.hidden_at = False, 0.0
+            s.updated = max(s.updated, time.time() - 60)   # 找回来的排在最近里
+        else:
+            raise web.HTTPBadRequest()
+        b.registry.save()
+        return web.json_response({"ok": True})
+
+    def _search_items(self, s) -> list[dict]:
+        """一个对话里能搜的话（你说的、它每轮的回复），按记录文件变没变缓存住，不用每次重读几十 MB 的记录。"""
+        if s.engine == "codex":
+            key = ("x", len(list(self.turns_dir.glob(f"{s.num}-*.json"))))
+        else:
+            p = thread.transcript_path(s.claude_id) if s.claude_id else None
+            key = ("c", p.stat().st_mtime if p else 0)
+        hit = self._search_cache.get(s.num)
+        if hit and hit[0] == key:
+            return hit[1]
+        items: list[dict] = []
+        try:
+            if s.engine == "codex":
+                items = self._codex_history(s.num)
+            elif s.claude_id:
+                items = thread.history(thread.full_messages(s.claude_id, s.cwd), limit=100000)
+        except Exception:  # noqa: BLE001 - 读不到就当没有
+            log.debug("搜索读记录失败", exc_info=True)
+        items = [{"who": it["who"], "text": it.get("text") or ""} for it in items if it.get("who") in ("you", "claude")]
+        self._search_cache[s.num] = (key, items)
+        return items
+
+    async def _api_search(self, request: web.Request) -> web.Response:
+        q = request.query.get("q", "").strip()
+        b = self.bridge
+        if not q:
+            return web.json_response({"q": q, "title": [], "said": [], "deleted": []})
+        ql, now = q.lower(), time.time()
+        out: dict[str, list] = {"title": [], "said": [], "deleted": []}
+        for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.hidden and now - (s.hidden_at or s.updated) > KEEP_DELETED:
+                continue
+            row = {"num": s.num, "name": s.name, "category": category(s, b.cfg.folders), "updated": s.updated,
+                   "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
+            if ql in s.name.lower():
+                out["deleted" if s.hidden else "title"].append(row)
+                continue
+            items = await asyncio.to_thread(self._search_items, s)
+            for it in reversed(items):
+                i = it["text"].lower().find(ql)
+                if i >= 0:
+                    t = it["text"]
+                    row["who"] = "you" if it["who"] == "you" else "ai"
+                    row["snippet"] = ("…" if i > 24 else "") + t[max(0, i - 24):i + len(q) + 40].replace("\n", " ") + ("…" if i + len(q) + 40 < len(t) else "")
+                    out["deleted" if s.hidden else "said"].append(row)
+                    break
+        return web.json_response({"q": q, **{k: v[:30] for k, v in out.items()}})
 
     async def _api_thread(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -922,10 +1021,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """对话列表的“指纹”：谁在做、做到第几步、等不等你、更新时间；变了就叫网页刷新列表。"""
         b = self.bridge
         out = []
-        for s in b.registry.visible():
+        for s in b.registry.sessions.values():
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
-                        bool(t and t.confirm), b.runner.busy(s.num)))
+                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category))
         return json.dumps(out, ensure_ascii=False, default=str)
 
     def _sig_thread(self, num: int) -> str:
@@ -1037,6 +1136,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/events", self._api_events)
         app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
+        app.router.add_post(f"{PREFIX}/api/manage/{{num:\\d+}}", self._api_manage)
+        app.router.add_get(f"{PREFIX}/api/search", self._api_search)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)

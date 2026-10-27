@@ -83,6 +83,7 @@ class Bridge:
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
                              self._confirm_asked)
         self.runner.auto_review = cfg.auto_review
+        self.runner.auto_title = True
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
@@ -518,7 +519,7 @@ class Bridge:
             return await self.say("没有这个对话", f"没有 #{num}。发“列表”看看有哪些。")
         if s.num in self.runner.turns or s.status in ("running", "queued"):
             return await self.say("还在做", f"{s.label} 还在做，先发“停 {s.num}”，停下后再删。")
-        s.hidden = True
+        s.hidden, s.hidden_at, s.pinned = True, time.time(), False
         if self.registry.current == s.num:
             self.registry.current = None
         self.registry.save()

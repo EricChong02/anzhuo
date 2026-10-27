@@ -433,3 +433,55 @@ def test_records_match_by_time_while_running():
     cl = [i for i in out if i["who"] == "claude"]
     assert [i.get("tid") for i in cl] == ["4-90", "4-190", None]
     assert cl[1]["files"] == [{"name": "设计.md"}] and "files" not in cl[2]
+
+
+def test_manage_and_search(tmp_path):
+    """列表管理：按文件夹分类、置顶、改名（之后不再自动起名）、归类、删除（在做的删不了）、找回；搜索标题、说过的话、已删除。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    from remote_claude.web import category
+
+    folders = {"课程根": str(tmp_path / "courses"), "平台": str(tmp_path / "plat")}
+    assert category(Session(num=1, name="a", cwd=str(tmp_path / "courses" / "x")), folders) == "做课"
+    assert category(Session(num=1, name="a", cwd=str(tmp_path / "plat")), folders) == "平台"
+    assert category(Session(num=1, name="开发案头", cwd=str(tmp_path / "plat")), folders) == "案头"
+    assert category(Session(num=1, name="a", cwd=str(tmp_path / "platform2")), folders) == "杂事"
+    assert category(Session(num=1, name="a", cwd=str(tmp_path / "plat"), category="做课"), folders) == "做课"
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        for n, name in [(1, "大数据第二节 · 封面"), (2, "天气"), (3, "在做的活")]:
+            reg.add(Session(num=n, name=name, cwd=str(tmp_path / "plat"), engine="codex"))
+        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        t = Turn(started=time.time() - 60, ended=time.time(), request="明天要不要带伞", final_text="不用带伞，多云")
+        w.save_turn("#2 天气", t, str(tmp_path), "做完了")
+        w.bridge = NS(registry=reg, cfg=NS(folders=folders),
+                      runner=NS(turns={3: Turn(started=time.time(), request="x")}, busy=lambda n: n == 3, compacting=lambda n: None, limits={}, limits_gpt={}, last={}))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            post = lambda n, a, v=None: c.post(f"/_x/api/manage/{n}", json={"action": a, "value": v})
+            assert (await (await post(1, "pin", True)).json())["ok"] and reg.get(1).pinned
+            await post(2, "rename", "明天的天气")
+            assert reg.get(2).name == "明天的天气" and reg.get(2).renamed
+            await post(2, "category", "杂事")
+            assert reg.get(2).category == "杂事"
+            r = await (await post(3, "delete")).json()
+            assert not r["ok"] and not reg.get(3).hidden                     # 在做的删不了
+            await post(1, "delete")
+            assert reg.get(1).hidden and reg.get(1).hidden_at and not reg.get(1).pinned
+            rows = (await (await c.get("/_x/api/sessions")).json())["sessions"]
+            assert 1 not in [x["num"] for x in rows] and {x["category"] for x in rows} == {"杂事", "平台"}
+            s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
+            assert [x["num"] for x in s["deleted"]] == [1] and not s["title"]
+            s = await (await c.get("/_x/api/search", params={"q": "带伞"})).json()
+            assert s["said"][0]["num"] == 2 and "带伞" in s["said"][0]["snippet"]
+            await post(1, "restore")
+            assert not reg.get(1).hidden
+            s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
+            assert [x["num"] for x in s["title"]] == [1]
+        finally:
+            await c.close()
+
+    asyncio.run(go())
