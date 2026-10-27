@@ -305,7 +305,7 @@ async function api(path, body) {
   let r;
   try { r = await fetch('/_x/api/' + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {}); }
   catch (e) { setOffline(true); throw e; }
-  if (r.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); throw new Error('login'); }
+  if (r.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); throw new Error('login'); }
   if (r.status === 502 || r.status === 503 || r.status === 504) { setOffline(true); throw new Error('offline'); }
   if (r.status === 413) throw new Error('big');
   setOffline(false);
@@ -321,7 +321,7 @@ function upload(path, body, onProg) {
     x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded, e.total); };
     x.onerror = () => { setOffline(true); bad(new Error('offline')); };
     x.onload = () => {
-      if (x.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
+      if (x.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
       if ([502, 503, 504].includes(x.status)) { setOffline(true); return bad(new Error('offline')); }
       if (x.status === 413) return bad(new Error('big'));
       setOffline(false);
@@ -494,7 +494,7 @@ function openSession(num, fromPop) {
   feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
   $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
   wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { (pending[num] ||= []).push({text, imgs, t: Date.now()}); });
-  renderSide(); headStatus(); loadThread();
+  renderSide(); headStatus(); showCached(num); loadThread();
 }
 
 function goList() { sel = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
@@ -618,6 +618,7 @@ async function logoutHere(all) {
   try { const reg = await navigator.serviceWorker.getRegistration('/_x/'); const sub = reg && await reg.pushManager.getSubscription();
         if (sub) { endpoint = sub.endpoint; await sub.unsubscribe(); } } catch (err) {}
   await fetch('/_x/api/logout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({all, endpoint})});
+  clearThreads();   // 学校电脑上退出，记在本机的对话一并清掉
   location.href = '/_x/login';
 }
 $('#logoutBtn').onclick = async () => {
@@ -738,11 +739,30 @@ function renderThread(d) {
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
 
+// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（阿里云出口只有约 3Mbps，整段对话要传一两秒）
+const threadCache = new Map();
+try { for (const [n, v] of JSON.parse(localStorage.getItem('threads') || '[]')) threadCache.set(n, v); } catch (e) {}
+function cacheThread(d) {
+  threadCache.delete(d.num);
+  threadCache.set(d.num, JSON.stringify({...d, live: null, decision: null}));   // 进行中、等你定这些只认新鲜的
+  while (threadCache.size > 8) threadCache.delete(threadCache.keys().next().value);
+  clearTimeout(cacheThread.t);
+  cacheThread.t = setTimeout(saveThreads, 1500);
+}
+function clearThreads() { threadCache.clear(); clearTimeout(cacheThread.t); cacheThread.t = 0; try { localStorage.removeItem('threads'); } catch (e) {} }
+function saveThreads() { try { localStorage.setItem('threads', JSON.stringify([...threadCache])); } catch (e) {} }
+addEventListener('pagehide', () => { if (cacheThread.t) saveThreads(); });
+function showCached(num) {
+  const v = threadCache.get(num);
+  if (v) try { renderThread(JSON.parse(v)); } catch (e) {}
+}
+
 async function loadThread() {
   if (!sel) return;
   try {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
+    cacheThread(d);
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
     if (key !== lastKey && !reading) { lastKey = key; renderThread(d); }
