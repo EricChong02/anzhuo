@@ -255,13 +255,11 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
-    <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
-    <div class="sum" id="sum"></div>
+    <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
     <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
     <div class="cats" id="cats"></div>
     <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
-      <a class="item" href="/_x/history" style="margin-top:12px"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span class="nm">历史记录</span></a>
-      <button class="item" id="logoutBtn"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg><span class="nm">登录的设备</span></button>
+      <button id="logoutBtn" hidden></button>
     </div>
     <div class="quota" id="quota" hidden></div>
   </aside>
@@ -561,7 +559,7 @@ function renderSum() {
   if (run) bits.push(`<span class="r">${run} 件在做</span>`);
   if (wait) bits.push(`<span class="w">${wait} 件等你</span>`);
   if (!run && !wait) bits.push('都做完了');
-  $('#sum').innerHTML = bits.join(' · ');
+  if ($('#sum')) $('#sum').innerHTML = bits.join(' · ');
 }
 
 async function loadSessions() {
@@ -822,6 +820,12 @@ async function logoutHere(all) {
   clearThreads();   // 学校电脑上退出，记在本机的对话一并清掉
   location.href = '/_x/login';
 }
+$('#moreBtn').onclick = () => {
+  const el = sheet(`<button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>
+    <button data-a="d"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg>登录的设备 · 退出登录</button>`);
+  el.querySelector('[data-a=h]').onclick = () => { location.href = '/_x/history'; };
+  el.querySelector('[data-a=d]').onclick = () => { el.remove(); $('#logoutBtn').onclick(); };
+};
 $('#logoutBtn').onclick = async () => {
   const el = document.createElement('div'); el.className = 'sheet';
   document.body.appendChild(el);
