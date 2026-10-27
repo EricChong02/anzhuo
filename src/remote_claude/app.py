@@ -847,5 +847,6 @@ class Bridge:
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
+        asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()

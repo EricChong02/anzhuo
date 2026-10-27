@@ -12,13 +12,14 @@ log = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-5-5"
 SYSTEM = """给一段工作对话起名字，让人在列表里一眼看出在做什么。只输出名字本身，不要引号、标点结尾或解释。
-简体中文，6 到 16 个字；具体到对象（哪门课、哪个功能、哪份文件），可以用“ · ”隔开两段，比如“大数据第二节 · 第 3 屏错位”。"""
+简体中文，4 到 10 个字，手机列表一行要能显示完；说清对象和在做的事，比如“大数据第二节磨课”“厦门天气”“讲座课件制作”“案头列表改版”。
+不用标点、引号和“·”，不要“关于”“讨论”“对话”这类空词。"""
 
 
 def _clean(raw: str) -> str:
     t = raw.strip().splitlines()[0] if raw.strip() else ""
     t = re.sub(r"^[#*\s“\"'《]*(名字|标题)?[:：]?\s*", "", t).strip(" “”\"'。.，,")
-    return t[:24]
+    return re.sub(r"[·•。，,、]", "", t)[:12]
 
 
 async def short_title(asked: str, answer: str, timeout: float = 60) -> str:

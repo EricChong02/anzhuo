@@ -340,11 +340,23 @@ class Runner:
                     self.registry.save()
             await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
             job.finished = True
-            # 名字还是第一句话截出来的（截断带“…”或就是这句话）才起；你在别处起过的名字（如“开发小E（钉钉助手）”）不动
-            if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT) \
-                    and (s.name.endswith("…") or s.name == brief(job.text, 16)):
+            if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
                 asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
             await self.on_done(s, turn)
+
+    async def title_all(self, records_dir: Path) -> None:
+        """还没起过短名字的对话（你手动改过名的除外）一个个补上：按它最近一轮你说的话和回复起。启动时跑一次。"""
+        for s in list(self.registry.sessions.values()):
+            if s.renamed or (s.titled and len(s.name) <= 12) or s.status in ("running", "queued"):
+                continue   # 早先起的长名字（十几个字）也重起一次
+            recs = sorted(records_dir.glob(f"{s.num}-*.json"), key=lambda p: int(p.stem.split("-")[1]))
+            try:
+                first = json.loads(recs[0].read_text()) if recs else {}
+                last = json.loads(recs[-1].read_text()) if recs else {}
+            except (OSError, json.JSONDecodeError):
+                continue
+            asked = "\n".join(x for x in (first.get("request"), last.get("request")) if x) or s.name
+            await self._auto_title(s, asked, last.get("final_text") or s.last_summary)
 
     async def _auto_title(self, s: Session, asked: str, answer: str) -> None:
         """头一轮做完，按“你要做的事 + 它的回复”起个短名字（原来是你第一句话的开头，长、看不出在做什么）。"""
