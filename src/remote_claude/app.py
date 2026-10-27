@@ -82,6 +82,7 @@ class Bridge:
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
                              self._confirm_asked)
+        self.runner.auto_review = cfg.auto_review
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面

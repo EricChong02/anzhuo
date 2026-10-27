@@ -34,6 +34,7 @@ class Turn:
     compacted: bool = False
     translated: str = ""  # 原文有大段英文时，谁译成了中文（DeepSeek / Haiku）
     partial: str = ""  # 正在写的那段回复（边写边给网页看；写完进 timeline 后清空）
+    reviews: list = field(default_factory=list)  # 审核员替你判断过的危险命令：{"allow", "what", "why", "cmd"}
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
 
 
@@ -214,6 +215,10 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
     if turn.translated:
         facts += f" · 英文已由 {turn.translated} 译成中文"
     tail = ["---", facts]
+    if turn.reviews:
+        tail.append("审核员替你判断：" + "；".join(
+            f"{'放行' if r['allow'] else '拦下'} {r['what']}（{r['why']}）" for r in turn.reviews[:6])
+            + ("等" if len(turn.reviews) > 6 else ""))
     if turn.links:
         tail.append("　".join(f"[{name}]({url})" for name, url in turn.links))
     if files and "改了哪些" not in turn.final_text:

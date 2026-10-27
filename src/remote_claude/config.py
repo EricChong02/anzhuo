@@ -25,6 +25,7 @@ class Config:
     skip_names: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_NAMES))
     scratch_root: str = "~/Projects/_scratch/小E"
     max_parallel: int = 3
+    auto_review: bool = True  # 危险命令交给 AI 审核员判断，做完在报告里告诉你（2026-10-27 庄毅定）；false 就照旧等你点
     auto_route: bool = True  # 直接说话时让小E判断接着哪个对话、还是新开
     default_effort: str | None = None  # 小E 对话的默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
     simple_model: str = "sonnet"  # 简单任务（查资料、整理文件、问答）用的模型
@@ -50,6 +51,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         scratch_root=raw.get("scratch_root", "~/Projects/_scratch/小E"),
         max_parallel=int(raw.get("max_parallel", 3)),
         auto_route=bool(raw.get("auto_route", True)),
+        auto_review=bool(raw.get("auto_review", True)),
         default_effort=raw.get("default_effort"),
         simple_model=raw.get("simple_model", "sonnet"),
         dev_model=raw.get("dev_model", "opus"),

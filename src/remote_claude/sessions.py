@@ -38,6 +38,7 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
+用户已授权：活做完并自查通过后，提交、推送、上线这类收尾直接做，不要停下来问“要不要提交 / 推送 / 上线”，在报告里写明做了就行；危险命令有审核员把关，被拦下就换安全的做法，或在报告里说明。只有方案、内容上的取舍才用“要你定”问用户。
 小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
 
@@ -154,6 +155,7 @@ class Runner:
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
         self.default_effort = default_effort or user_setting("effortLevel") or ""
+        self.auto_review = True  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
     def busy(self, num: int) -> bool:
         return num in self.turns or not self.queues.get(num, asyncio.Queue()).empty()
@@ -236,19 +238,34 @@ class Runner:
         finally:
             turn.confirm = None
 
+    async def decide(self, s: Session, turn: Turn, what: str, cmd: str) -> bool:
+        """危险命令：开着审核员（默认）就交给它判断，做完在报告里告诉你；它出错或超时才退回来问你。"""
+        if self.auto_review:
+            from .reviewer import review
+            recent = [t["text"] for t in turn.timeline if t.get("kind") in ("do", "say")]
+            r = await review(what, cmd, s.cwd, turn.request, recent)
+            if r is not None:
+                ok, why = r
+                turn.reviews.append({"allow": ok, "what": what, "why": why, "cmd": cmd[:300]})
+                turn.timeline.append({"t": time.time(), "kind": "do", "text": f"审核员{'放行' if ok else '拦下'}：{what}（{why}）",
+                                      "detail": cmd[:400]})
+                return ok
+        return await self.ask_confirm(s, turn, what, cmd)
+
     def _guard(self, s: Session, turn: Turn):
         async def hook(data, tool_use_id, context):
             cmd = str((data.get("tool_input") or {}).get("command") or "")
             what = guard.danger(cmd)
             if not what:
                 return {}
-            allow = await self.ask_confirm(s, turn, what, cmd)
+            allow = await self.decide(s, turn, what, cmd)
+            why = turn.reviews[-1]["why"] if turn.reviews and turn.reviews[-1]["cmd"] == cmd[:300] else ""
             out = {"hookEventName": "PreToolUse"}
             if allow:
-                out.update(permissionDecision="allow", permissionDecisionReason="用户确认可以执行")
+                out.update(permissionDecision="allow", permissionDecisionReason="审核通过，可以执行")
             else:
                 out.update(permissionDecision="deny", permissionDecisionReason=(
-                    "用户没有同意这一步（或 20 分钟没回）。不要执行它，也不要换个写法绕过去；"
+                    f"这一步没有通过审核{('（' + why + '）') if why else ''}。不要执行它，也不要换个写法绕过去；"
                     "能不做就用别的办法完成，必须做就在回复里说明为什么要这样做，等用户明确同意。"))
             return {"hookSpecificOutput": out}
         return hook
@@ -521,7 +538,7 @@ def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
 CODEX_FIRST = ("回复一律用简体中文；专有名词、代码、命令、路径保持原样。动手做了事的，最后用这几段汇报，写给不看代码的人："
                "“要你做的 / 做了什么 / 改了哪些 / 自查结果”，没内容的段不写。需要用户在几个方案里选时，第一行写“要你定：”加一句问题，"
                "选项写成“A. …”，推荐写成“推荐：A，理由”。要把截图或文件（PDF、表格等）交给用户看，在回复最后单独一行写“交给你：”"
-               "加文件的绝对路径（多个用顿号隔开）；用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。\n\n")
+               "加文件的绝对路径（多个用顿号隔开）；活做完并自查通过后，提交、推送、上线直接做，不要停下来问要不要，危险命令有审核员把关；用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。\n\n")
 
 
 async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
@@ -591,7 +608,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             cmd = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
             ok = True
             if what := guard.danger(cmd):
-                ok = await self.ask_confirm(s, turn, what, cmd)
+                ok = await self.decide(s, turn, what, cmd)
             if method == "execCommandApproval":
                 return {"decision": "approved" if ok else "denied"}
             return {"decision": "accept" if ok else "decline"}

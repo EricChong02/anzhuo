@@ -229,6 +229,7 @@ def test_guard_hook_waits_for_answer():
 
     async def go():
         r = Runner(registry=None, on_done=None, on_confirm=on_confirm)
+        r.auto_review = False   # 关掉审核员：照旧等你点
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time())
         r.turns[3] = turn
         hook = r._guard(s, turn)
@@ -242,6 +243,44 @@ def test_guard_hook_waits_for_answer():
         r.answer_confirm(3, False)
         assert (await task)["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert not r.answer_confirm(3, True)   # 没有在等的就不算
+
+    asyncio.run(go())
+
+
+def test_reviewer_decides(monkeypatch):
+    """开着审核员：危险命令由它判断，结果记进这一轮（报告里列出）；它出错时退回来问你。"""
+    import asyncio
+    import time
+    from remote_claude import reviewer
+    from remote_claude.report import Turn, build
+    from remote_claude.sessions import Runner, Session
+    answers = iter([(True, "任务要求推送"), (False, "删用户资料"), None])
+
+    async def fake(what, cmd, cwd, request, recent, timeout=90):
+        return next(answers)
+    monkeypatch.setattr(reviewer, "review", fake)
+    asked = []
+
+    async def on_confirm(s, turn):
+        asked.append(turn.confirm["what"])
+
+    async def go():
+        r = Runner(registry=None, on_done=None, on_confirm=on_confirm)
+        s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time(), request="改完推上去")
+        r.turns[3] = turn
+        hook = r._guard(s, turn)
+        first = await hook({"tool_input": {"command": "git " + "pu" + "sh"}}, "t1", None)
+        assert first["hookSpecificOutput"]["permissionDecision"] == "allow"
+        out = (await hook({"tool_input": {"command": "rm -rf ~/Documents/x"}}, "t2", None))["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny" and "删用户资料" in out["permissionDecisionReason"]
+        assert not asked
+        task = asyncio.create_task(hook({"tool_input": {"command": "sudo ls"}}, "t3", None))
+        await asyncio.sleep(0.05)
+        assert asked and r.answer_confirm(3, True)   # 审核员出错：退回来问你
+        await task
+        turn.ended = time.time()
+        _, md = build("#3 x", turn, "/tmp")
+        assert "审核员替你判断" in md and "放行 推送代码" in md and "拦下" in md
 
     asyncio.run(go())
 
