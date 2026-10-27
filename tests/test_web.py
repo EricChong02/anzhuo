@@ -306,6 +306,8 @@ def test_files_delivered_and_uploaded(tmp_path):
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
             assert "attachment" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
             assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
+            r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的案头能返回）
+            assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
             data = "data:application/pdf;base64," + b64.b64encode(b"hello").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "看看这个", "files": [{"name": "../合同.pdf", "data": data}]})).json()
             assert r["ok"] and "附件已存到" in sent[0] and sent[0].endswith("合同.pdf）")

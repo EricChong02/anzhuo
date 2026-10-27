@@ -574,7 +574,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             try:
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
-                       "url": f"{PREFIX}/t/{r['id']}/file/{i}"} for i, f in enumerate(r.get("files", []))]
+                       "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
                             "model": r.get("model", ""),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
@@ -1046,6 +1046,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
+        # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的案头，点范围外的链接会弹出带“完成”的浏览页，
+        # 看完能回来；范围内的链接直接在案头窗口里打开文件，没有返回键（10-27 遇到）
+        app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
         app.router.add_route("*", "/{tail:.*}", self._proxy)
         return app
 

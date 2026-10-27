@@ -156,6 +156,11 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none}
 .lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:2;height:44px;padding:0 16px 0 12px;border-radius:22px;background:#fff;color:#1c1c1e;
   font-size:16px;font-weight:600;display:flex;align-items:center;gap:4px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.fv{background:#111;touch-action:auto;flex-direction:column;justify-content:flex-start;padding-top:calc(68px + env(safe-area-inset-top))}
+.fv iframe,.fv img{flex:1;width:100%;border:0;background:#fff;max-height:none} .fv img{object-fit:contain;background:none}
+.fv .tip{color:#ddd;font-size:16px;line-height:1.7;padding:40px 28px;text-align:center}
+.fv .sh{position:fixed;top:calc(12px + env(safe-area-inset-top));left:14px;height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,.16);color:#fff;font-size:16px}
+.fv .nm{position:fixed;top:calc(24px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#aaa;font-size:14px;padding:0 150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
 .lightbox .x b{font-size:26px;line-height:1;font-weight:400}
 .sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px}
 .sheet .box{width:min(340px,100%);background:var(--panel);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
@@ -558,6 +563,38 @@ async function setupPush() {
 }
 setupPush().catch(() => {});
 
+// 主屏幕打开的案头（没有浏览器的返回键）点文件：不跳走，在页面里盖一层看；右上角“完成”回来，左上角“分享 / 存储”交给 WPS、文件 App 等
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a.file');
+  if (!a || !standalone) return;
+  e.preventDefault(); viewFile(a.href, (a.querySelector('.fn') || a).textContent.trim());
+});
+async function viewFile(url, name) {
+  const el = document.createElement('div'); el.className = 'lightbox fv';
+  el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享 / 存储</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
+  document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
+  let u = '';
+  el.querySelector('.x').onclick = () => history.back();
+  new MutationObserver((_, ob) => { if (!el.isConnected) { if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+    const blob = await r.blob(); if (!el.isConnected) return;
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg'}[ext] || blob.type);
+    const file = new File([blob], name, {type});
+    u = URL.createObjectURL(file);
+    const tip = el.querySelector('.tip');
+    if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
+    else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
+    else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      const sh = el.querySelector('.sh'); sh.hidden = false;
+      sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
+    } else if (!/^image\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
+  } catch (err) { const t = el.querySelector('.tip'); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
+}
+
 // 看大图：在页面里盖一层（主屏幕 app 里没有浏览器的返回键，不能跳走）。两指捏合放大、双击放大/还原、放大后单指拖动；
 // 没放大时点空白、右上角 ×、返回手势都能关。电脑上滚轮缩放、双击放大。
 function viewImage(src) {
@@ -674,7 +711,7 @@ function renderThread(d) {
       ...(it.previews || []).map(([n, u]) => `<a class="pill" href="${esc(u)}" target="_blank">${ICON.play}试课</a>`)].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 700 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" download>${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
       return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid) : ''}`;
