@@ -562,7 +562,7 @@ class Runner:
         turn.effort = s.effort or self.default_effort
 
 
-AGENT_WAIT = 45 * 60   # 主对话说完后，最多再等后台助手这么久
+AGENT_WAIT = 20 * 60   # 主对话说完后，最多再等后台助手这么久
 DONE = {"completed", "failed", "stopped", "killed", "error", "cancelled"}
 
 
@@ -586,7 +586,8 @@ def track_agent(turn, msg) -> None:
 
 
 def running_agents(turn) -> list[dict]:
-    return [a for a in turn.agents.values() if a["status"] == "running"]
+    # 只等子代理；后台命令（开着的预览服务、Monitor 之类）可能永远不结束，等它会把对话卡住、你说的话一直排队
+    return [a for a in turn.agents.values() if a["status"] == "running" and a.get("kind") == "助手"]
 
 
 def sub_name(turn, parent_id) -> str:
