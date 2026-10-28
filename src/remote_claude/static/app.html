@@ -938,7 +938,11 @@ function renderThread(d) {
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
   (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
   const localImgs = sentImgs;
+  // 服务器那边也报了这条“待发”（插话、排队）时，网页自己先摆的那条就不再重复显示
+  const srvPend = d.items.filter(i => i.who === 'you' && i.pending).map(i => i.text.trim());
+  const inSrv = t => srvPend.some(x => x.startsWith(t.slice(0, 40)) || t.startsWith(x.slice(0, 40)));
   pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
+  const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
@@ -961,8 +965,8 @@ function renderThread(d) {
     })() : '';
     return `<div class="cl ${fold ? 'fold' : ''}">${proc}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${imgs}${files}${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
   }).join('');
-  h += pending[d.num].map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`).join('');
-  if (!d.items.length && !d.live && !pending[d.num].length) h = '<div class="note">这个对话还没有内容</div>';
+  h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`).join('');
+  if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
     if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div>
