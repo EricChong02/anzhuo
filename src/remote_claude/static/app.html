@@ -265,7 +265,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 /* 接了妙控键盘或触控板的 iPad 会被当成“有鼠标”，按屏幕尺寸判断不出来，所以由脚本认出 iPad 后加 ipad 标记 */
 @media (min-width:821px){
   html.ipad{--fs:17px} html.ipad .head{padding-top:calc(16px + env(safe-area-inset-top))} html.ipad .app{grid-template-columns:calc(316px * var(--z,1.2)) 1fr}
-  html.ipad :is(.side>*,.head,.col,.composer,.quick,.jump,.amenu .box,.mmenu,.wmenu,.sheet .box,.newv h1,.wbar){zoom:var(--z,1.2)}
+  html.ipad :is(.side>*,.head,.col,.composer,.quick,.jump,.amenu .box,.sheet .box,.wbar){zoom:var(--z,1.2)} html.ipad .newv h1{font-size:calc(28px * var(--z,1.2))}
 }
 @media (max-width:820px){
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
