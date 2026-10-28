@@ -662,7 +662,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             tl = r.get("timeline") or []
             said = [e["text"] for e in tl if e.get("kind") == "you"] or [r.get("request") or ""]
             items += [{"who": "you", "text": t} for t in said if t]
-            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {})}
+            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {}), **({"sub": e["sub"]} if e.get("sub") else {})}
                     for e in tl if e.get("kind") in ("think", "say", "do")]
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
                 proc.pop()
@@ -852,7 +852,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             b.registry.save()
         live = None
         if turn:
-            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1200], "detail": str(e.get("detail") or "")[:400]}
+            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1200], "detail": str(e.get("detail") or "")[:400], "sub": e.get("sub", "")}
                     for e in turn.timeline if e["kind"] in ("think", "say", "do")][-40:]
             for e in proc:
                 if e["k"] in ("think", "say"):
@@ -861,7 +861,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     "elapsed": int(time.time() - turn.started),
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
-                    "compact": b.runner.compacting(num) == "running"}
+                    "compact": b.runner.compacting(num) == "running",
+                    "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
+                                "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None

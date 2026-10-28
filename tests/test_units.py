@@ -375,3 +375,17 @@ def test_tidy_scratch_and_purge(tmp_path):
     reg.add(Session(num=1, name="a", cwd="/", hidden=True, hidden_at=now - 31 * 86400))
     reg.add(Session(num=2, name="b", cwd="/", hidden=True, hidden_at=now - 5 * 86400))
     assert len(reg.sessions) == 2   # 删除的对话不从名单去掉（对话内容不删）
+
+
+def test_track_agent_lifecycle():
+    import time
+    from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage
+    from remote_claude.report import Turn
+    from remote_claude.sessions import running_agents, sub_name, track_agent
+    t = Turn(started=time.time())
+    track_agent(t, TaskStartedMessage(subtype="task_started", data={}, task_id="a1", description="查课程目录", uuid="u", session_id="s", tool_use_id="tu1"))
+    assert len(running_agents(t)) == 1 and sub_name(t, "tu1") == "查课程目录" and sub_name(t, None) == ""
+    track_agent(t, TaskProgressMessage(subtype="task_progress", data={}, task_id="a1", description="", usage={}, uuid="u", session_id="s", last_tool_name="Bash"))
+    assert t.agents["a1"]["last"] == "跑命令"
+    track_agent(t, TaskNotificationMessage(subtype="task_notification", data={}, task_id="a1", status="completed", output_file="", summary="", uuid="u", session_id="s"))
+    assert not running_agents(t) and t.agents["a1"]["status"] == "done"

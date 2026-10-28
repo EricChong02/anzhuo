@@ -122,6 +122,12 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .yimgs{margin:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end} .yimgs img{width:92px;height:92px;object-fit:cover;border-radius:10px;display:block}
 .qtag{display:block;margin-top:6px;font-size:14px;color:var(--mute)}
 .queue{color:var(--mute);font-size:15px;padding:0 4px}
+.agents{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg);font-size:15px}
+.agents .ah{color:var(--mute);font-size:14px;margin-bottom:4px}
+.ag{display:flex;align-items:center;gap:8px;padding:3px 0} .ag .spin{width:13px;height:13px}
+.ag .an{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .ag .am{color:var(--mute);font-size:14px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ag .ok{color:var(--green);width:13px;text-align:center} .ag .bad{color:var(--red);width:13px;text-align:center} .ag.done .an,.ag.stopped .an{color:var(--mute)}
+.pi.sub{padding-left:22px} .pi .who{font-style:normal;font-size:12.5px;color:var(--acc);background:var(--accsoft);border-radius:6px;padding:0 6px;margin-right:6px}
 .live .lsub{margin-top:8px;color:var(--mute);font-size:15px}
 .live .partial{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:16px;line-height:1.65}
 .caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
@@ -327,13 +333,21 @@ const ICON = {
 let openProc = new Set();
 // 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
 const unclamp = new Set();
+// 派出去的助手（子代理、后台命令）：一行一个，在跑的转圈、做完打勾
+function agentsHTML(list) {
+  if (!list.length) return '';
+  const run = list.filter(a => a.status === 'running').length;
+  const mark = {running: '<i class="spin"></i>', done: '<span class="ok">✓</span>', failed: '<span class="bad">✕</span>', stopped: '<span class="bad">■</span>'};
+  return `<div class="agents"><div class="ah">${run ? `${run} 个助手在跑，主对话会等它们做完再汇总` : '派出的助手都做完了'}</div>${list.map(a =>
+    `<div class="ag ${a.status}">${mark[a.status] || ''}<span class="an">${esc(a.name)}</span><span class="am">${a.status === 'running' && a.last ? esc(a.last) + ' · ' : ''}${dur(a.secs)}</span></div>`).join('')}</div>`;
+}
 function procHTML(list, pid) {
   const ck = t => esc(String(t).slice(0, 80));
   return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait
     ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
     : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
     : e.k === 'say' ? `<div class="pi say">${ICON.say}<div class="pt md">${md(e.text)}</div></div>`
-    : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
+    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
 let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
@@ -973,6 +987,7 @@ function renderThread(d) {
       <div class="lsub">压完它还记得聊过的要点；你这时说的话会排在压缩之后，压完接着做</div></div>`;
     else h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · <b class="tick" data-t0="${Date.now() / 1000 - (L.elapsed ?? L.minutes * 60)}">${dur(L.elapsed ?? L.minutes * 60)}</b>${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
+      ${agentsHTML(L.agents || [])}
       ${(L.process || []).length ? procHTML(L.process.slice(-14), 'live') : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }
   const restQ = (d.queue || []).filter(q => !shownQ.has(q));

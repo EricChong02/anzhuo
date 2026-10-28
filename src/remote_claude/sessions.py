@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, StreamEvent, SystemMessage, TextBlock,
     ThinkingBlock, ToolUseBlock, create_sdk_mcp_server, tool,
 )
+from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage, TaskUpdatedMessage
 
 from . import guard
 from .folders import blocked, display
@@ -473,7 +474,9 @@ class Runner:
                 except (StopAsyncIteration, asyncio.TimeoutError):
                     break
                 after_result = False
-                if isinstance(msg, SystemMessage):
+                if isinstance(msg, (TaskStartedMessage, TaskProgressMessage, TaskNotificationMessage, TaskUpdatedMessage)):
+                    track_agent(turn, msg)
+                elif isinstance(msg, SystemMessage):
                     if "compact" in msg.subtype:
                         turn.compacted = True
                     elif msg.subtype == "init" and not turn.model:
@@ -497,12 +500,15 @@ class Runner:
                     if texts:
                         last_text = "\n".join(texts)
                         turn.timeline.append({"t": time.time(), "kind": "say", "text": last_text[:6000]})
+                    sub = sub_name(turn, msg.parent_tool_use_id)
                     for b in msg.content:
                         if isinstance(b, ToolUseBlock):
                             if label := step_label(b.name, b.input or {}):
                                 turn.steps.append(label)
-                                turn.timeline.append({"t": time.time(), "kind": "do", "text": label,
-                                                      "detail": _tool_detail(b.name, b.input or {})})
+                                e = {"t": time.time(), "kind": "do", "text": label, "detail": _tool_detail(b.name, b.input or {})}
+                                if sub:
+                                    e["sub"] = sub   # 助手做的步骤：过程里缩进、标上是哪个助手
+                                turn.timeline.append(e)
                             if b.name in EDIT_TOOLS:
                                 fp = b.input.get("file_path") or b.input.get("notebook_path")
                                 if fp:
@@ -516,6 +522,10 @@ class Runner:
                     if not msg.is_error and NOISE.match(msg.result or ""):
                         # 上一轮留下的后台任务通知先被答了一句“No response requested.”，你这句还排在后面：接着读，别当成回复
                         after_result, wait_more = True, 60
+                        continue
+                    if running_agents(turn) and not turn.interrupted and not msg.is_error:
+                        # 主对话先说完了，但还有助手在后台跑：这一轮一结束它们就被关掉，所以接着等，助手做完它会接着汇总
+                        after_result, wait_more = True, AGENT_WAIT
                         continue
                     wait_more = 4
                     if msg.is_error and not turn.interrupted:
@@ -536,6 +546,44 @@ class Runner:
                 log.debug("取上下文用量失败", exc_info=True)
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or self.default_effort
+
+
+AGENT_WAIT = 45 * 60   # 主对话说完后，最多再等后台助手这么久
+DONE = {"completed", "failed", "stopped", "killed", "error", "cancelled"}
+
+
+def track_agent(turn, msg) -> None:
+    """记下派出去的助手：开始、做到哪一步、结束。网页“在做”卡片和过程里按这个显示。"""
+    a = turn.agents.get(msg.task_id)
+    if isinstance(msg, TaskStartedMessage):
+        kind = "命令" if "bash" in (msg.task_type or "") else "助手"
+        turn.agents[msg.task_id] = {"name": _short_desc(msg.description), "kind": kind, "t0": time.time(), "t1": 0,
+                                    "status": "running", "last": "", "tool": msg.tool_use_id}
+        return
+    if a is None:
+        return
+    if isinstance(msg, TaskProgressMessage):
+        if msg.last_tool_name:
+            a["last"] = (step_label(msg.last_tool_name, {}) or "").rstrip("：")
+        return
+    status = msg.status if isinstance(msg, TaskNotificationMessage) else (msg.status or (msg.patch or {}).get("status"))
+    if status in DONE and a["status"] == "running":
+        a["status"], a["t1"] = ("done" if status == "completed" else "failed" if status in ("failed", "error") else "stopped"), time.time()
+
+
+def running_agents(turn) -> list[dict]:
+    return [a for a in turn.agents.values() if a["status"] == "running"]
+
+
+def sub_name(turn, parent_id) -> str:
+    if not parent_id:
+        return ""
+    return next((a["name"] for a in turn.agents.values() if a.get("tool") == parent_id), "助手")
+
+
+def _short_desc(t: str) -> str:
+    t = " ".join(str(t or "").split())
+    return t if len(t) <= 16 else t[:15] + "…"
 
 
 NOISE = re.compile(r"^\s*(No response requested\.?)?\s*$", re.I)   # 空结果也算：后台通知有时连一句话都不答就出结果

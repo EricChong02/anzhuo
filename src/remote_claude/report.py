@@ -35,6 +35,7 @@ class Turn:
     translated: str = ""  # 原文有大段英文时，谁译成了中文（DeepSeek / Haiku）
     partial: str = ""  # 正在写的那段回复（边写边给网页看；写完进 timeline 后清空）
     reviews: list = field(default_factory=list)  # 审核员替你判断过的危险命令：{"allow", "what", "why", "cmd"}
+    agents: dict = field(default_factory=dict)  # 派出去的助手（子代理、后台命令）：task_id → {name, t0, t1, status, last}
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
 
 
