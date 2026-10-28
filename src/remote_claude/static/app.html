@@ -178,6 +178,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   font-size:16px;font-weight:600;display:flex;align-items:center;gap:4px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
 .fv{background:#111;touch-action:auto;flex-direction:column;justify-content:flex-start;padding-top:calc(68px + env(safe-area-inset-top))}
 .fv iframe,.fv img{flex:1;width:100%;border:0;background:#fff;max-height:none} .fv img{object-fit:contain;background:none}
+.fv .pages{flex:1;min-height:0;width:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 0 calc(24px + env(safe-area-inset-bottom))}
+.fv .pages img{display:block;width:100%;height:auto;background:#fff} .fv .pn{color:#999;font-size:13px;text-align:center;padding:6px 0 14px}
 .fv .tip{color:#ddd;font-size:16px;line-height:1.7;padding:40px 28px;text-align:center}
 .fv .sh{position:fixed;top:calc(12px + env(safe-area-inset-top));left:14px;height:44px;padding:0 16px;border-radius:22px;background:rgba(255,255,255,.16);color:#fff;font-size:16px}
 .fv .nm{position:fixed;top:calc(24px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#aaa;font-size:14px;padding:0 150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
@@ -716,7 +718,20 @@ async function viewFile(url, name) {
     const file = new File([blob], name, {type});
     u = URL.createObjectURL(file);
     const tip = el.querySelector('.tip');
+    const pdf = type === 'application/pdf' && /^\/dl\//.test(new URL(url, location.href).pathname);
     if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
+    else if (pdf) {
+      // PDF：Mac 那边转成一页页图片，竖着往下滑；点一页放大看（能左右翻页、双指放大）
+      tip.textContent = '正在把 PDF 转成图片…';
+      const d = await (await fetch(new URL(url, location.href).pathname + '/pages')).json().catch(() => ({pages: []}));
+      if (!el.isConnected) return;
+      if (d.pages && d.pages.length) {
+        const box = document.createElement('div'); box.className = 'pages';
+        box.innerHTML = d.pages.map((p, k) => `<img src="${esc(p)}" loading="${k < 2 ? 'eager' : 'lazy'}" data-k="${k}"><div class="pn">${k + 1} / ${d.pages.length}</div>`).join('');
+        box.onclick = e => { const im = e.target.closest('img'); if (im) viewImage(d.pages, +im.dataset.k); };
+        el.querySelector('.tip').replaceWith(box);
+      } else el.querySelector('.tip').outerHTML = `<iframe src="${u}"></iframe>`;
+    }
     else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
     else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
     if (navigator.canShare && navigator.canShare({files: [file]})) {

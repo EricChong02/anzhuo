@@ -561,6 +561,39 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             "Cache-Control": "private, max-age=3600",
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
+    # ---------- PDF 在手机上看：转成一页页图片（iPhone 的网页里直接放 PDF 只显示第一页、还缩不全） ----------
+    def _pdf_dir(self, request: web.Request) -> tuple[Path, Path]:
+        r = self._turn(request.match_info["tid"])
+        i = int(request.match_info["i"])
+        if not r or not 0 <= i < len(r.get("files", [])):
+            raise web.HTTPNotFound()
+        src = Path(r["files"][i])
+        if src.suffix.lower() != ".pdf" or not src.is_file():
+            raise web.HTTPNotFound()
+        return src, self.store_path.parent / "pdfpages" / f"{r['id']}-{i}"
+
+    async def _pdf_pages(self, request: web.Request) -> web.Response:
+        src, out = self._pdf_dir(request)
+        if not any(out.glob("p-*.png")):
+            out.mkdir(parents=True, exist_ok=True)
+            exe = shutil.which("pdftoppm") or str(Path.home() / ".local/bin/pdftoppm")
+            proc = await asyncio.create_subprocess_exec(exe, "-png", "-scale-to", "1400", "-l", "80", str(src), str(out / "p"),
+                                                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            try:
+                await asyncio.wait_for(proc.wait(), 120)
+            except asyncio.TimeoutError:
+                proc.kill()
+        pages = sorted(out.glob("p-*.png"), key=lambda p: int(p.stem.split("-")[-1]))
+        base = f"/dl/{request.match_info['tid']}/{request.match_info['i']}/p/"
+        return web.json_response({"pages": [base + p.name for p in pages]})
+
+    async def _pdf_page(self, request: web.Request) -> web.StreamResponse:
+        _, out = self._pdf_dir(request)
+        name = request.match_info["name"]
+        if not re.fullmatch(r"p-\d+\.png", name) or not (out / name).is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(out / name, headers={"Cache-Control": "private, max-age=86400"})
+
     # ---------- 试课预览：转给本机 CyberScope ----------
     def _moved_course(self, course: str) -> str:
         """/workspace/_drafts/<课>/course.json 已不在（课上架挪进 topics/）→ 新地址；没挪就空。"""
@@ -1165,6 +1198,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的案头，点范围外的链接会弹出带“完成”的浏览页，
         # 看完能回来；范围内的链接直接在案头窗口里打开文件，没有返回键（10-27 遇到）
         app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
+        app.router.add_get("/dl/{tid}/{i:\\d+}/pages", self._pdf_pages)
+        app.router.add_get("/dl/{tid}/{i:\\d+}/p/{name}", self._pdf_page)
         app.router.add_route("*", "/{tail:.*}", self._proxy)
         return app
 
