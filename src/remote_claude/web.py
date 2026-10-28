@@ -27,6 +27,7 @@ from . import thread, translate
 from .push import Push
 from .sessions import COMPACT
 from .cards import parse_decision
+from .sessions import NOISE
 from .commands import Cmd
 from .dingtalk import Incoming
 from .folders import display
@@ -865,7 +866,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     "plan": turn.plan,
                     "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
                                 "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
-        last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")
+        # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
+        last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not NOISE.match(it["text"] or "")), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
         recs = self._records(num)

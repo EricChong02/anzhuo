@@ -103,7 +103,7 @@ def parse_decision(text: str, loose: bool = False) -> Decision | None:
                 options.append((m.group(1), m.group(2).strip().strip("*").strip()))
         if len(options) < 2:
             return None
-        asks = [ln.strip(" *#") for ln in text.splitlines() if ln.strip().endswith(("？", "?"))]
+        asks = [ln.strip(" *#") for ln in text.splitlines() if ln.strip(" *").endswith(("？", "?"))]   # “**Q8/12：……？**”这种问句结尾带粗体符号
         rec = _RECOMMEND.search(text)
         recommend = rec.group(1) if rec and rec.group(1) in [o[0] for o in options] else None
         return Decision(_short(asks[-1] if asks else "选哪个？", 60), options[:4], recommend)
