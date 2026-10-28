@@ -264,8 +264,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 /* iPad：手拿着离得比电脑远，整页按同一比例放大，侧栏、按钮、小字一起变大 */
 /* 接了妙控键盘或触控板的 iPad 会被当成“有鼠标”，按屏幕尺寸判断不出来，所以由脚本认出 iPad 后加 ipad 标记 */
 @media (min-width:821px){
-  html.ipad{--fs:17px} html.ipad .head{padding-top:calc(16px + env(safe-area-inset-top))} html.ipad .app{grid-template-columns:calc(316px * var(--z,1.2)) 1fr}
-  html.ipad :is(.side>*,.head,.col,.composer,.quick,.jump,.amenu .box,.sheet .box,.wbar){zoom:var(--z,1.2)} html.ipad .newv h1{font-size:calc(28px * var(--z,1.2))}
+  html.ipad{--fs:17px} html.ipad .head{padding-top:calc(16px + env(safe-area-inset-top))}
 }
 @media (max-width:820px){
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
@@ -296,9 +295,15 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 <div class="notice" id="notice"></div>
 <script>
 if (/iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) { document.documentElement.classList.add('ipad');
-  // iPad 设成“更多空间”时页面变宽、字整体变小，按页面宽度补回来：标准 11 寸约 1.2 倍，13 寸“更多空间”约 1.45 倍
-  const z = () => document.documentElement.style.setProperty('--z', Math.max(1.15, Math.min(1.5, innerWidth / 1000)).toFixed(2));
-  z(); addEventListener('resize', z); }
+  // 整页放大交给浏览器：把页面宽度设窄一些，Safari 会把整页（字、按钮、输入框）按同一比例放大，不会各放各的。
+  // 13 寸横屏约放大 1.38 倍、竖屏约 1.15 倍；“更多空间”下屏幕更宽，放得也更多
+  const vp = document.querySelector('meta[name=viewport]');
+  const fit = () => {
+    const land = matchMedia('(orientation: landscape)').matches, a = screen.width, b = screen.height;
+    const dev = land ? Math.max(a, b) : Math.min(a, b), k = Math.max(1.15, Math.min(1.45, dev / 1000));
+    vp.setAttribute('content', `width=${Math.round(dev / k)},viewport-fit=cover`);
+  };
+  fit(); addEventListener('orientationchange', () => setTimeout(fit, 100)); }
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
