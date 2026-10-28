@@ -9,7 +9,7 @@
 [hidden]{display:none!important}
 :root{--bg:#fafaf9;--side:#f2f2ef;--panel:#fff;--bubble:#ececE8;--ink:#1c1c1e;--mute:#6b6b70;--line:rgba(0,0,0,.08);
   --acc:#2f6fdf;--accsoft:rgba(47,111,223,.10);--amber:#c58a06;--red:#c0392b;--green:#1f9d55;--glass:rgba(255,255,255,.78);--shadow:0 6px 24px rgba(0,0,0,.06);
-  --claude:#bf5a38;--claude-soft:rgba(217,119,87,.15);--gpt:#2c2c2e;--gpt-soft:rgba(28,28,30,.08)}
+  --claude:#bf5a38;--fs:16.5px;--claude-soft:rgba(217,119,87,.15);--gpt:#2c2c2e;--gpt-soft:rgba(28,28,30,.08)}
 @media (prefers-color-scheme:dark){:root{--bg:#161616;--side:#1b1b1b;--panel:#222;--bubble:#2b2b2b;--ink:#ececec;--mute:#9b9b9b;--line:rgba(255,255,255,.09);
   --acc:#7aa7ff;--accsoft:rgba(122,167,255,.14);--amber:#f5c04a;--red:#f08070;--green:#4ade80;--glass:rgba(34,34,34,.78);--shadow:0 6px 24px rgba(0,0,0,.3);
   --claude:#ec9a7a;--claude-soft:rgba(236,154,122,.16);--gpt:#e8e8ea;--gpt-soft:rgba(255,255,255,.12)}}
@@ -99,7 +99,15 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .you{align-self:flex-end;max-width:82%;background:var(--bubble);border-radius:20px;padding:10px 16px;white-space:pre-wrap;word-break:break-word}
 .you.pending{opacity:.55}
 .cl{line-height:1.75;word-break:break-word}
-.cl .md{white-space:pre-wrap}
+.cl .md{font-size:var(--fs);line-height:1.8;letter-spacing:.01em}
+.md>:first-child{margin-top:0} .md>:last-child{margin-bottom:0}
+.md p{margin:0 0 .75em} .md h4{font-size:1.06em;font-weight:650;margin:1.3em 0 .45em}
+.md h5{font-size:.82em;font-weight:600;color:var(--mute);letter-spacing:.06em;margin:1.35em 0 .3em}
+.md ul,.md ol{margin:0 0 .8em;padding-left:1.4em} .md li{margin:.25em 0;padding-left:.15em} .md li::marker{color:var(--mute)}
+.md b{font-weight:650} .md hr{border:0;border-top:1px solid var(--line);margin:1.2em 0}
+.md blockquote{margin:0 0 .8em;padding:.1em 0 .1em 1em;border-left:3px solid var(--line);color:var(--mute)}
+.md pre{margin:0 0 .9em;padding:12px 14px;border-radius:12px;background:var(--side);font:13.5px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
+.md .tw{overflow-x:auto;margin:0 0 .9em} .pi .pt .md,.pi.say .pt{white-space:normal} .pi.say .pt p{margin:0 0 .4em}
 .ptog{display:inline-flex;align-items:center;gap:6px;font-size:14.5px;color:var(--mute);margin-bottom:8px;padding:4px 0}
 .ptog svg{width:15px;height:15px;transition:transform .15s} .ptog.open svg{transform:rotate(90deg)}
 .plist{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.6}
@@ -119,8 +127,8 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
 .live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
-.cl .md table{border-collapse:collapse;margin:8px 0;white-space:normal;font-size:15px;display:block;overflow-x:auto}
-.cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:6px 12px 6px 0;text-align:left;vertical-align:top}
+.cl .md table{border-collapse:collapse;font-size:.92em;line-height:1.6}
+.cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:8px 16px 8px 0;text-align:left;vertical-align:top}
 .cl .md th{font-weight:600}
 .cl .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .note{align-self:center;font-size:14px;color:var(--mute)}
@@ -163,7 +171,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .jump{pointer-events:auto;margin:0 auto 8px;height:36px;padding:0 14px;border-radius:18px;
   background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);font-size:14.5px;display:none;align-items:center;gap:4px}
 .jump.on{display:inline-flex} .jump svg{width:16px;height:16px}
-.fold .md{max-height:15em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
+.fold .md{max-height:16em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
 .more{margin-top:6px;font-size:15px;color:var(--acc)}
 .fab{display:none;position:fixed;right:20px;bottom:calc(22px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--acc);color:#fff;
   box-shadow:0 8px 24px rgba(47,111,223,.35);place-items:center;z-index:5} .fab svg{width:24px;height:24px}
@@ -243,6 +251,14 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .wo small{display:block;font-size:14px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .newv .dock{position:static;padding:0}
 
+@media (min-width:821px){
+  :root{--fs:17.5px} html,body{font-size:17px} .app{grid-template-columns:320px 1fr}
+  .item .nm{font-size:16.5px} .item .st{font-size:14px} .item{padding:10px 12px}
+  .head{min-height:64px;padding:10px 24px} .head .ti b{font-size:18px} .head .ti span{font-size:14.5px}
+  .col{max-width:740px;gap:28px} .feed{padding:32px 32px calc(160px + var(--kb,0px))}
+  .you{font-size:var(--fs);line-height:1.7;padding:12px 18px} .composer{max-width:740px} .quick{max-width:740px}
+  .composer textarea{font-size:17px}
+}
 @media (max-width:820px){
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
   .app.in .side{display:none} .app:not(.in) .main{display:none} .back{display:grid}
@@ -296,7 +312,7 @@ function procHTML(list, pid) {
   return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait
     ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
     : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
-    : e.k === 'say' ? `<div class="pi say">${ICON.say}<span class="pt">${md(e.text)}</span></div>`
+    : e.k === 'say' ? `<div class="pi say">${ICON.say}<div class="pt md">${md(e.text)}</div></div>`
     : `<div class="pi do">${ICON.step}<span class="pt"><b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
@@ -378,27 +394,49 @@ const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ?
 function md(src) {
   // Codex 回复里的出处标记 :codex-file-citation{path="…"} 显示成“（出处：文件名）”
   src = String(src).replace(/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/g, (m, p) => `（出处：${p.split('/').pop()}）`);
-  const lines = esc(src).split('\n'); const out = []; let tbl = [];
+  const lines = esc(src).split('\n'); const out = [];
   const inline = t => t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, (m, t, u) => /^\/(Users|private|tmp|var|Volumes|opt)\//.test(u)
       ? `<b>${t}</b>` : `<a href="${u}" target="_blank">${t}</a>`);  // Mac 上的本机路径在手机上点不开，只留文字
-  const flush = () => {
+  // 按块排：段落、标题、列表、代码块、表格、引用；汇报里“要你做的：”这类开头单独成小标题
+  let para = [], list = null, tbl = [], code = null, quote = [];
+  const endPara = () => { if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; };
+  const endList = () => { if (list) out.push(`<${list.t}>${list.items.map(x => `<li>${inline(x)}</li>`).join('')}</${list.t}>`); list = null; };
+  const endTbl = () => {
     if (!tbl.length) return;
     const rows = tbl.filter(r => !/^\|\s*:?-{2,}/.test(r)).map(r => r.replace(/^\||\|$/g, '').split('|'));
-    out.push('<table>' + rows.map((r, i) => '<tr>' + r.map(c => `<${i ? 'td' : 'th'}>${inline(c.trim())}</${i ? 'td' : 'th'}>`).join('') + '</tr>').join('') + '</table>');
+    out.push('<div class="tw"><table>' + rows.map((r, i) => '<tr>' + r.map(c => `<${i ? 'td' : 'th'}>${inline(c.trim())}</${i ? 'td' : 'th'}>`).join('') + '</tr>').join('') + '</table></div>');
     tbl = [];
   };
+  const endQuote = () => { if (quote.length) out.push(`<blockquote>${quote.map(inline).join('<br>')}</blockquote>`); quote = []; };
+  const endAll = () => { endPara(); endList(); endTbl(); endQuote(); };
   for (const l of lines) {
-    if (/^\s*\|.*\|\s*$/.test(l)) { tbl.push(l.trim()); continue; }
-    flush();
-    if (/^\s*-{3,}\s*$/.test(l)) continue;
+    if (code) { if (/^\s*```/.test(l)) { out.push(`<pre>${code.join('\n')}</pre>`); code = null; } else code.push(l); continue; }
+    if (/^\s*```/.test(l)) { endAll(); code = []; continue; }
+    if (/^\s*\|.*\|\s*$/.test(l)) { endPara(); endList(); endQuote(); tbl.push(l.trim()); continue; }
+    endTbl();
+    if (!l.trim()) { endPara(); endQuote(); continue; }
+    if (/^\s*-{3,}\s*$/.test(l)) { endAll(); out.push('<hr>'); continue; }
     const h = l.match(/^#{1,4}\s+(.*)/);
-    out.push(h ? `<b>${inline(h[1])}</b>` : inline(l.replace(/^(\s*)[-*] /, '$1• ')));
+    if (h) { endAll(); out.push(`<h4>${inline(h[1])}</h4>`); continue; }
+    const q = l.match(/^&gt;\s?(.*)/);
+    if (q) { endPara(); endList(); quote.push(q[1]); continue; }
+    const u = l.match(/^\s*[-*•]\s+(.*)/), o = l.match(/^\s*\d+[.、)]\s+(.*)/);
+    if (u || o) {
+      endPara(); endQuote(); const t = u ? 'ul' : 'ol';
+      if (list && list.t !== t && !/^\s{2,}/.test(l)) endList();
+      if (!list) list = {t, items: []};
+      list.items.push((u || o)[1]); continue;
+    }
+    if (list && /^\s{2,}\S/.test(l)) { list.items[list.items.length - 1] += '<br>' + l.trim(); continue; }
+    const sec = l.match(/^(要你做的|要你定|做了什么|改了哪些|自查结果|截图|结论|原因|下一步)[：:]\s*(.*)$/);
+    if (sec) { endAll(); out.push(`<h5>${sec[1]}</h5>`); if (sec[2]) para.push(sec[2]); continue; }
+    endList(); endQuote(); para.push(l);
   }
-  flush();
-  return out.join('\n').replace(/\n(<table>)/g, '$1').replace(/(<\/table>)\n/g, '$1').replace(/\n{3,}/g, '\n\n').trim();
+  if (code) out.push(`<pre>${code.join('\n')}</pre>`);
+  endAll();
+  return out.join('');
 }
-
 function renderQuota() {
   // 额度：Claude 一组；用过 GPT 再加一组（各自的 5 小时 / 本周）
   const q = $('#quota'), both = limitsGpt.length && hasGpt;
@@ -542,7 +580,7 @@ async function renderSearch() {
   let d; try { d = await api('search?q=' + encodeURIComponent(q)); } catch (e) { return; }
   if (seq !== searchSeq || q !== query) return;
   const row = (r, del) => `<button class="item" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nm">${engTag(r.engine)}${hl(r.name, q)}</div>
-    <div class="st"><span class="dot"></span>${del ? (r.hidden_at ? ago(r.hidden_at) + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}<span class="ctag">${esc(r.category)}</span></div>
+    <div class="st"><span class="dot"></span>${del ? (r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}<span class="ctag">${esc(r.category)}</span></div>
     ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
   const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
   $('#list').innerHTML = `<div class="sres"></div>` + (parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
@@ -1073,7 +1111,7 @@ const FOLDER_SAY = {  // 设置里的文件夹短名 → 说人话；没列的�
   '课程根': ['folder', '做新课或别的课', '课程文件夹'],
   '平台': ['plat', '改上课平台', '教师台、学生端、小信'],
 };
-function ago(t) {
+function agoDays(t) {
   const d = Math.floor((Date.now() / 1000 - t) / 86400);
   return d < 1 ? '今天动过' : d < 2 ? '昨天动过' : `${d} 天前动过`;
 }
@@ -1083,7 +1121,7 @@ function openNew(fromPop) {
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
   const said = Object.keys(FOLDER_SAY);
   const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '看你说的话自动选地方'},
-    ...drafts.slice(0, 3).map(x => ({v: 'c:' + x.dir, ic: 'course', t: `接着做《${x.title}》`, d: ago(x.mtime)})),
+    ...drafts.slice(0, 3).map(x => ({v: 'c:' + x.dir, ic: 'course', t: `接着做《${x.title}》`, d: agoDays(x.mtime)})),
     ...said.filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1], d: FOLDER_SAY[f][2]})),
     {v: 'scratch', ic: 'chat', t: '不碰文件', d: '查资料、问问题'},
     ...folders.filter(f => !said.includes(f)).map(f => ({v: f, ic: 'folder', t: f, d: '文件夹'}))];
