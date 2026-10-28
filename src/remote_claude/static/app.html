@@ -384,7 +384,7 @@ function watchStatus() {
   document.title = n ? `(${n}) 案头` : '案头';
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
-let sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
+let stick = false, sessions = [], folders = [], drafts = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
 
 // Mac 连不上（睡着、断网、小E 在更新）时阿里云回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
 function setOffline(off) {
@@ -713,8 +713,15 @@ function openSession(num, fromPop) {
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
   const feed = $('#feed');
-  feed.onscroll = () => $('#jump').classList.toggle('on', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 500);
-  $('#jump').onclick = () => feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'});
+  // 刚点进来：一直贴着最下面（图片、在做卡片后加载撑高也跟着到底），直到你自己往上翻
+  stick = true;
+  const toEnd = () => { if (stick) feed.scrollTop = feed.scrollHeight; };
+  new ResizeObserver(toEnd).observe($('#col'));
+  feed.addEventListener('load', toEnd, true);   // 图片加载完
+  const unstick = () => { stick = false; };
+  feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
+  feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
+  $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
   wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { (pending[num] ||= []).push({text, imgs, t: Date.now()}); });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
@@ -958,7 +965,7 @@ setInterval(() => document.querySelectorAll('.tick').forEach(t => { t.textConten
 const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
-  const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
   const said = {has: t => saidList.some(x => x.startsWith(t.slice(0, 40)))};   // 记录里可能多了“（附件已存到…）”，按开头比
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
@@ -1045,7 +1052,7 @@ function renderThread(d) {
     await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
   });
   const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
-  if (fresh && lastCl) feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
+  if (fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
   else if (near) feed.scrollTop = feed.scrollHeight;
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
