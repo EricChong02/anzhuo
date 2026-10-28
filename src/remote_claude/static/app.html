@@ -262,9 +262,10 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   .composer textarea{font-size:17px}
 }
 /* iPad：手拿着离得比电脑远，整页按同一比例放大，侧栏、按钮、小字一起变大 */
-@media (min-width:821px) and (pointer:coarse){
-  :root{--fs:17px} .app{grid-template-columns:350px 1fr}
-  .side>*,.head,.col,.composer,.quick,.jump,.amenu .box,.mmenu,.wmenu,.sheet .box,.newv h1,.wbar{zoom:1.12}
+/* 接了妙控键盘或触控板的 iPad 会被当成“有鼠标”，按屏幕尺寸判断不出来，所以由脚本认出 iPad 后加 ipad 标记 */
+@media (min-width:821px){
+  html.ipad{--fs:17px} html.ipad .app{grid-template-columns:380px 1fr}
+  html.ipad :is(.side>*,.head,.col,.composer,.quick,.jump,.amenu .box,.mmenu,.wmenu,.sheet .box,.newv h1,.wbar){zoom:1.2}
 }
 @media (max-width:820px){
   .app{grid-template-columns:1fr} .side{background:var(--bg)}
@@ -294,6 +295,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 </div>
 <div class="notice" id="notice"></div>
 <script>
+if (/iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) document.documentElement.classList.add('ipad');
+
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ICON = {
