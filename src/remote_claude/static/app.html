@@ -122,6 +122,11 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .yimgs{margin:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end} .yimgs img{width:92px;height:92px;object-fit:cover;border-radius:10px;display:block}
 .qtag{display:block;margin-top:6px;font-size:14px;color:var(--mute)}
 .queue{color:var(--mute);font-size:15px;padding:0 4px}
+.plan{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg);font-size:15px}
+.plan .ah{color:var(--mute);font-size:14px;margin-bottom:4px}
+.ps{display:flex;align-items:center;gap:8px;padding:3px 0} .ps .spin{width:13px;height:13px} .ps .ok{color:var(--green);width:13px;text-align:center}
+.ps .n{width:13px;text-align:center;font-size:12.5px;color:var(--mute)} .ps.done .an{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line)}
+.ps.doing .an{font-weight:600} .ps .an{flex:1;min-width:0}
 .agents{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--bg);font-size:15px}
 .agents .ah{color:var(--mute);font-size:14px;margin-bottom:4px}
 .ag{display:flex;align-items:center;gap:8px;padding:3px 0} .ag .spin{width:13px;height:13px}
@@ -333,6 +338,13 @@ const ICON = {
 let openProc = new Set();
 // 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
 const unclamp = new Set();
+// 这件事拆成的几步：做完打勾、正在做的转圈，标题写到第几步
+function planHTML(list) {
+  if (!list.length) return '';
+  const done = list.filter(x => x.status === 'done').length;
+  return `<div class="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步</div>${list.map((x, i) =>
+    `<div class="ps ${x.status}">${x.status === 'done' ? '<span class="ok">✓</span>' : x.status === 'doing' ? '<i class="spin"></i>' : `<span class="n">${i + 1}</span>`}<span class="an">${esc(x.text)}</span></div>`).join('')}</div>`;
+}
 // 派出去的助手（子代理、后台命令）：一行一个，在跑的转圈、做完打勾
 function agentsHTML(list) {
   if (!list.length) return '';
@@ -987,7 +999,7 @@ function renderThread(d) {
       <div class="lsub">压完它还记得聊过的要点；你这时说的话会排在压缩之后，压完接着做</div></div>`;
     else h += `<div class="live"><div class="lh"><i class="spin"></i><span>在做 · <b class="tick" data-t0="${Date.now() / 1000 - (L.elapsed ?? L.minutes * 60)}">${dur(L.elapsed ?? L.minutes * 60)}</b>${L.injected ? ` · 插话 ${L.injected} 次` : ''}</span>
       <button class="stop" id="stop">${ICON.stop}停止</button></div>
-      ${agentsHTML(L.agents || [])}
+      ${planHTML(L.plan || [])}${agentsHTML(L.agents || [])}
       ${(L.process || []).length ? procHTML(L.process.slice(-14), 'live') : L.steps.length ? `<ol>${L.steps.map((x, i) => `<li><i>${first + i}</i>${esc(x)}</li>`).join('')}</ol>` : ''}</div>`;
   }
   const restQ = (d.queue || []).filter(q => !shownQ.has(q));

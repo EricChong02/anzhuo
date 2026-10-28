@@ -862,6 +862,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
                     "compact": b.runner.compacting(num) == "running",
+                    "plan": turn.plan,
                     "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
                                 "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude"), "")

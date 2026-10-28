@@ -40,6 +40,7 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
 用户已授权：活做完并自查通过后，提交、推送、上线这类收尾直接做，不要停下来问“要不要提交 / 推送 / 上线”，在报告里写明做了就行；危险命令有审核员把关，被拦下就换安全的做法，或在报告里说明。只有方案、内容上的取舍才用“要你定”问用户。
+动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__xiaoe__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
 这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
 小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
@@ -425,7 +426,19 @@ class Runner:
                 msg += f" 没收下：{', '.join(bad)}（不存在、超过 100MB 或超过 10 个）"
             return {"content": [{"type": "text", "text": msg}]}
 
-        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files])
+        @tool("update_plan", "列出或更新这件事的步骤清单，用户在手机上看进度。每次传完整清单；status 只能是 pending（没开始）、doing（正在做）、done（做完）。",
+              {"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "object", "properties": {
+                  "text": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "doing", "done"]}},
+                  "required": ["text", "status"]}}}, "required": ["steps"]})
+        async def update_plan(args):
+            turn.plan = [{"text": str(x.get("text", ""))[:60], "status": x.get("status") if x.get("status") in ("pending", "doing", "done") else "pending"}
+                         for x in (args.get("steps") or [])[:20]]
+            left = [x["text"] for x in turn.plan if x["status"] != "done"]
+            tip = f"已更新：做完 {len(turn.plan) - len(left)}/{len(turn.plan)} 步。" + (
+                f"每做完一步就马上再调一次 update_plan，把它标 done、下一步标 doing（还剩：{'、'.join(left)}）。" if left else "全部做完了。")
+            return {"content": [{"type": "text", "text": tip}]}
+
+        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan])
 
     async def _prompt(self, job: Job):
         content: list[dict] = []
@@ -451,6 +464,7 @@ class Runner:
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code", "append": APPEND},
             mcp_servers={"xiaoe": self._image_tool(turn)},
+            env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},
@@ -673,6 +687,9 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             label = "上网查：" + brief(q, 18)
             turn.steps.append(label)
             turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": q})
+        elif method == "turn/plan/updated":   # Codex 自己列的步骤清单
+            st = {"completed": "done", "inProgress": "doing", "in_progress": "doing"}
+            turn.plan = [{"text": str(x.get("step", ""))[:60], "status": st.get(x.get("status"), "pending")} for x in (prm.get("plan") or [])[:20]]
         elif method == "thread/tokenUsage/updated":
             u = prm.get("tokenUsage") or {}
             win, last = u.get("modelContextWindow"), (u.get("last") or {}).get("totalTokens")

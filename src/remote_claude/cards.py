@@ -40,6 +40,8 @@ def step_label(name: str, inp: dict) -> str | None:
         return "派助手：" + _short(inp.get("description") or "", 18)
     if name == "Skill":
         return "按流程：" + _short(inp.get("skill") or "", 18)
+    if name.endswith("update_plan"):
+        return None
     if name.endswith("send_images"):
         return "交截图"
     if name in ("ToolSearch", "ListAgents", "TaskStop"):
