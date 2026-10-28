@@ -834,9 +834,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         items = [dict(it) for it in items]
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
-        said = {re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip())[:40] for it in items if it["who"] == "you"}
+        # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
+        said = [re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()) for it in items if it["who"] == "you"]
         out = b.outgoing.get(num, [])
-        out[:] = [o for o in out if o["text"].strip()[:40] not in said]
+        out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) for x in said)]
         items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
         for it in items:
             if it["who"] == "claude":

@@ -875,7 +875,8 @@ const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a hre
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
-  const said = new Set(d.items.filter(i => i.who === 'you').map(i => i.text.trim()));
+  const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
+  const said = {has: t => saidList.some(x => x.startsWith(t.slice(0, 40)))};   // 记录里可能多了“（附件已存到…）”，按开头比
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
   (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
   const localImgs = sentImgs;
