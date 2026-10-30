@@ -1040,7 +1040,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         data = await request.json()
-        m = re.match(r"^/workspace/(_drafts|topics)/([^/]+)/course\.json$", str(data.get("course") or ""))
+        # 课可能放在专题子文件夹里：topics/bx1/data-l02/course.json，取最后一层当课名，中间的算进路径
+        m = re.match(r"^/workspace/((?:_drafts|topics)(?:/[^/]+)*?)/([^/.][^/]*)/course\.json$", str(data.get("course") or ""))
         if not m:
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
         cdir = m.group(2)
