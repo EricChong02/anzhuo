@@ -78,8 +78,8 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .error.unread .dot,.error .dot{background:var(--red);border-color:var(--red)} .error .st{color:var(--red)}
 .course svg{color:var(--acc)}
 /* 额度：一格一个数（5 小时 / 本周），数字在上、细条在下；有 GPT 时 Claude、GPT 各一列 */
-.quota{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;padding:14px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
-.quota.two{grid-template-columns:1fr 1fr} .qg{display:contents} .quota.two .qg{display:flex;flex-direction:column;gap:10px}
+.quota{padding:6px 14px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+
 .qh{font-size:var(--t1);color:var(--faint);font-weight:600;letter-spacing:.02em;margin-bottom:-4px}
 .qm{min-width:0} .ql{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t1);color:var(--mute);line-height:1.4}
 .ql b{font-size:var(--t2);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
@@ -383,6 +383,28 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .rewind-dialog .rewind-error{font-size:14px;color:var(--red);line-height:1.5;margin-top:14px}
 @media(min-width:601px){.rewind-dialog{align-items:center}}
 @media(max-width:600px){.rewind-dialog .box{padding:22px 20px}}
+
+.quota-summary{display:flex;align-items:center;gap:10px;min-height:44px;width:100%;text-align:left;white-space:nowrap;font-size:var(--t1);border-radius:8px}
+.quota-summary:focus-visible{outline:2px solid var(--acc)}
+.quota-caption{color:var(--mute)} .quota-week{display:flex;align-items:baseline;gap:5px;color:var(--mute)}
+.quota-week b{font-size:var(--t2);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.quota-summary>svg{width:14px;height:14px;color:var(--mute);margin-left:auto}
+.quota-week b.hot,.quota-detail-top b.hot{color:var(--amber)}
+.quota-week b.critical,.quota-detail-top b.critical{color:var(--red)}
+.quota-dialog .box{width:min(400px,100%);padding:22px;max-height:calc(100dvh - 40px);overflow:auto}
+.quota-detail-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:16px}
+.quota-detail-head h2{font-size:20px;font-weight:600;margin:0;line-height:1.4}
+.quota-dialog .quota-close{display:grid;place-items:center;width:32px;height:32px;padding:0;background:var(--bg);border-radius:50%;flex:none}
+.quota-close svg{width:16px;height:16px}
+.quota-detail-group+ .quota-detail-group{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.quota-detail-group h3{font-size:16px;font-weight:600;margin:0 0 14px}
+.quota-detail-row+.quota-detail-row{margin-top:18px}
+.quota-detail-row.hot .qb i{background:var(--amber)} .quota-detail-row.critical .qb i{background:var(--red)}
+.quota-detail-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:14px;color:var(--mute)}
+.quota-detail-top b{font-weight:550;color:var(--ink);font-variant-numeric:tabular-nums}
+.quota-reset{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;margin-top:8px;font-size:13px;line-height:1.5;color:var(--ink)}
+.quota-reset span+span{color:var(--mute)}
+@media(min-width:601px){.quota-dialog{align-items:center}}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
@@ -586,14 +608,50 @@ function qcell(l, hot = 80) {
   return `<div class="qm ${h ? 'hot' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
     <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${l.reset ? `<div class="qr">${esc(l.reset)} 重置</div>` : ''}</div>`;
 }
+function quotaGroups() {
+  return [['Claude', limits], ...(limitsGpt.length && hasGpt ? [['Codex', limitsGpt]] : [])].filter(([, ls]) => ls.length);
+}
+function quotaReset(l, now = Date.now()) {
+  const at = l.reset_at == null ? NaN : Number(l.reset_at) * 1000;
+  if (!Number.isFinite(at)) return {relative: l.reset ? '重置时间' : '暂未提供重置时间', absolute: l.reset || ''};
+  const mins = Math.ceil((at - now) / 60000);
+  let relative = '等待额度刷新';
+  if (mins > 0) {
+    const days = Math.floor(mins / 1440), hours = Math.floor(mins % 1440 / 60), minutes = mins % 60;
+    relative = (days ? `${days} 天${hours ? ` ${hours} 小时` : ''}` : hours ? `${hours} 小时${minutes ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`) + '后重置';
+  }
+  const d = new Date(at), today = new Date(now), tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const sameDay = x => d.toDateString() === x.toDateString();
+  const day = sameDay(today) ? '今天' : sameDay(tomorrow) ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`;
+  const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return {relative, absolute: `${day} ${clock}`};
+}
+function renderQuotaDetails() {
+  const el = $('#quotaDetailBody'); if (!el) return;
+  el.innerHTML = quotaGroups().map(([who, ls]) => `<section class="quota-detail-group"><h3>${who}</h3>${ls.map(l => {
+    const when = quotaReset(l);
+    return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
+      <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
+      <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div></div>`;
+  }).join('')}</section>`).join('');
+}
+function openQuotaDetails() {
+  if ($('#quotaDetailBody')) return;
+  const el = sheet(`<div class="quota-detail-head"><h2 id="quotaTitle">额度用量</h2><button class="quota-close" aria-label="关闭">${ICON.close || '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'}</button></div><div id="quotaDetailBody"></div>`);
+  el.classList.add('quota-dialog');
+  const panel = el.querySelector('.box'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', 'quotaTitle');
+  el.querySelector('.quota-close').onclick = () => el.remove();
+  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
+  renderQuotaDetails(); el.querySelector('.quota-close').focus();
+}
 function renderQuota() {
-  // 额度：Claude 一组；用过 GPT 再加一组。过八成的那格变琥珀色，并写上几点重置
-  const q = $('#quota'), both = limitsGpt.length && hasGpt;
-  q.hidden = !limits.length && !both;
-  const cell = l => qcell(l);
-  const group = (who, ls) => `<div class="qg">${who ? `<div class="qh">${who}</div>` : ''}${ls.map(cell).join('')}</div>`;
-  q.innerHTML = both ? group('Claude', limits) + group('GPT', limitsGpt) : group('', limits);
-  q.classList.toggle('two', !!both);
+  const q = $('#quota'), groups = quotaGroups(); q.hidden = !groups.length;
+  q.innerHTML = groups.length ? `<button class="quota-summary" aria-label="本周已用额度，点击查看详情"><span class="quota-caption">周已用</span>${groups.map(([who, ls]) => {
+    const week = ls.find(l => l.name === '本周');
+    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
+  }).join('')}${ICON.chev}</button>` : '';
+  const button = q.querySelector('button'); if (button) button.onclick = openQuotaDetails;
+  renderQuotaDetails();
 }
 
 function renderUsage(u) {

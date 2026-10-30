@@ -233,7 +233,7 @@ def test_chat_api(tmp_path, monkeypatch):
             d = await (await c.get("/_x/api/sessions")).json()
             assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
-            assert d["limits"] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
+            assert [{k: v for k, v in l.items() if k != "reset_at"} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "案头" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
@@ -701,3 +701,14 @@ def test_codex_file_rewind_and_cancel_through_api(tmp_path):
         result = json.loads((await w._api_rewind(await request({"to": "1-100", "files": True}))).text)
         assert not result["ok"] and f.read_text() == "第二轮" and not s.rewind_at
     asyncio.run(go())
+
+
+def test_quota_reset_epoch_is_absolute(monkeypatch):
+    import datetime
+    import remote_claude.web as webmod
+    now = datetime.datetime(2026, 12, 31, 23, 0).timestamp()
+    monkeypatch.setattr(webmod.time, "time", lambda: now)
+    rows = Web._limits({"seven_day": (.99, "1月1日 04:00"), "five_hour": (.3, "12月31日 22:00"), "unknown": (.1, None)})
+    assert rows[0]["reset_at"] == datetime.datetime(2027, 1, 1, 4).timestamp()
+    assert rows[1]["reset_at"] < now  # 已过期的时间不能被误认成明年
+    assert rows[2]["reset_at"] is None

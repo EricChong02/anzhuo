@@ -807,7 +807,22 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     @staticmethod
     def _limits(d: dict) -> list[dict]:
-        return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or ""} for k, (u, r) in d.items()]
+        def epoch(text):
+            m = re.fullmatch(r"(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})", text or "")
+            if not m:
+                return None
+            now = time.time()
+            year = time.localtime(now).tm_year
+            candidates = []
+            for y in (year - 1, year, year + 1):
+                try:
+                    from datetime import datetime
+                    date = datetime(y, *map(int, m.groups()))
+                    candidates.append(date.timestamp())
+                except ValueError:
+                    pass
+            return min(candidates, key=lambda t: abs(t - now)) if candidates else None
+        return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or "", "reset_at": epoch(r)} for k, (u, r) in d.items()]
 
     async def _api_manage(self, request: web.Request) -> web.Response:
         """列表里长按一条对话：置顶 / 取消置顶、改名、归类、删除（收起）、找回。"""
