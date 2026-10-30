@@ -72,6 +72,26 @@ def category(s, folders: dict) -> str:
         return "平台"
     return "杂事"
 
+def display_model(model_id: str) -> str:
+    """统一网页名称，保留未知型号；兼容早先保存的 GPT（实际型号）。"""
+    wrapped = re.fullmatch(r"GPT[（(](.*)[）)]", model_id or "")
+    mid = wrapped[1] if wrapped else model_id or ""
+    if mid in ("Codex", "GPT", "gpt"):
+        return "Codex"  # 没有型号证据时不编版本
+    if mid.startswith("claude-"):
+        label = model_name(mid)
+        return "Claude " + label if label != mid else mid
+    if mid.lower().startswith("gpt-"):
+        return "GPT-" + mid[4:].replace("-", " ").title()
+    return mid
+
+
+def model_options() -> list[list[str]]:
+    from .app import MODELS
+    from .codex import configured_model
+    return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku")] + [
+        ["gpt", display_model(configured_model()) or "Codex"]]
+
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
                "/api/ping", "/api/logs", "/api/fault")
@@ -643,7 +663,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
-                            "model": r.get("model", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
+                            "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
@@ -750,7 +770,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         return web.json_response({"sessions": rows, "drafts": self._drafts(), "courses": await self._course_cards(rows),
-                                  "folders": list(b.cfg.folders), "current": b.registry.current,
+                                  "folders": list(b.cfg.folders), "current": b.registry.current, "models": model_options(),
                                   "limits": self._limits(b.runner.limits),
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible())})
@@ -876,7 +896,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if s.rewind_at:   # 点过“回到这里”：那条之后的先收起来，下一句从那里接着；还没说下一句前能撤销
             cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
             if cut is not None:
-                items = items[:cut + 1] + [{"who": "note", "rewind": True, "text": s.rewind_note or "已回到这里"}]
+                items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
         items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
         for it in items:
             if it["who"] == "claude":
@@ -912,8 +932,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         mid = (turn.model if turn and turn.model else "") or (recs[-1].get("model") if recs else "") or s.model or ""
         eff = s.effort or b.runner.default_effort
         pick = s.model or mid
-        usage = {"model": (mid if mid.startswith("GPT") else "GPT（Codex）") if s.engine == "codex" else model_name(mid) if mid else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
-                 "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick), ""),
+        # 选择器展示接下来要用的型号；历史轮次仍保留那轮的实际型号。
+        selected = mid if s.engine == "codex" else s.model or mid
+        if s.engine == "codex" and display_model(selected) in ("", "Codex"):
+            selected = dict(model_options())["gpt"]
+        for item in items:
+            if item.get("model"):
+                item["model_label"] = display_model(item["model"])
+                item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
+        usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
+                 "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
@@ -1191,6 +1219,33 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             self.watch.pop(num, None) if num else self.watch.clear()
         return web.json_response({"ok": True})
 
+    async def _api_fork(self, request: web.Request) -> web.Response:
+        """分叉：从某条回复（或你某句话之前）另开一个对话，带着到那里为止的来龙去脉，原对话不动。
+        {"to": 那条回复的记录编号}；空 = 从头另开（你第一句话之前，什么都不带）。文件不复制，两边改的是同一个文件夹。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        b = self.bridge
+        p = b.registry.get(int(request.match_info["num"]))
+        if not p:
+            raise web.HTTPNotFound()
+        if p.engine == "codex":
+            return web.json_response({"ok": False, "error": "GPT 对话还不能分叉"})
+        to = str((await request.json()).get("to") or "")
+        if to:
+            if not p.claude_id:
+                return web.json_response({"ok": False, "error": "这个对话还没有记录"})
+            items = thread.history(await asyncio.to_thread(thread.full_messages, p.claude_id, p.cwd), limit=100000)
+            if not any(it.get("end") == to for it in items):
+                return web.json_response({"ok": False, "error": "找不到那条回复了（可能在压缩之前）"})
+        now = time.time()
+        s = Session(num=b.registry.reserve_num(), name=(p.name[:8] + "·分叉"), cwd=p.cwd, add_dirs=list(p.add_dirs),
+                    claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
+                    worked=p.worked, seen=now, updated=now, fork_from=p.num, forking=bool(to), rewind_at=to,
+                    rewind_note=f"从 #{p.num}「{p.name}」分出来：到这里为止的都带着，接着说就从这里另走一条路，原对话不动；文件没复制，两边改的是同一个文件夹")
+        b.registry.add(s)
+        b.record("你（网页）", "分叉", num=s.num)
+        return web.json_response({"ok": True, "num": s.num, "name": s.name})
+
     async def _api_rewind(self, request: web.Request) -> web.Response:
         """回到某条回复：之后的对话收起，下一句从那条接着说；可选把之后改过的文件也退回去。
         {"to": 那条回复的记录编号, "files": 要不要退文件} 或 {"cancel": true} 撤销（还没说下一句前）。
@@ -1203,6 +1258,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             raise web.HTTPNotFound()
         data = await request.json()
         if data.get("cancel"):
+            if s.forking:
+                return web.json_response({"ok": False, "error": "分叉出来的对话不能撤销，不要了就删掉它"})
             s.rewind_at = s.rewind_note = ""
             b.registry.save()
             return web.json_response({"ok": True})
@@ -1391,6 +1448,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
+        app.router.add_post(f"{PREFIX}/api/fork/{{num:\\d+}}", self._api_fork)
         app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
         app.router.add_post(f"{PREFIX}/api/presence", self._api_presence)
         app.router.add_get(f"{PREFIX}/api/course", self._api_course)

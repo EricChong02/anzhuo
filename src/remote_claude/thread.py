@@ -175,6 +175,7 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
     else:
         pairs = list(zip(reversed(replies), reversed(records)))
     for it, rec in pairs:
+        it["model"], it["effort"] = rec.get("model", ""), rec.get("effort", "")
         it["tid"] = rec["id"]
         it["previews"] = rec.get("previews", [])
         it["title"] = rec.get("title", "")

@@ -567,7 +567,7 @@ function renderQuota() {
   q.hidden = !limits.length && !both;
   const cell = l => qcell(l);
   const group = (who, ls) => `<div class="qg">${who ? `<div class="qh">${who}</div>` : ''}${ls.map(cell).join('')}</div>`;
-  q.innerHTML = both ? group('CLAUDE', limits) + group('GPT', limitsGpt) : group('', limits);
+  q.innerHTML = both ? group('CLAUDE', limits) + group('Codex', limitsGpt) : group('', limits);
   q.classList.toggle('two', !!both);
 }
 
@@ -576,10 +576,10 @@ function renderUsage(u) {
   const ctxWarn = u.context != null && u.context >= 70;
   const ls = u.mkey === 'gpt' ? limitsGpt : limits;
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
-  const label = hotL ? `${u.mkey === 'gpt' ? 'GPT ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
+  const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
     + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
-      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'CLAUDE'} 额度</div>${ls.map(l => qcell(l)).join('')}
+      <div class="qh">${u.mkey === 'gpt' ? 'Codex' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
       ${ctxWarn ? '<div class="w">过七成了：到九成多（约 37 万 token）它会自动压缩，换件新事最好开个新对话</div>' : ''}
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
@@ -594,7 +594,7 @@ function renderUsage(u) {
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
-const engTag = e => e === 'codex' ? '<span class="eng" title="用 ChatGPT 的 Codex 做的">GPT</span>' : '';
+const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
 // 侧栏顶上的“课”：最近动过的几门课，哪个对话在做、做到哪了；点卡片进对话（没有就新开一个接着做），右边 ▶ 直接试课
 // 没在改时说这门课走到哪了：草稿 / 上架了但学生看不到 / 已发布；发布后又改过就提醒还没发布
 const stageText = c => c.stage === 'draft' ? '草稿' : c.stage === 'hidden' ? '已上架 · 学生看不到' : c.dirty ? '有改动没发布' : c.stage === 'published' ? '已发布' : '';
@@ -724,7 +724,7 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; renderSide(); renderQuota(); headStatus(); watchStatus(); }
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
@@ -736,28 +736,28 @@ function composerHTML(ph) {
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
-const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
+let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['gpt', 'Codex']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
 function renderModel(st, onPick, isNew) {
   const el = $('#mpw'); if (!el) return;
   mpRedraw = () => renderModel(st, onPick, isNew);
-  const GPT = ['gpt', 'GPT'];
-  const mname = st.model === 'auto' ? '自动' : ([...MODEL_OPTS, GPT].find(m => m[0] === st.model) || [, '默认'])[1];
-  const models = isNew ? [['auto', '自动'], ...MODEL_OPTS, GPT]
-    : st.model === 'gpt' ? [GPT] : MODEL_OPTS;
+  const mname = st.model === 'auto' ? '自动' : st.label || (modelOpts.find(m => m[0] === st.model) || [, '默认'])[1];
+  const models = isNew ? [['auto', '自动'], ...modelOpts]
+    : st.model === 'gpt' ? [['gpt', mname]] : modelOpts.filter(m => m[0] !== 'gpt');
+  if (!isNew && !models.some(m => m[0] === st.model)) models.push([st.model, mname]);
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
       ${models.map(([k, t]) =>
-        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b></span>${ok}</button>`).join('')}
+        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${esc(k === st.model ? mname : t)}</b></span>${ok}</button>`).join('')}
       <div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div>
       </div>` : '');
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
     e.stopPropagation();
-    if (b.dataset.m) { st.model = b.dataset.m; mpOpen = false; } else st.effort = b.dataset.e;
+    if (b.dataset.m) { st.model = b.dataset.m; delete st.label; mpOpen = false; } else st.effort = b.dataset.e;
     onPick(st); renderModel(st, onPick, isNew);
   });
 }
@@ -1183,7 +1183,7 @@ function renderThread(d) {
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
   const lastPrev = last && previewLink(last.previews[0][0], last.previews[0][1], last, d);
   renderUsage(d.usage);
-  if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
+  if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(lastPrev.url)}" target="_blank" title="${esc(lastPrev.title)}">${ICON.play}<span>试课</span></a>` : '';
   $('#ta').placeholder = d.live && d.live.compact ? '说点什么（压完接着做）' : d.live ? '插话：它手上这步做完就看到' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
@@ -1256,6 +1256,7 @@ function replyMenu(d, i) {
   const it = d.items[i], laterN = d.items.slice(i + 1).filter(x => x.who === 'you').length;
   const can = d.engine !== 'codex' && it.end && laterN;
   const el = sheet(`<div class="t">这条回复</div>
+    ${it.model_label ? `<div class="t">${esc(it.model_label)}${it.effort_label ? ` · ${esc(it.effort_label)}` : ''}</div>` : ''}
     <button data-a="copy"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制</button>
     ${can ? `<button data-a="rw"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>回到这里<span class="v">之后 ${laterN} 轮收起</span></button>` : ''}
     ${!can && d.engine === 'codex' && laterN ? '<div class="t">GPT 对话还不能回到某条回复</div>' : ''}`);

@@ -508,3 +508,21 @@ def test_manage_and_search(tmp_path):
             await c.close()
 
     asyncio.run(go())
+
+
+def test_model_names_follow_configuration(tmp_path, monkeypatch):
+    from remote_claude.web import display_model, model_options
+    from remote_claude.app import MODELS
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "config.toml").write_text('model = "gpt-6.1-sol"\n')
+    monkeypatch.setitem(MODELS, "opus", "claude-opus-7-2")
+    opts = dict(model_options())
+    assert opts["opus"] == "Claude Opus 7.2"
+    assert opts["gpt"] == "GPT-6.1 Sol"
+    assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
+    assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
+    assert display_model("unknown-version") == "unknown-version"
+    (tmp_path / "config.toml").write_text("bad = [")
+    assert dict(model_options())["gpt"] == "Codex"
+    (tmp_path / "config.toml").unlink()
+    assert dict(model_options())["gpt"] == "Codex"

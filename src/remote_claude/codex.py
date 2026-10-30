@@ -5,12 +5,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import tomllib
 from pathlib import Path
 from typing import Awaitable, Callable
 
 log = logging.getLogger(__name__)
 
 CODEX = Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")
+
+
+def configured_model() -> str:
+    """新会话未指定模型时，Codex 使用本机配置；只读取模型字段。"""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+    try:
+        model = tomllib.loads((home / "config.toml").read_text()).get("model")
+        return model if isinstance(model, str) else ""
+    except (OSError, ValueError):
+        return ""
 
 
 class CodexError(RuntimeError):
