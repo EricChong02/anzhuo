@@ -64,7 +64,7 @@ scripts/install_launchd.sh                # 开机自启并立即运行；改了
 
 动手做过事的报告末尾带两种链接：“完整过程”（这一轮每一步说了什么、跑了什么命令、改了哪些文件、截图）和“试课：<课名>”（改到课程根里的课时，直接打开那节课的全屏预览）。在钉钉发“网页”看网址；首页列着在做的草稿课（一点就试课）和最近 40 轮。
 
-- 链路：小E 在本机 `127.0.0.1:8765` 开网页 → `scripts/install_tunnel.sh` 装的 SSH 反向隧道接到阿里云 `127.0.0.1:18765` → 阿里云 nginx 的 `xiaoe.ericlab.cn` 转过去。Mac 不开放任何端口。
+- 链路：小E 在本机 `127.0.0.1:8765` 开网页 → `scripts/install_tunnel.sh` 装的 SSH 反向隧道接到阿里云 `127.0.0.1:18765` → 阿里云 nginx 的 `xiaoe.ericlab.cn` 转过去。Mac 不开放任何端口。网络断过一下时服务器常还留着旧隧道占着 18765，新隧道连不上、网页一直转圈；所以每次连接前 `scripts/tunnel.sh` 先清掉它（日志里记“清掉服务器上占着 18765 的旧隧道”）。改了这两个脚本，运行一次 `scripts/install_tunnel.sh` 生效。
 - 登录：固定网址 https://xiaoe.ericlab.cn ，账号密码登录（2026-10-25 庄毅定，不要一次性链接），一次登录这台设备 30 天免登录。账号在配置 `web_user`，密码只把 PBKDF2 指纹存钥匙串 `remote-claude.web`（`scripts/set_web_password.py` 设置/修改）。同一来源连错 5 次锁 15 分钟，所有来源一小时内错 30 次全体锁一小时。没登录什么都看不到。
 - 试课预览只转本机 CyberScope（`preview_upstream`，默认老师自己的 8000）的预览页、静态文件和预览用的几个接口（判题、草稿课列表、提词、参考答案）；教师台、学生数据、WebSocket 一律不转（`web.py` 的 `preview_allowed`）。提词和参考答案后端要教师登录，外网打开时这两样不可用。
 - 配置：`web_base`（外网地址，不填就不发链接）、`web_port`、`preview_upstream`、`preview_root`（8000 的 `/workspace/` 对应的课程根）。

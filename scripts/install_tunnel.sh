@@ -1,7 +1,8 @@
 #!/bin/zsh
 # 把小E 网页（本机 127.0.0.1:8765）经 SSH 反向隧道接到阿里云 127.0.0.1:18765，由那边的 nginx 挂到 https://xiaoe.ericlab.cn。
-# 开机自启、断了自动重连。用 ~/.ssh/config 里的 ericlab-aliyun（免密钥匙）。重复运行即重启隧道。
+# 开机自启、断了自动重连；每次连接前先清掉服务器上残留的旧隧道（见 tunnel.sh）。用 ~/.ssh/config 里的 ericlab-aliyun（免密钥匙）。重复运行即重启隧道。
 set -eu
+DIR=${0:A:h}
 LABEL=com.zhuangyi.remote-claude.tunnel
 PLIST=~/Library/LaunchAgents/$LABEL.plist
 LOG=~/Library/Logs/remote-claude
@@ -12,13 +13,7 @@ cat > "$PLIST" <<PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/ssh</string><string>-N</string>
-    <string>-o</string><string>BatchMode=yes</string>
-    <string>-o</string><string>ExitOnForwardFailure=yes</string>
-    <string>-o</string><string>ServerAliveInterval=30</string>
-    <string>-o</string><string>ServerAliveCountMax=3</string>
-    <string>-R</string><string>127.0.0.1:18765:127.0.0.1:8765</string>
-    <string>ericlab-aliyun</string>
+    <string>/bin/zsh</string><string>$DIR/tunnel.sh</string>
   </array>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><true/>
