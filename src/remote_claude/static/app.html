@@ -367,6 +367,22 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   .live ol li:nth-last-child(n+4){display:none}
   .dock{padding:24px 10px calc(10px + env(safe-area-inset-bottom))}
 }
+
+.course-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:44px;padding:8px 12px;color:var(--mute);font-size:var(--t2);text-align:left}
+.course-toggle svg{width:16px;height:16px;transition:transform .15s}
+.course-toggle[aria-expanded="true"] svg{transform:rotate(90deg)}
+.course-toggle:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;border-radius:8px}
+.rewind-dialog .box{max-height:calc(100dvh - 40px);overflow:auto;width:min(400px,100%);padding:24px;border-radius:20px}
+.rewind-dialog h2{font-size:20px;font-weight:600;line-height:1.4;margin:0 0 10px;color:var(--ink)}
+.rewind-dialog .rewind-summary{font-size:15px;line-height:1.65;color:var(--mute);margin:0 0 20px}
+.rewind-option{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:15px;cursor:pointer}
+.rewind-option input{padding:0;width:20px;height:20px;margin:0;accent-color:var(--acc);flex:none}
+.rewind-dialog .rewind-actions{display:flex;gap:10px;margin-top:22px}
+.rewind-dialog .rewind-actions button{display:flex;justify-content:center;align-items:center;flex:1;width:auto;height:44px;min-height:44px;margin:0;padding:10px 14px;font-size:15px;border-radius:10px;background:var(--bg)}
+.rewind-dialog .rewind-actions button.on{background:var(--acc);color:var(--on-acc);font-weight:550}
+.rewind-dialog .rewind-error{font-size:14px;color:var(--red);line-height:1.5;margin-top:14px}
+@media(min-width:601px){.rewind-dialog{align-items:center}}
+@media(max-width:600px){.rewind-dialog .box{padding:22px 20px}}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
@@ -609,12 +625,16 @@ const stageText = c => c.stage === 'draft' ? '草稿' : c.stage === 'hidden' ? '
 const courseState = c => c.num && (c.status === 'running' || c.status === 'queued') ? `#${c.num} 在改 · ${(c.detail || '').replace(/^在做 · /, '')}`
   : c.num && c.status === 'awaiting' ? `#${c.num} 等你定` : c.num && c.status === 'paused' ? `#${c.num} ${c.detail}`
   : [stageText(c), agoDays(c.mtime).replace('动过', '改过')].filter(Boolean).join(' · ');
+let coursesFolded = false;
+try { coursesFolded = localStorage.getItem('coursesFolded') === '1'; } catch (e) {}
 function renderCourses() {
   const cs = courses.slice(0, query ? 0 : 3);
-  $('#courses').innerHTML = cs.length ? '<div class="label">课</div>' + cs.map(c =>
+  $('#courses').innerHTML = cs.length ? `<button class="course-toggle" aria-expanded="${!coursesFolded}" aria-controls="courseCards"><span>课</span>${ICON.chev}</button><div id="courseCards" ${coursesFolded ? 'hidden' : ''}>` + cs.map(c =>
     `<div class="ccard ${c.status || 'none'} ${c.dirty && !['running', 'queued', 'awaiting'].includes(c.status) ? 'dirty' : ''}"><button class="cgo" data-n="${c.num || ''}" data-d="${esc(c.dir)}">
       <span class="tx"><div class="nm">${esc(c.title)}</div><div class="st"><span class="dot"></span>${esc(courseState(c))}</div></span></button>
-      <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('') : '';
+      <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('') + '</div>' : '';
+  const toggle = $('#courses .course-toggle');
+  if (toggle) toggle.onclick = () => { coursesFolded = !coursesFolded; try { localStorage.setItem('coursesFolded', coursesFolded ? '1' : '0'); } catch (e) {} renderCourses(); };
   document.querySelectorAll('.cgo').forEach(b => b.onclick = () => b.dataset.n ? openSession(+b.dataset.n) : openNew(false, 'c:' + b.dataset.d));
 }
 function renderSide() {
@@ -1181,7 +1201,7 @@ function renderThread(d) {
       if (act === 'copy') copyBtn(b, it.text); else forkAt(d, it.end, '');
     }
   });
-  document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; await api('rewind/' + d.num, {cancel: true}).catch(() => {}); lastKey = ''; loadThread(); loadSessions(); });
+  document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
   const me = sessions.find(x => x.num === d.num) || {};
@@ -1266,16 +1286,21 @@ async function unqueue(num) {
 function rewindSheet(d, to, undoLast) {
   const k = d.items.findIndex(i => i.who === 'claude' && i.end === to); if (k < 0) return toast('回不去了（在压缩之前）');
   const n = d.items.slice(k + 1).filter(i => i.who === 'you').length;
-  const el = sheet(`<div class="t">${undoLast ? '回退到这句之前' : '回到这条回复'}</div>
-    <div class="rwbody">${undoLast ? `这句${n > 1 ? `和之后 ${n - 1} 轮` : ''}收起，放回输入框` : `之后 ${n} 轮收起`}${d.live ? '，正在做的会停下' : ''}
-    ${d.engine === 'codex' ? '<div class="t">仅回退聊天，文件保持现状</div>' : '<label class="rwfile"><input type="checkbox" id="rwf"><span>改过的文件也退回</span></label>'}</div>
-    <button class="on" id="rwok">${undoLast ? '回退' : '回到这里'}</button><button id="rwno">取消</button>`);
+  const el = sheet(`<h2 id="rewindTitle">${undoLast ? '回退到这句之前？' : '回到这条回复？'}</h2>
+    <p class="rewind-summary">${undoLast ? `收起这句${n > 1 ? `及之后 ${n - 1} 轮对话` : ''}，原话放回输入框。` : `收起之后 ${n} 轮对话，从这里继续。`}${d.live ? '正在进行的任务会先停止。' : ''}</p>
+    <label class="rewind-option"><span>同时恢复文件</span><input type="checkbox" id="rwf"></label>
+    <div class="rewind-error" id="rewindError" role="alert" hidden></div>
+    <div class="rewind-actions"><button id="rwno">取消</button><button class="on" id="rwok">确认回退</button></div>`);
+  el.classList.add('rewind-dialog');
+  const panel = el.querySelector('.box'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', 'rewindTitle');
+  const escape = e => { if (e.key === 'Escape' && !el.querySelector('#rwok').disabled) el.remove(); };
+  el.addEventListener('keydown', escape); el.querySelector('#rwno').focus();
   el.querySelector('#rwno').onclick = () => el.remove();
   el.querySelector('#rwok').onclick = async () => {
-    const b = el.querySelector('#rwok'); b.disabled = true; b.innerHTML = '<i class="spin"></i>' + (d.live ? '先停下再回去…' : '正在回去…');
+    const b = el.querySelector('#rwok'); b.disabled = true; el.querySelector('#rwno').disabled = true; el.onclick = e => e.stopPropagation(); b.innerHTML = '<i class="spin"></i>' + (d.live ? '先停下再回去…' : '正在回去…');
     const r = await api('rewind/' + d.num, {to, files: !!el.querySelector('#rwf')?.checked}).catch(() => null);
+    if (!r || !r.ok) { const err = el.querySelector('#rewindError'); err.hidden = false; err.textContent = (r && r.error) || '没回去，再试一次'; b.disabled = false; el.querySelector('#rwno').disabled = false; b.textContent = '确认回退'; return; }
     el.remove();
-    if (!r || !r.ok) return toast((r && r.error) || '没回去，再试一次');
     pending[d.num] = [];
     if (undoLast && r.text) { const ta = $('#ta'); if (ta) { ta.value = r.text.replace(/\n\n（附件已存到[\s\S]*$/, ''); ta.oninput(); } }
     lastKey = ''; loadThread(); loadSessions();

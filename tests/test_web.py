@@ -659,3 +659,45 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
         assert restored.codex_id == "new-branch" and restored.codex_hidden == ["1-200"]
         assert not restored.codex_pending_hidden and not restored.rewind_at
     asyncio.run(go())
+
+
+def test_codex_file_rewind_and_cancel_through_api(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from remote_claude.checkpoints import Checkpoints
+    from remote_claude.sessions import Registry, Session
+    async def go():
+        work = tmp_path / "work"; work.mkdir()
+        data = tmp_path / "data"; data.mkdir()
+        registry = Registry(data / "sessions.json")
+        s = registry.add(Session(num=registry.reserve_num(), name="课", cwd=str(work), engine="codex", codex_id="native"))
+        runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
+        w = Web("http://x", 0, data)
+        w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        f = work / "课件.txt"; f.write_text("第一轮")
+        store = Checkpoints(data / "checkpoints")
+        before = store.capture([str(work)])
+        w.save_turn(s.label, Turn(started=100, ended=110, request="第一问", final_text="第一答", codex_turn_id="t1"), str(work), "测试")
+        f.write_text("第二轮")
+        after = store.capture([str(work)])
+        w.save_turn(s.label, Turn(started=200, ended=210, request="第二问", final_text="第二答", codex_turn_id="t2",
+                    checkpoint_before=before, checkpoint_after=after), str(work), "测试")
+        async def request(data):
+            async def read(): return data
+            return NS(headers={}, match_info={"num": "1"}, json=read)
+        result = json.loads((await w._api_rewind(await request({"to": "1-100", "files": True}))).text)
+        assert result["ok"] and f.read_text() == "第一轮" and s.codex_file_undo
+        # 撤销时有后续人工修改，不能把人工编辑覆盖。
+        f.write_text("人工修改")
+        result = json.loads((await w._api_rewind(await request({"cancel": True}))).text)
+        assert not result["ok"] and f.read_text() == "人工修改" and s.rewind_at
+        f.write_text("第一轮")
+        result = json.loads((await w._api_rewind(await request({"cancel": True}))).text)
+        assert result["ok"] and f.read_text() == "第二轮" and not s.rewind_at and not s.codex_file_undo
+        assert len(w._records(1)) == 2
+        # 同目录另一个对话忙时，拒绝文件恢复。
+        other = registry.add(Session(num=registry.reserve_num(), name="另一个", cwd=str(work), engine="codex"))
+        runner.busy = lambda n: n == other.num
+        result = json.loads((await w._api_rewind(await request({"to": "1-100", "files": True}))).text)
+        assert not result["ok"] and f.read_text() == "第二轮" and not s.rewind_at
+    asyncio.run(go())

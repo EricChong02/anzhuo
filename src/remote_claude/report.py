@@ -13,6 +13,8 @@ MAX_LEN = 3500  # 钉钉 Markdown 单条留足余量；超出拆成几条
 @dataclass
 class Turn:
     started: float
+    checkpoint_before: str = ""
+    checkpoint_after: str = ""
     codex_turn_id: str = ""
     request: str = ""  # 这一轮你说的话的开头，做标题
     ended: float = 0.0

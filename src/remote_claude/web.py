@@ -191,6 +191,7 @@ class Web:
         self.push = Push(data_dir / "push.json", self.base or "https://localhost", mirror=watch_host)
         self.store = self._load()
         self._client: aiohttp.ClientSession | None = None
+        self._rewind_lock = asyncio.Lock()
         self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
         self._zh_path = data_dir / "translations.json"
@@ -399,7 +400,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 dest.append(src)
         rec = {
             "id": tid, "label": label, "title": title, "request": turn.request, "cwd": cwd,
-            "started": turn.started, "ended": turn.ended, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
+            "started": turn.started, "ended": turn.ended, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "previews": course_previews(files, self.preview_root), "translated": turn.translated,
@@ -691,7 +692,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
-                            "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
+                            "checkpoint_before": r.get("checkpoint_before", ""), "checkpoint_after": r.get("checkpoint_after", ""), "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
@@ -1301,6 +1302,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"ok": True, "num": s.num, "name": s.name})
 
     async def _api_rewind(self, request: web.Request) -> web.Response:
+        async with self._rewind_lock:
+            return await self._api_rewind_locked(request)
+
+    async def _api_rewind_locked(self, request: web.Request) -> web.Response:
         """回到某条回复：之后的对话收起，下一句从那条接着说；可选把之后改过的文件也退回去。
         {"to": 那条回复的记录编号, "files": 要不要退文件} 或 {"cancel": true} 撤销（还没说下一句前）。
         正在做就先停下；排着的话一并撤掉（它们是接着后面说的）。"""
@@ -1315,6 +1320,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if s.forking:
                 return web.json_response({"ok": False, "error": "分叉出来的对话不能撤销，不要了就删掉它"})
             if s.engine == "codex":
+                if s.codex_file_undo:
+                    try:
+                        self._file_restore_idle(s)
+                        from .checkpoints import Checkpoints
+                        await asyncio.to_thread(Checkpoints(self.store_path.parent / "checkpoints").undo, s.codex_file_undo)
+                    except (OSError, ValueError) as e:
+                        return web.json_response({"ok": False, "error": str(e)})
+                    s.codex_file_undo = ""
                 # 尚未开始下一轮，底层分支还没切换；恢复被收起的记录。
                 s.codex_hidden = [x for x in s.codex_hidden if x not in getattr(s, "codex_pending_hidden", [])]
                 s.codex_pending_hidden = []
@@ -1358,10 +1371,17 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._threads.pop(s.num, None)
         return web.json_response({"ok": True, "note": note, "text": later[0]["text"]})
 
+    def _file_restore_idle(self, s):
+        roots = [Path(p).expanduser().resolve() for p in [s.cwd, *s.add_dirs]]
+        for other in self.bridge.registry.sessions.values():
+            if not self.bridge.runner.busy(other.num):
+                continue
+            theirs = [Path(p).expanduser().resolve() for p in [other.cwd, *other.add_dirs]]
+            if any(a.is_relative_to(b) or b.is_relative_to(a) for a in roots for b in theirs):
+                raise ValueError(f"#{other.num} 还在使用这个文件夹，请等它停下后再恢复文件")
+
     async def _rewind_codex(self, s, data: dict) -> web.Response:
         b = self.bridge
-        if data.get("files"):
-            return web.json_response({"ok": False, "error": "Codex 暂不支持文件回退，聊天和文件均未改动"})
         to = str(data.get("to") or "")
         try:
             cut = await self._codex_target(s, to)
@@ -1392,10 +1412,28 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             tid = f"{s.num}-{int(last.started)}"
             if tid not in ids and tid not in s.codex_hidden:
                 removed.append(tid)
+        if data.get("files"):
+            if s.codex_file_undo:
+                return web.json_response({"ok": False, "error": "请先撤销当前文件回退，再选择其他回退位置"})
+            try:
+                self._file_restore_idle(s)
+                from .checkpoints import Checkpoints
+                records = {r["id"]: r for r in self._records(s.num)}
+                if last:
+                    records.setdefault(f"{s.num}-{int(last.started)}", {
+                        "checkpoint_before": last.checkpoint_before, "checkpoint_after": last.checkpoint_after})
+                pairs = [(records.get(tid, {}).get("checkpoint_before", ""), records.get(tid, {}).get("checkpoint_after", "")) for tid in removed]
+                if not pairs:
+                    raise ValueError("没有可用的文件快照，文件保持现状")
+                store = Checkpoints(self.store_path.parent / "checkpoints")
+                plan = await asyncio.to_thread(store.plan, pairs)
+                s.codex_file_undo = await asyncio.to_thread(store.apply, plan)
+            except (OSError, ValueError) as e:
+                return web.json_response({"ok": False, "error": str(e)})
         s.codex_pending_hidden.extend(x for x in removed if x not in s.codex_pending_hidden)
         s.codex_hidden.extend(x for x in removed if x not in s.codex_hidden)
         s.codex_cut_turn = cut
-        s.rewind_at, s.rewind_note = to, f"已回到这里 · 收起 {len(later)} 轮"
+        s.rewind_at, s.rewind_note = to, f"已回到这里 · 收起 {len(later)} 轮" + (" · 文件已恢复" if data.get("files") else "")
         s.awaiting = s.awaiting_kind = ""
         s.limit_until = 0.0
         b.outgoing.pop(s.num, None)

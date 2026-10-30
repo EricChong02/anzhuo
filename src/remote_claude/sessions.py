@@ -64,6 +64,7 @@ class Session:
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
     engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
+    codex_file_undo: str = ""
     codex_records: list[str] = field(default_factory=list)  # 分叉继承的轮次记录编号，附件仍用原记录
     codex_pending_hidden: list[str] = field(default_factory=list)
     codex_hidden: list[str] = field(default_factory=list)  # 回退后收起的原分支轮次
@@ -725,6 +726,13 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
     from .codex import CodexConn, CodexError
     if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
         raise FolderBlocked("、".join(display(p) for p in stuck))
+    from .checkpoints import Checkpoints
+    checkpoints = Checkpoints(self.registry.path.parent / "checkpoints")
+    if job.text != COMPACT:
+        try:
+            turn.checkpoint_before = await asyncio.to_thread(checkpoints.capture, [s.cwd, *s.add_dirs])
+        except OSError:
+            log.warning("#%s 文件快照未建立", s.num)
     effort = s.effort or self.default_effort or "medium"
     texts: list[str] = []
     started_cmds: set[str] = set()
@@ -813,6 +821,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             s.rewind_at = s.rewind_note = s.codex_cut_turn = ""
             s.forking = False
             s.codex_pending_hidden = []
+            s.codex_file_undo = ""
             s.context_pct = None
             self.registry.save()
         else:
@@ -836,6 +845,11 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
         turn.accepting = False
         self.codex_live.pop(s.num, None)
         await conn.close()
+        if turn.checkpoint_before:
+            try:
+                turn.checkpoint_after = await asyncio.to_thread(checkpoints.capture, [s.cwd, *s.add_dirs])
+            except OSError:
+                log.warning("#%s 文件结束快照未建立", s.num)
     if conn.turn_status == "failed" and not turn.interrupted:
         turn.is_error = True
         turn.error = (conn.turn_error or turn.error or "Codex 这一轮失败了")[:300]
