@@ -165,6 +165,17 @@ class CodexConn:
         self.model = str(r.get("model") or "")
         return self.thread_id
 
+    async def fork_thread(self, thread_id: str, last_turn_id: str) -> str:
+        r = await self.request("thread/fork", {"threadId": thread_id, "lastTurnId": last_turn_id,
+            "cwd": self.cwd, "sandbox": "workspace-write", "approvalPolicy": "untrusted",
+            "config": {"sandbox_workspace_write": {"network_access": True}}})
+        tid = (r.get("thread") or {}).get("id")
+        if not tid or tid == thread_id:
+            raise CodexError("分叉没有返回新的对话编号")
+        self.thread_id = tid
+        self.model = str(r.get("model") or "")
+        return tid
+
     async def compact(self) -> None:
         """压缩这个会话的上下文；压完会发 thread/compacted。"""
         await self.request("thread/compact/start", {"threadId": self.thread_id})

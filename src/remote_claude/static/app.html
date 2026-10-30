@@ -1092,8 +1092,8 @@ function renderThread(d) {
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
       const req = d.live && (d.live.request || '').replace(/…$/, '');
       const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
-      const before = prevEnd(idx), gpt = d.engine === 'codex';
-      const btns = ib('copy', '复制') + (isQ || (!gpt && !it.pending && before) ? ib('back', '回退') : '') + (!gpt && !it.pending && before !== null ? ib('fork', '分叉') : '');
+      const before = prevEnd(idx);
+      const btns = ib('copy', '复制') + (isQ || (!it.pending && before) ? ib('back', '回退') : '') + (!it.pending && before !== null ? ib('fork', '分叉') : '');
       return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
@@ -1111,7 +1111,7 @@ function renderThread(d) {
     // 一眼看出这轮动了什么：改了几个文件、跑了几条命令、交了几张图
     const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
-    const btns = `<span class="ibs">${ib('copy', '复制')}${d.engine !== 'codex' && it.end ? ib('fork', '分叉') : ''}</span>`;
+    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
@@ -1268,12 +1268,12 @@ function rewindSheet(d, to, undoLast) {
   const n = d.items.slice(k + 1).filter(i => i.who === 'you').length;
   const el = sheet(`<div class="t">${undoLast ? '回退到这句之前' : '回到这条回复'}</div>
     <div class="rwbody">${undoLast ? `这句${n > 1 ? `和之后 ${n - 1} 轮` : ''}收起，放回输入框` : `之后 ${n} 轮收起`}${d.live ? '，正在做的会停下' : ''}
-    <label class="rwfile"><input type="checkbox" id="rwf"><span>改过的文件也退回</span></label></div>
+    ${d.engine === 'codex' ? '<div class="t">仅回退聊天，文件保持现状</div>' : '<label class="rwfile"><input type="checkbox" id="rwf"><span>改过的文件也退回</span></label>'}</div>
     <button class="on" id="rwok">${undoLast ? '回退' : '回到这里'}</button><button id="rwno">取消</button>`);
   el.querySelector('#rwno').onclick = () => el.remove();
   el.querySelector('#rwok').onclick = async () => {
     const b = el.querySelector('#rwok'); b.disabled = true; b.innerHTML = '<i class="spin"></i>' + (d.live ? '先停下再回去…' : '正在回去…');
-    const r = await api('rewind/' + d.num, {to, files: el.querySelector('#rwf').checked}).catch(() => null);
+    const r = await api('rewind/' + d.num, {to, files: !!el.querySelector('#rwf')?.checked}).catch(() => null);
     el.remove();
     if (!r || !r.ok) return toast((r && r.error) || '没回去，再试一次');
     pending[d.num] = [];
@@ -1285,7 +1285,7 @@ function rewindSheet(d, to, undoLast) {
 const IB = {
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
-  fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7"/></svg>',
+  fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7M13.5 19H18v-4.5"/></svg>',
   ok: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'};
 const ib = (a, t) => `<button class="ib" data-act="${a}" data-tip="${t}" aria-label="${t}">${IB[a]}</button>`;
 function copyBtn(b, text) {

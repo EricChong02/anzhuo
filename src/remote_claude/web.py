@@ -399,7 +399,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 dest.append(src)
         rec = {
             "id": tid, "label": label, "title": title, "request": turn.request, "cwd": cwd,
-            "started": turn.started, "ended": turn.ended, "model": turn.model, "effort": turn.effort,
+            "started": turn.started, "ended": turn.ended, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "previews": course_previews(files, self.preview_root), "translated": turn.translated,
@@ -655,15 +655,43 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                               "没在运行。在钉钉里让案头帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
 
     # ---------- 网页对话框的接口 ----------
+    def _turn_paths(self, num: int) -> list[Path]:
+        s = self.bridge.registry.get(num) if self.bridge and hasattr(self.bridge, "registry") else None
+        inherited = getattr(s, "codex_records", [])
+        hidden = set(getattr(s, "codex_hidden", []))
+        own = sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1]))
+        return [self.turns_dir / (tid + ".json") for tid in inherited if re.fullmatch(r"\d+-\d+", tid) and tid not in hidden] + [p for p in own if p.stem not in hidden]
+
+    async def _codex_target(self, s, to: str) -> str:
+        records = self._records(s.num)
+        rec = next((r for r in records if r["id"] == to), None)
+        if not rec or not s.codex_id:
+            raise ValueError("找不到那条回复，原对话未改动")
+        if rec.get("codex_turn_id"):
+            return rec["codex_turn_id"]
+        # 老记录没有原生轮次编号时，只按唯一、接近的开始时间核验，不猜序号。
+        from .codex import CodexConn
+        conn = CodexConn(s.cwd, lambda *a: None)
+        try:
+            await conn.start()
+            result = await conn.request("thread/read", {"threadId": s.codex_id, "includeTurns": True})
+            hits = [t["id"] for t in (result.get("thread") or {}).get("turns", [])
+                    if t.get("startedAt") and (rec.get("started") or 0) - 2 <= t["startedAt"] <= (rec.get("ended") or rec.get("started") or 0) + 2]
+            if len(hits) != 1:
+                raise ValueError("这条旧回复无法准确定位到 Codex 轮次，原对话未改动")
+            return hits[0]
+        finally:
+            await conn.close()
+
     def _records(self, num: int) -> list[dict]:
         out = []
-        for p in sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1])):
+        for p in self._turn_paths(num):
             try:
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
-                            "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
+                            "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
@@ -673,7 +701,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def _codex_history(self, num: int) -> list[dict]:
         """Codex 对话的一来一回：Codex 的记录格式不一样，直接用小E 自己记的每轮（你说的话 + 过程 + 最后的回复）。"""
         items: list[dict] = []
-        for p in sorted(self.turns_dir.glob(f"{num}-*.json"), key=lambda p: int(p.stem.split("-")[1])):
+        for p in self._turn_paths(num):
             try:
                 r = json.loads(p.read_text())
             except (OSError, json.JSONDecodeError):
@@ -685,10 +713,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     for e in tl if e.get("kind") in ("think", "say", "do")]
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
                 proc.pop()
-            items.append({"who": "claude", "text": r.get("final_text") or r.get("error") or "（没有回复）",
+            items.append({"who": "claude", "end": r["id"], "text": r.get("final_text") or r.get("error") or "（没有回复）",
                           "steps": sum(1 for e in tl if e.get("kind") == "do"), "process": proc[-80:]})
         lt = getattr(self.bridge.runner, "last", {}).get(num) if self.bridge else None
-        if lt and not any(p.stem == f"{num}-{int(lt.started)}" for p in self.turns_dir.glob(f"{num}-*.json")):
+        session = self.bridge.registry.get(num) if self.bridge and hasattr(self.bridge, "registry") else None
+        if lt and f"{num}-{int(lt.started)}" not in getattr(session, "codex_hidden", []) and not any(p.stem == f"{num}-{int(lt.started)}" for p in self.turns_dir.glob(f"{num}-*.json")):
             # 刚做完、记录还没写好（翻译、存档要几秒）：先用这一轮本身显示，免得回复“消失”一下
             items += [{"who": "you", "text": e["text"]} for e in lt.timeline if e.get("kind") == "you"]
             items.append({"who": "claude", "text": lt.final_text or lt.error or "（没有回复）",
@@ -1239,9 +1268,23 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         p = b.registry.get(int(request.match_info["num"]))
         if not p:
             raise web.HTTPNotFound()
-        if p.engine == "codex":
-            return web.json_response({"ok": False, "error": "GPT 对话还不能分叉"})
         to = str((await request.json()).get("to") or "")
+        if p.engine == "codex":
+            try:
+                cut = await self._codex_target(p, to) if to else ""
+            except (ValueError, RuntimeError) as e:
+                return web.json_response({"ok": False, "error": str(e)})
+            records = self._records(p.num)
+            ids = [r["id"] for r in records]
+            kept = ids[:ids.index(to) + 1] if to else []
+            now = time.time()
+            s = Session(num=b.registry.reserve_num(), name=p.name[:8] + "·分叉", cwd=p.cwd,
+                        add_dirs=list(p.add_dirs), engine="codex", model=p.model, effort=p.effort,
+                        codex_id=p.codex_id if to else None, codex_records=kept, codex_cut_turn=cut,
+                        fork_from=p.num, forking=bool(to), rewind_at=to,
+                        rewind_note=f"从 #{p.num}「{p.name}」分叉", renamed=True, titled=True, seen=now, updated=now)
+            b.registry.add(s)
+            return web.json_response({"ok": True, "num": s.num, "name": s.name})
         if to:
             if not p.claude_id:
                 return web.json_response({"ok": False, "error": "这个对话还没有记录"})
@@ -1271,11 +1314,19 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if data.get("cancel"):
             if s.forking:
                 return web.json_response({"ok": False, "error": "分叉出来的对话不能撤销，不要了就删掉它"})
+            if s.engine == "codex":
+                # 尚未开始下一轮，底层分支还没切换；恢复被收起的记录。
+                s.codex_hidden = [x for x in s.codex_hidden if x not in getattr(s, "codex_pending_hidden", [])]
+                s.codex_pending_hidden = []
+                s.codex_cut_turn = ""
             s.rewind_at = s.rewind_note = ""
+            self._threads.pop(s.num, None)
             b.registry.save()
             return web.json_response({"ok": True})
-        if s.engine == "codex" or not s.claude_id:
-            return web.json_response({"ok": False, "error": "GPT 对话还不能回到某条回复"})
+        if s.engine == "codex":
+            return await self._rewind_codex(s, data)
+        if not s.claude_id:
+            return web.json_response({"ok": False, "error": "这个对话还没有记录"})
         to = str(data.get("to") or "")
         while b.runner.unqueue_last(s.num):
             pass
@@ -1306,6 +1357,51 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b.registry.save()
         self._threads.pop(s.num, None)
         return web.json_response({"ok": True, "note": note, "text": later[0]["text"]})
+
+    async def _rewind_codex(self, s, data: dict) -> web.Response:
+        b = self.bridge
+        if data.get("files"):
+            return web.json_response({"ok": False, "error": "Codex 暂不支持文件回退，聊天和文件均未改动"})
+        to = str(data.get("to") or "")
+        try:
+            cut = await self._codex_target(s, to)
+        except (ValueError, RuntimeError) as e:
+            return web.json_response({"ok": False, "error": str(e)})
+        while b.runner.unqueue_last(s.num):
+            pass
+        if b.runner.busy(s.num):
+            await b.runner.stop(s.num)
+            for _ in range(120):
+                if not b.runner.busy(s.num):
+                    break
+                await asyncio.sleep(.5)
+            if b.runner.busy(s.num):
+                return web.json_response({"ok": False, "error": "对话还没有停下，请稍后再回退"})
+        items = self._codex_history(s.num)
+        k = next((i for i, it in enumerate(items) if it.get("end") == to), None)
+        if k is None:
+            return web.json_response({"ok": False, "error": "找不到那条回复，原对话未改动"})
+        later = [it for it in items[k + 1:] if it["who"] == "you"]
+        if not later:
+            return web.json_response({"ok": False, "error": "这已经是最新的一条了"})
+        ids = [r["id"] for r in self._records(s.num)]
+        removed = ids[ids.index(to) + 1:]
+        # 停止后报告可能还在翻译、存档，提前收起它，防止晚到的记录重新出现。
+        last = b.runner.last.get(s.num)
+        if last:
+            tid = f"{s.num}-{int(last.started)}"
+            if tid not in ids and tid not in s.codex_hidden:
+                removed.append(tid)
+        s.codex_pending_hidden.extend(x for x in removed if x not in s.codex_pending_hidden)
+        s.codex_hidden.extend(x for x in removed if x not in s.codex_hidden)
+        s.codex_cut_turn = cut
+        s.rewind_at, s.rewind_note = to, f"已回到这里 · 收起 {len(later)} 轮"
+        s.awaiting = s.awaiting_kind = ""
+        s.limit_until = 0.0
+        b.outgoing.pop(s.num, None)
+        b.registry.save()
+        self._threads.pop(s.num, None)
+        return web.json_response({"ok": True, "note": s.rewind_note, "text": later[0]["text"]})
 
     async def _api_unqueue(self, request: web.Request) -> web.Response:
         """撤回还排着没开始的最后一句（放回输入框）。"""

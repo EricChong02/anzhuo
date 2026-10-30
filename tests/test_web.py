@@ -563,3 +563,99 @@ def test_fork(tmp_path, monkeypatch):
             await c.close()
 
     asyncio.run(go())
+
+
+def test_codex_rewind_fork_cancel_and_persist(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    async def go():
+        registry = Registry(tmp_path / "sessions.json")
+        session = registry.add(Session(num=registry.reserve_num(), name="原对话", cwd=str(tmp_path), engine="codex", codex_id="native-parent"))
+        runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        for i in (100, 200, 300):
+            w.save_turn(session.label, Turn(started=i, ended=i + 10, request=f"问{i}", final_text=f"答{i}",
+                        codex_turn_id=f"native-{i}"), str(tmp_path), "测试")
+        assert [x.get("end") for x in w._codex_history(1) if x["who"] == "claude"] == ["1-100", "1-200", "1-300"]
+        async def request(data):
+            async def read(): return data
+            return NS(headers={}, match_info={"num": "1"}, json=read)
+        result = json.loads((await w._api_fork(await request({"to": "1-200"}))).text)
+        fork = registry.get(result["num"])
+        assert fork.engine == "codex" and fork.codex_id == "native-parent" and fork.codex_cut_turn == "native-200"
+        assert [x["id"] for x in w._records(fork.num)] == ["1-100", "1-200"]
+        assert len(w._records(1)) == 3
+        nofiles = json.loads((await w._rewind_codex(session, {"to": "1-100", "files": True})).text)
+        assert not nofiles["ok"] and session.rewind_at == ""
+        result = json.loads((await w._rewind_codex(session, {"to": "1-100"})).text)
+        assert result["ok"] and result["text"] == "问200" and session.codex_id == "native-parent"
+        assert [x["id"] for x in w._records(1)] == ["1-100"]
+        saved = Registry(tmp_path / "sessions.json").get(1)
+        assert saved.codex_cut_turn == "native-100" and saved.codex_pending_hidden == ["1-200", "1-300"]
+        w._threads[1] = ((), [])
+        result = json.loads((await w._api_rewind(await request({"cancel": True}))).text)
+        assert result["ok"] and not session.rewind_at and len(w._records(1)) == 3 and 1 not in w._threads
+        result = json.loads((await w._rewind_codex(session, {"to": "foreign-id"})).text)
+        assert not result["ok"] and len(w._records(1)) == 3
+        result = json.loads((await w._api_fork(await request({"to": ""}))).text)
+        empty = registry.get(result["num"])
+        assert empty.engine == "codex" and empty.codex_id is None and not w._records(empty.num)
+    asyncio.run(go())
+
+
+def test_codex_native_fork_failure_keeps_original():
+    from remote_claude.codex import CodexConn, CodexError
+    async def go():
+        c = CodexConn("/tmp", lambda *a: None)
+        c.thread_id = "parent"
+        async def request(method, params):
+            assert method == "thread/fork" and params["lastTurnId"] == "turn-1"
+            return {"thread": {"id": "parent"}}
+        c.request = request
+        try:
+            await c.fork_thread("parent", "turn-1")
+            assert False
+        except CodexError:
+            assert c.thread_id == "parent"
+    asyncio.run(go())
+
+
+def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+    from remote_claude import codex, sessions
+    async def go():
+        registry = sessions.Registry(tmp_path / "sessions.json")
+        s = registry.add(sessions.Session(num=1, name="测试", cwd=str(tmp_path), engine="codex",
+            codex_id="parent", rewind_at="1-100", codex_cut_turn="turn-100", codex_hidden=["1-200"],
+            codex_pending_hidden=["1-200"]))
+        calls = []
+        class Conn:
+            def __init__(self, *args):
+                self.done = asyncio.Event()
+                self.model = "gpt-6.1-sol"
+                self.turn_status = "completed"
+            async def start(self): pass
+            async def fork_thread(self, parent, cut):
+                calls.append((parent, cut))
+                return "new-branch"
+            async def open_thread(self, *args):
+                raise AssertionError("回退后不能直接接着原分支")
+            async def start_turn(self, text, images, effort):
+                assert s.codex_id == "new-branch" and not s.rewind_at
+                calls.append(text)
+                self.done.set()
+                return "new-turn"
+            async def close(self): pass
+        monkeypatch.setattr(codex, "CodexConn", Conn)
+        monkeypatch.setattr(sessions, "blocked", lambda *a: "")
+        runner = NS(default_effort="medium", codex_live={}, registry=registry)
+        turn = Turn(started=time.time())
+        await sessions._codex_run(runner, s, sessions.Job("新问题"), turn)
+        assert calls == [("parent", "turn-100"), "新问题"]
+        assert turn.codex_turn_id == "new-turn" and not turn.is_error
+        restored = sessions.Registry(tmp_path / "sessions.json").get(1)
+        assert restored.codex_id == "new-branch" and restored.codex_hidden == ["1-200"]
+        assert not restored.codex_pending_hidden and not restored.rewind_at
+    asyncio.run(go())

@@ -64,6 +64,10 @@ class Session:
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给小E 分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是小E 新开的）
     engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
+    codex_records: list[str] = field(default_factory=list)  # 分叉继承的轮次记录编号，附件仍用原记录
+    codex_pending_hidden: list[str] = field(default_factory=list)
+    codex_hidden: list[str] = field(default_factory=list)  # 回退后收起的原分支轮次
+    codex_cut_turn: str = ""  # 已核验的原生轮次编号
     codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
     pinned: bool = False  # 网页里置顶
     category: str = ""  # 你手动归的类别（做课/平台/案头/杂事）；空 = 按文件夹自动分
@@ -801,7 +805,18 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
     turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
     try:
         await conn.start()
-        s.codex_id = await conn.open_thread(s.codex_id, CODEX_FIRST.strip())
+        if s.rewind_at:
+            if not s.codex_id or not s.codex_cut_turn:
+                raise CodexError("找不到回退位置，原对话未改动")
+            new_id = await conn.fork_thread(s.codex_id, s.codex_cut_turn)
+            s.codex_id = new_id
+            s.rewind_at = s.rewind_note = s.codex_cut_turn = ""
+            s.forking = False
+            s.codex_pending_hidden = []
+            s.context_pct = None
+            self.registry.save()
+        else:
+            s.codex_id = await conn.open_thread(s.codex_id, CODEX_FIRST.strip())
         turn.model = f"GPT（{conn.model}）" if conn.model else turn.model
         if job.text == COMPACT:   # 压缩上下文
             before = s.context_pct
@@ -812,7 +827,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             if before is not None:
                 s.context_pct = turn.context_pct = None   # 压完的用量等下一轮再报
         else:
-            await conn.start_turn(job.text, job.images, effort)
+            turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort)
             await conn.done.wait()
     except CodexError as e:
         turn.is_error = True
