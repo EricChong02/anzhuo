@@ -1042,7 +1042,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         data = await request.json()
         # 课可能放在专题子文件夹里：topics/bx1/data-l02/course.json，取最后一层当课名，中间的算进路径
         m = re.match(r"^/workspace/((?:_drafts|topics)(?:/[^/]+)*?)/([^/.][^/]*)/course\.json$", str(data.get("course") or ""))
-        if not m:
+        if not m or ".." in m.group(1).split("/"):
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
         cdir = m.group(2)
         title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
