@@ -422,6 +422,12 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .schedule-form input,.schedule-form textarea,.schedule-form select{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;margin:6px 0 0}
 .schedule-form textarea{resize:vertical;line-height:1.5}.schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.schedule-grid>*{min-width:0}
 @media(min-width:601px){.schedule-dialog{align-items:center}}
+
+.process-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;margin-bottom:8px}
+.process-summary .ptog{flex:1;min-width:0;margin:0;text-align:left}
+.process-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.process-time{flex:none;font-size:var(--t2);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.process-summary.time-only{justify-content:flex-end}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
@@ -1289,12 +1295,13 @@ function renderThread(d) {
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
-      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid, it.tid) : ''}`;
-    })() : '';
-    // 一眼看出这轮动了什么：改了几个文件、跑了几条命令、交了几张图
-    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
+      return `<div class="process-summary"><button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}<span class="process-title">工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</span></button>${elapsed}</div>${op ? procHTML(it.process, pid, it.tid) : ''}`;
+    })() : elapsed ? `<div class="process-summary time-only">${elapsed}</div>` : '';
+    // 回复底部只保留模型与交付信息；耗时放在工作过程右侧
+    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
     const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}

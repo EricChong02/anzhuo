@@ -714,7 +714,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     for e in tl if e.get("kind") in ("think", "say", "do")]
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
                 proc.pop()
-            items.append({"who": "claude", "end": r["id"], "text": r.get("final_text") or r.get("error") or "（没有回复）",
+            items.append({"who": "claude", "end": r["id"], "ts": r.get("ended") or r.get("started"), "text": r.get("final_text") or r.get("error") or "（没有回复）",
                           "steps": sum(1 for e in tl if e.get("kind") == "do"), "process": proc[-80:]})
         lt = getattr(self.bridge.runner, "last", {}).get(num) if self.bridge else None
         session = self.bridge.registry.get(num) if self.bridge and hasattr(self.bridge, "registry") else None
@@ -722,6 +722,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             # 刚做完、记录还没写好（翻译、存档要几秒）：先用这一轮本身显示，免得回复“消失”一下
             items += [{"who": "you", "text": e["text"]} for e in lt.timeline if e.get("kind") == "you"]
             items.append({"who": "claude", "text": lt.final_text or lt.error or "（没有回复）",
+                          "ts": lt.ended, "elapsed": max(0, lt.ended - lt.started) if lt.ended >= lt.started else None,
                           "steps": len(lt.steps), "process": []})
         return items[-300:]
 

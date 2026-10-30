@@ -746,3 +746,15 @@ def test_schedule_management_and_natural_request_api(tmp_path):
             assert key not in b.schedules.tasks
         finally:await c.close()
     asyncio.run(go())
+
+
+def test_turn_duration_matches_record_identity_not_next_reply():
+    from remote_claude import thread
+    items = [{"who": "claude", "text": "第一轮", "end": "1-100", "ts": 110},
+             {"who": "claude", "text": "刚完成但还没存档", "ts": 112, "elapsed": 2}]
+    records = [{"id": "1-100", "started": 100, "ended": 110}]
+    out = thread.attach_records(items, records)
+    assert out[0]["elapsed"] == 10 and out[0]["tid"] == "1-100"
+    assert out[1]["elapsed"] == 2 and "tid" not in out[1]
+    for rec in [{"id": "x", "started": 10}, {"id": "x", "started": 10, "ended": 9}]:
+        assert "elapsed" not in thread.attach_records([{"who": "claude", "text": "旧记录"}], [rec])[0]
