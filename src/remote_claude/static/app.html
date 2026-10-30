@@ -1335,7 +1335,9 @@ function wireComposer(sendFn, onSent, onOpening) {
   const add = async files => {
     for (const f of files) {
       if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
-      else if (f.size > 100 * 1048576) warn(`${f.name} 超过 100MB，传不了`);
+      else if (f.size > 300 * 1048576) warn(`${f.name} 超过 300MB，传不了`);
+      else if (attachFiles.length >= 10) warn('一次最多传 10 个文件');
+      else if (attachFiles.reduce((n, x) => n + x.size, 0) + f.size > 300 * 1048576) warn('附件合计超过 300MB，请分几次传');
       else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
     }
     sync();
@@ -1380,7 +1382,7 @@ function wireComposer(sendFn, onSent, onOpening) {
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
       } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 100MB），分几次发' : '没发出去，再试一次'); }
+    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 300MB），分几次发' : '没发出去，再试一次'); }
     sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
   }
   btn.onclick = go; sync();

@@ -16,7 +16,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/xiaoe.ericlab.cn/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-    client_max_body_size 20m;
+    client_max_body_size 450m;
     add_header X-Robots-Tag \"noindex, nofollow\" always;
     location / {
         proxy_pass http://127.0.0.1:18765;

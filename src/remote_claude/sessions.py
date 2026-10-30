@@ -473,7 +473,7 @@ class Runner:
                 msg += f" 没收下：{', '.join(bad)}（不存在、不是图片或超过 6 张）"
             return {"content": [{"type": "text", "text": msg}]}
 
-        @tool("send_files", "把文件原样交给用户（PDF、Word、表格、压缩包等任何格式，用户能直接下载）。paths 是本机文件的绝对路径，最多 10 个，每个不超过 100MB。"
+        @tool("send_files", "把文件原样交给用户（PDF、Word、表格、压缩包等任何格式，用户能直接下载）。paths 是本机文件的绝对路径，最多 10 个，每个不超过 300MB。"
               "用户要的是文件本身时用这个，不要只发截图。",
               {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
                "required": ["paths"]})
@@ -481,14 +481,14 @@ class Runner:
             ok, bad = [], []
             for p in args.get("paths", []):
                 path = Path(p).expanduser()
-                if path.is_file() and path.stat().st_size <= 100 * 1024 * 1024 and len(turn.files) + len(ok) < 10:
+                if path.is_file() and path.stat().st_size <= 300 * 1024 * 1024 and len(turn.files) + len(ok) < 10:
                     ok.append(str(path))
                 else:
                     bad.append(p)
             turn.files.extend(ok)
             msg = f"已收下 {len(ok)} 个文件。"
             if bad:
-                msg += f" 没收下：{', '.join(bad)}（不存在、超过 100MB 或超过 10 个）"
+                msg += f" 没收下：{', '.join(bad)}（不存在、超过 300MB 或超过 10 个）"
             return {"content": [{"type": "text", "text": msg}]}
 
         @tool("update_plan", "列出或更新这件事的步骤清单，用户在手机上看进度。每次传完整清单；status 只能是 pending（没开始）、doing（正在做）、done（做完）。",
