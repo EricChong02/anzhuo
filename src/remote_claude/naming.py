@@ -16,10 +16,21 @@ SYSTEM = """给一段工作对话起名字，让人在列表里一眼看出在�
 不用标点、引号和“·”，不要“关于”“讨论”“对话”这类空词。"""
 
 
+_BAD = re.compile(r"会话|名字|标题|对话名|起名|title|here", re.I)
+
+
 def _clean(raw: str) -> str:
     t = raw.strip().splitlines()[0] if raw.strip() else ""
-    t = re.sub(r"^[#*\s“\"'《]*(名字|标题)?[:：]?\s*", "", t).strip(" “”\"'。.，,")
+    t = re.sub(r"^.{0,8}?(?:名字|标题|名称)\s*[:：]\s*", "", t)   # “大会话名字：问候打招呼” → “问候打招呼”
+    t = re.sub(r"^[#*\s“\"'《]*", "", t).strip(" “”\"'。.，,》")
     return re.sub(r"[·•。，,、]", "", t)[:12]
+
+
+def valid(name: str) -> bool:
+    """像个名字：4–10 个字、以中文为主，不是“Here's a title”“会话名字”这类没起好的。"""
+    t = (name or "").strip()
+    cjk = sum(1 for c in t if "\u4e00" <= c <= "\u9fff")
+    return 4 <= len(t) <= 10 and cjk * 2 >= len(t) and not _BAD.search(t)
 
 
 async def short_title(asked: str, answer: str, timeout: float = 60) -> str:
@@ -40,4 +51,4 @@ async def short_title(asked: str, answer: str, timeout: float = 60) -> str:
         log.warning("自动起名失败", exc_info=True)
         return ""
     t = _clean("".join(out))
-    return t if len(t) >= 4 else ""
+    return t if valid(t) else ""

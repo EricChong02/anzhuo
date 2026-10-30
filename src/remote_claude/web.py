@@ -183,6 +183,13 @@ class Web:
         self._uimg_miss: set[str] = set()
         self._zh_failed: set[str] = set()
         self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
+        self._courses: tuple[float, list] = (0.0, [])
+        self._course_list: tuple[float, list] = (0.0, [])
+
+    def watching(self, num: int) -> bool:
+        """你正开着这个对话、页面在前台（网页每 15 秒报一次）：做完就不再弹通知、不发钉钉。"""
+        return time.time() - self.watch.get(num, 0) < 35
 
     @property
     def enabled(self) -> bool:
@@ -488,17 +495,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             rows.append(f'<div class="card"><a href="{PREFIX}/?s={num}"><b>{html.escape(name)}</b></a>'
                         f'<div class="meta">{html.escape(" · ".join(b for b in bits if b))}</div>'
                         f'<details><summary class="meta">每一轮</summary><ul>{turns}{more}</ul></details></div>')
-        drafts = []
-        root = Path(self.preview_root).expanduser() if self.preview_root else None
-        if root and (root / "_drafts").is_dir():
-            for cj in sorted((root / "_drafts").glob("*/course.json"), key=lambda p: p.parent.stat().st_mtime, reverse=True):
-                try:
-                    title = json.loads(cj.read_text()).get("title") or cj.parent.name
-                except (OSError, json.JSONDecodeError):
-                    title = cj.parent.name
-                url = f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"
-                drafts.append(f'<a class="btn" href="{html.escape(url)}">试课：{html.escape(title)}</a>')
-        top = f"<h1>在做的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
+        drafts = [f'<a class="btn" href="{html.escape(d["url"])}">试课：{html.escape(d["title"])}</a>' for d in self._drafts()[:6]]
+        top = f"<h1>最近的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
         return self._page("案头 · 历史记录", top + "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
                           + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
@@ -645,7 +643,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
-                            "model": r.get("model", ""),
+                            "model": r.get("model", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
@@ -678,17 +676,43 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return items[-300:]
 
     def _drafts(self) -> list[dict]:
+        """课程根里的课，最近改过的在前：草稿（_drafts/）和已上架的（topics/专题/）都算。
+        每门课标上走到哪了：草稿 / 上架了但学生看不到 / 已发布；发布后又改过的标“有改动没发布”。15 秒算一次。"""
+        at, cached = self._course_list
+        if time.time() - at < 15:
+            return cached
         root = Path(self.preview_root).expanduser() if self.preview_root else None
-        if not root or not (root / "_drafts").is_dir():
+        if not root or not root.is_dir():
             return []
+        try:
+            pub = json.loads((root / "_published.json").read_text()).get("courses") or {}
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pub = {}
         out = []
-        for cj in sorted((root / "_drafts").glob("*/course.json"), key=lambda p: p.parent.stat().st_mtime, reverse=True):
+        for cj in [*root.glob("_drafts/*/course.json"), *root.glob("topics/*/*/course.json")]:
+            d = cj.parent
             try:
-                title = json.loads(cj.read_text()).get("title") or cj.parent.name
+                j = json.loads(cj.read_text())
             except (OSError, json.JSONDecodeError):
-                title = cj.parent.name
-            out.append({"title": title, "dir": cj.parent.name, "mtime": int(cj.parent.stat().st_mtime),
-                        "url": f"/studio-preview.html?course={quote(f'/workspace/_drafts/{cj.parent.name}/course.json')}"})
+                j = {}
+            # 课的改动多在 fragments/ 和几个主文件里，目录本身的时间不准
+            mtime = 0.0
+            for f in [cj, d / "cues.md", d / "教案.md", d / "index.html", d / "index.js", *d.glob("fragments/*")]:
+                try:
+                    mtime = max(mtime, f.stat().st_mtime)
+                except OSError:
+                    pass
+            rel = d.relative_to(root).as_posix()
+            vis = ((j.get("catalog") or {}).get("visibility") if isinstance(j, dict) else "") or ""
+            p = pub.get(d.name) if isinstance(pub.get(d.name), dict) else {}
+            pub_at = ((p.get("since") or {}).get("version") or 0) if p else 0
+            stage = "draft" if rel.startswith("_drafts/") else "published" if vis == "published" else "hidden"
+            out.append({"title": (j.get("title") if isinstance(j, dict) else "") or d.name, "dir": d.name, "rel": rel,
+                        "mtime": int(mtime), "stage": stage, "pub_at": int(pub_at),
+                        "dirty": bool(stage == "published" and pub_at and mtime > pub_at + 120),
+                        "url": f"/studio-preview.html?course={quote(f'/workspace/{rel}/course.json')}"})
+        out.sort(key=lambda x: x["mtime"], reverse=True)
+        self._course_list = (time.time(), out)
         return out
 
     async def _api_sessions(self, request: web.Request) -> web.Response:
@@ -705,21 +729,27 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟 · 第 {len(turn.steps)} 步"
             elif b.runner.busy(s.num):
                 status, detail = "queued", "排队中"
+            elif s.limit_until > now:
+                status = "paused"
+                detail = f"额度用完 · {time.strftime('%H:%M', time.localtime(s.limit_until))} 恢复" + ("后自动接着做" if s.auto_resume else "")
+            elif s.awaiting and s.awaiting_kind == "suggest":
+                status, detail = "idle", f"有建议：{s.awaiting}"
             elif s.awaiting:
-                status, detail = "awaiting", f"等你回答：{s.awaiting}"
+                status, detail = "awaiting", f"等你定：{s.awaiting}"
             elif s.status == "error":
                 status, detail = "error", "上次出错了"
             else:
                 status, detail = "idle", s.last_title or "空闲"
-            unread = status in ("idle", "awaiting", "error") and bool(s.claude_id) and s.updated > s.seen + 1
+            unread = status in ("idle", "awaiting", "error", "paused") and bool(s.claude_id or s.codex_id) and s.updated > s.seen + 1
             rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "pinned": s.pinned, "category": category(s, b.cfg.folders), "manual_cat": s.category in CATS,
+                         "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
-        order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "idle": 4}
+        order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
-        return web.json_response({"sessions": rows, "drafts": self._drafts(),
+        return web.json_response({"sessions": rows, "drafts": self._drafts(), "courses": await self._course_cards(rows),
                                   "folders": list(b.cfg.folders), "current": b.registry.current,
                                   "limits": self._limits(b.runner.limits),
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
@@ -753,6 +783,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             s.hidden, s.hidden_at, s.pinned = True, time.time(), False
             if b.registry.current == s.num:
                 b.registry.current = None
+        elif act == "autoresume":
+            s.auto_resume = bool(data.get("value"))
+            if s.auto_resume and s.limit_until > time.time():
+                asyncio.create_task(b._auto_resume(s.num, s.limit_until))
         elif act == "restore":
             s.hidden, s.hidden_at = False, 0.0
             s.updated = max(s.updated, time.time() - 60)   # 找回来的排在最近里
@@ -839,6 +873,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         said = [re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()) for it in items if it["who"] == "you"]
         out = b.outgoing.get(num, [])
         out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) for x in said)]
+        if s.rewind_at:   # 点过“回到这里”：那条之后的先收起来，下一句从那里接着；还没说下一句前能撤销
+            cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
+            if cut is not None:
+                items = items[:cut + 1] + [{"who": "note", "rewind": True, "text": s.rewind_note or "已回到这里"}]
         items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
         for it in items:
             if it["who"] == "claude":
@@ -859,7 +897,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 if e["k"] in ("think", "say"):
                     e.update(self._zh_proc(e))
             live = {"request": turn.request, "minutes": int((time.time() - turn.started) // 60),
-                    "elapsed": int(time.time() - turn.started),
+                    "elapsed": int(time.time() - turn.started), "idle": int(time.time() - (turn.last_at or turn.started)),
                     "total": len(turn.steps), "steps": turn.steps[-8:], "injected": turn.injected, "process": proc,
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
                     "compact": b.runner.compacting(num) == "running",
@@ -879,9 +917,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
-        queue = ["压缩上下文" if j.text == COMPACT else (j.text[:80] or "（图片）") for j in b.runner.queued(num)]
+        queue = ["压缩上下文" if j.text == COMPACT else (t[:80] or "（图片）") for j in b.runner.queued(num) for t in (j.parts or [j.text])]
+        limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
+            if s.limit_until > time.time() and not turn else None
+        five = b.runner.limits.get("five_hour")
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
-                                  "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting, "decision": decision, "usage": usage})
+                                  "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
+                                  "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
+                                  "limit": limit, "engine": s.engine, "feedback": s.feedback or None,
+                                  "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:
         """英文的先原样给，后台译好存起来，下次刷新就是中文。"""
@@ -956,7 +1000,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return web.json_response({"ok": False, "error": "没写内容"}, status=400)
         b = self.bridge
         inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
-                       local_images=images)
+                       local_images=images, via="web")
         b.record("你（网页）", text, images=len(images), num=data.get("num"))
         num = data.get("num")
         if num:
@@ -966,11 +1010,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         folder = str(data.get("folder") or "").strip()
         kind = None
         course = str(data.get("course") or "").strip()
-        if course and course in {d["dir"] for d in self._drafts()}:
+        if course and (c := next((d for d in self._drafts() if d["dir"] == course), None)):
             # 接着做某门课：在课程根里开，并说明是哪门课，免得它去猜
-            title = next(d["title"] for d in self._drafts() if d["dir"] == course)
             folder, kind = str(Path(self.preview_root).expanduser()), "dev"
-            inc.text = text = f"（这件事是关于课程《{title}》，目录 _drafts/{course}/）\n{text}"
+            inc.text = text = f"（这件事是关于课程《{c['title']}》，目录 {c['rel']}/）\n{text}"
         elif folder == "auto":
             # 让小E 看话判断在哪做；判断不出或不涉及文件夹就用空白的临时文件夹
             from . import router
@@ -1046,31 +1089,178 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
         cdir = m.group(2)
         title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
-        sec_no, sec_title, screen = data.get("section_no") or 0, str(data.get("section_title") or ""), data.get("screen")
-        if not sec_title and data.get("section"):   # 页面没读到课程文件时，小E 自己从课程文件里查节名
-            try:
-                secs = json.loads((Path(self.preview_root).expanduser() / m.group(1) / cdir / "course.json").read_text()).get("sections") or []
-                k = next(i for i, x in enumerate(secs) if x.get("id") == data["section"])
-                sec_no, sec_title = k + 1, secs[k].get("title") or ""
-            except (OSError, ValueError, StopIteration, AttributeError):
-                pass
-        where = "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "", f"第 {int(screen) + 1} 屏" if isinstance(screen, int) and screen >= 0 else ""])
-        text = str(data.get("text") or "").strip()
-        msg = (f"（试课反馈）《{title}》{where}（{m.group(1)}/{cdir}，节 id {data.get('section') or '未知'}）：\n"
-               + (text or "见截图") + "\n\n改完截图给我看这一屏。")
-        images = await self._save_images(data)
+        # 一次可以带几处（试课页上“先记下”攒的），每处：节、屏、说了什么、截图
+        notes = [x for x in (data.get("items") or [data]) if isinstance(x, dict)][:12]
+        lines, images = [], []
+        for x in notes:
+            where = self._where(m.group(1), cdir, x)
+            text = str(x.get("text") or "").strip()
+            imgs = await self._save_images({"images": (x.get("images") or [])[:max(0, 6 - len(images))]})
+            images += imgs
+            lines.append((where, x.get("section") or "未知", (text or "见截图") + (f"（附图 {len(imgs)} 张）" if imgs and len(notes) > 1 else "")))
+        if data.get("ask") and lines:
+            where, sec, text = lines[-1]
+            q = text if text != "见截图" else "这一屏是想让学生做什么、学到什么？在这一节里起什么作用？"
+            msg = f"（试课提问）《{title}》{where}（{m.group(1)}/{cdir}，节 id {sec}）：\n{q}\n\n先别改，对照教案用几句话说清楚就行。"
+        elif len(lines) == 1:
+            where, sec, text = lines[0]
+            msg = f"（试课反馈）《{title}》{where}（{m.group(1)}/{cdir}，节 id {sec}）：\n{text}\n\n改完截图给我看这一屏。"
+        else:
+            msg = (f"（试课反馈）《{title}》共 {len(lines)} 处（{m.group(1)}/{cdir}）：\n"
+                   + "\n".join(f"{i}. {w}（节 id {sec}）：{t}" for i, (w, sec, t) in enumerate(lines, 1))
+                   + "\n\n一处一处改，改完把改过的几屏截图给我看。")
+        last = notes[-1] if notes else {}
         b = self.bridge
-        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=msg, local_images=images)
-        b.record("你（试课反馈）", msg, images=len(images))
+        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=msg, local_images=images,
+                       via="feedback")
+        b.record("你（试课提问）" if data.get("ask") else "你（试课反馈）", msg, images=len(images))
+        spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"),
+                "where": self._where(m.group(1), cdir, last), "t": time.time()}
         s = self._course_session(cdir, title)
         if s:
+            s.feedback = spot   # 记下最后一处在哪：改好后回复里的试课链接直接跳回这一屏
             await b._message(Cmd("message", num=s.num, text=msg), inc, routed=True)
             return web.json_response({"ok": True, "num": s.num, "name": s.name})
         before = b.registry.next_num
         root = str(Path(self.preview_root).expanduser())
         await b._new([root], msg, inc, note="（试课反馈新开）", kind="dev")
         s = b.registry.get(before)
+        if s:
+            s.feedback = spot
+            b.registry.save()
         return web.json_response({"ok": bool(s), "num": before, "name": s.name if s else "新对话"})
+
+    def _where(self, parent: str, cdir: str, x: dict) -> str:
+        """“第 2 节「数据从哪来」第 3 屏”：页面没读到节名时，小E 自己从课程文件里查。"""
+        sec_no, sec_title, screen = x.get("section_no") or 0, str(x.get("section_title") or ""), x.get("screen")
+        if not sec_title and x.get("section"):
+            try:
+                secs = json.loads((Path(self.preview_root).expanduser() / parent / cdir / "course.json").read_text()).get("sections") or []
+                k = next(i for i, y in enumerate(secs) if y.get("id") == x["section"])
+                sec_no, sec_title = k + 1, secs[k].get("title") or ""
+            except (OSError, ValueError, StopIteration, AttributeError):
+                pass
+        return "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "",
+                        f"第 {int(screen) + 1} 屏" if isinstance(screen, int) and screen >= 0 else ""])
+
+    async def _course_cards(self, rows: list[dict]) -> list[dict]:
+        """侧栏顶上的“课”：最近动过的几门课，各自是哪个对话在做、做到哪了。30 秒算一次（要翻每个对话的记录）。"""
+        at, cards = self._courses
+        if time.time() - at > 30:
+            cards = []
+            for d in self._drafts()[:5]:
+                try:
+                    s = await asyncio.to_thread(self._course_session, d["dir"], d["title"])
+                except Exception:  # noqa: BLE001
+                    s = None
+                cards.append(dict(d, num=s.num if s else None))
+            self._courses = (time.time(), cards)
+        by = {r["num"]: r for r in rows}
+        return [dict(c, status=by[c["num"]]["status"] if c["num"] in by else "", detail=by[c["num"]]["detail"] if c["num"] in by else "",
+                     name=by[c["num"]]["name"] if c["num"] in by else "") for c in cards]
+
+    async def _api_course(self, request: web.Request) -> web.Response:
+        """试课页右下角的小条：这门课是哪个对话在改、改到哪了、改完没有。"""
+        course = request.query.get("course", "")
+        m = re.match(r"^/workspace/((?:_drafts|topics)(?:/[^/]+)*?)/([^/.][^/]*)/course\.json$", course)
+        if not m:
+            return web.json_response({"num": None})
+        cdir = m.group(2)
+        title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
+        s = await asyncio.to_thread(self._course_session, cdir, title)
+        if not s:
+            return web.json_response({"num": None})
+        b = self.bridge
+        turn = b.runner.turns.get(s.num)
+        state = "running" if turn or b.runner.busy(s.num) else ("awaiting" if s.awaiting and s.awaiting_kind != "suggest" else "idle")
+        step = (turn.plan and next((x["text"] for x in turn.plan if x["status"] == "doing"), "")) or (turn.steps[-1] if turn and turn.steps else "") if turn else ""
+        return web.json_response({"num": s.num, "name": s.name, "state": state, "step": step,
+                                  "minutes": int((time.time() - turn.started) // 60) if turn else 0,
+                                  "updated": s.updated, "feedback": s.feedback or None})
+
+    async def _api_presence(self, request: web.Request) -> web.Response:
+        """网页每 15 秒报一次“我正开着 #N 看”；切走、锁屏时报不在。"""
+        try:
+            data = json.loads(await request.text() or "{}")
+        except ValueError:
+            data = {}
+        num = int(data.get("num") or 0)
+        if num and data.get("visible"):
+            self.watch[num] = time.time()
+        else:
+            self.watch.pop(num, None) if num else self.watch.clear()
+        return web.json_response({"ok": True})
+
+    async def _api_rewind(self, request: web.Request) -> web.Response:
+        """回到某条回复：之后的对话收起，下一句从那条接着说；可选把之后改过的文件也退回去。
+        {"to": 那条回复的记录编号, "files": 要不要退文件} 或 {"cancel": true} 撤销（还没说下一句前）。
+        正在做就先停下；排着的话一并撤掉（它们是接着后面说的）。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        b = self.bridge
+        s = b.registry.get(int(request.match_info["num"]))
+        if not s:
+            raise web.HTTPNotFound()
+        data = await request.json()
+        if data.get("cancel"):
+            s.rewind_at = s.rewind_note = ""
+            b.registry.save()
+            return web.json_response({"ok": True})
+        if s.engine == "codex" or not s.claude_id:
+            return web.json_response({"ok": False, "error": "GPT 对话还不能回到某条回复"})
+        to = str(data.get("to") or "")
+        while b.runner.unqueue_last(s.num):
+            pass
+        if s.num in b.runner.turns:
+            await b.runner.stop(s.num)
+            for _ in range(120):
+                if s.num not in b.runner.turns:
+                    break
+                await asyncio.sleep(0.5)
+        b.outgoing.pop(s.num, None)
+        items = thread.history(await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd), limit=100000)
+        k = next((i for i, it in enumerate(items) if it.get("end") == to), None)
+        if k is None:
+            return web.json_response({"ok": False, "error": "找不到那条回复了（可能在压缩之前）"})
+        later = [it for it in items[k + 1:] if it["who"] == "you"]
+        if not later:
+            return web.json_response({"ok": False, "error": "这已经是最新的一条了"})
+        note = f"已回到这里：后面 {len(later)} 轮收起了，接着说就从这里继续"
+        if data.get("files"):
+            why = await b.runner.rewind_files(s, later[0]["uuid"])
+            note += "；" + (why or "之后改过的文件也退回去了") + "（提交、推送、上线过的退不回）"
+        s.rewind_at, s.rewind_note = to, note
+        kept = items[k]["text"]
+        from .app import asks_user, awaiting_kind
+        s.awaiting = asks_user(kept)
+        s.awaiting_kind = awaiting_kind(kept) if s.awaiting else ""
+        s.limit_until = 0.0
+        b.registry.save()
+        self._threads.pop(s.num, None)
+        return web.json_response({"ok": True, "note": note, "text": later[0]["text"]})
+
+    async def _api_unqueue(self, request: web.Request) -> web.Response:
+        """撤回还排着没开始的最后一句（放回输入框）。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        b = self.bridge
+        num = int(request.match_info["num"])
+        q = b.runner.queued(num)
+        if q and q[-1].parts and len(q[-1].parts) > 1:   # 并在一起的几句：只撤回最后补的那句
+            job = q[-1]
+            text = job.parts.pop()
+            job.text = job.text[: -len(text) - 2] if job.text.endswith(text) else "\n\n".join(job.parts)
+            out = b.outgoing.get(num, [])
+            if out:
+                out.pop()
+            return web.json_response({"ok": True, "text": text.split("\n\n（附件已存到")[0]})
+        job = b.runner.unqueue_last(num)
+        if not job:
+            return web.json_response({"ok": False, "error": "已经开始做了"})
+        out = b.outgoing.get(num, [])
+        if out:
+            out.pop()
+        return web.json_response({"ok": True, "text": job.text.split("\n\n（附件已存到")[0]})
 
     def _sig_sessions(self) -> str:
         """对话列表的“指纹”：谁在做、做到第几步、等不等你、更新时间；变了就叫网页刷新列表。"""
@@ -1079,7 +1269,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         for s in b.registry.sessions.values():
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
-                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category))
+                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category, s.limit_until,
+                        s.rewind_at, s.auto_resume))
         return json.dumps(out, ensure_ascii=False, default=str)
 
     def _sig_thread(self, num: int) -> str:
@@ -1087,7 +1278,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s, t = b.registry.get(num), b.runner.turns.get(num)
         recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s and s.engine == "codex" else 0
         return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
-                           len(b.outgoing.get(num, [])), recs])
+                           len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
+                           s.limit_until if s else 0, s.auto_resume if s else True])
 
     async def _api_events(self, request: web.Request) -> web.StreamResponse:
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
@@ -1149,7 +1341,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _api_compact(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
-        msg = await self.bridge.compact(int(request.match_info["num"]))
+        msg = await self.bridge.compact(int(request.match_info["num"]), via="web")
         return web.json_response({"ok": True, "message": msg})
 
     async def _api_stop(self, request: web.Request) -> web.Response:
@@ -1198,6 +1390,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
         app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
+        app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
+        app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
+        app.router.add_post(f"{PREFIX}/api/presence", self._api_presence)
+        app.router.add_get(f"{PREFIX}/api/course", self._api_course)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)

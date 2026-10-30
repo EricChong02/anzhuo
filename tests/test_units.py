@@ -188,7 +188,7 @@ def test_push_message():
     """手机通知：标题是对话名，正文一句短话；去掉 markdown 和五段小标题。"""
     from remote_claude.report import push_message
     assert push_message("天气", "明天厦门天气", "**明天**多云。\n\n做了什么：查了", False, "") == ("天气", "做完了：明天多云")
-    assert push_message("做课", "改封面", "要你定：用哪张？", False, "用哪张？") == ("做课", "等你回答：用哪张？")
+    assert push_message("做课", "改封面", "要你定：用哪张？", False, "用哪张？") == ("做课", "等你定：用哪张？")
     assert push_message("清理", "清下载", "", True, "") == ("清理", "出错了，点开看原因")
     assert len(push_message("x", "", "很长" * 50, False, "")[1]) <= 23
 
@@ -382,3 +382,62 @@ def test_track_agent_lifecycle():
     assert t.agents["a1"]["last"] == "跑命令"
     track_agent(t, TaskNotificationMessage(subtype="task_notification", data={}, task_id="a1", status="completed", output_file="", summary="", uuid="u", session_id="s"))
     assert not running_agents(t) and t.agents["a1"]["status"] == "done"
+
+
+def test_awaiting_kind_and_limit():
+    """等你的轻重：要你定 / 列方案 / 批准编辑 / 直接问 = decide；做完顺口问“要不要我…” = suggest。撞额度能读出几点恢复。"""
+    import time
+    from datetime import datetime
+    from remote_claude.app import awaiting_kind, limit_reset
+    assert awaiting_kind("要你定：用哪张？\nA. 红\nB. 蓝") == "decide"
+    assert awaiting_kind("```\n批准本会话编辑：redzone-write｜path:a\n```") == "decide"
+    assert awaiting_kind("封面用红色还是蓝色？") == "decide"
+    assert awaiting_kind("改好了，截图在上面。\n\n要不要我顺便把第二节也改了？") == "suggest"
+    assert awaiting_kind("改好了。") == ""
+    now = datetime(2026, 10, 28, 15, 0).timestamp()
+    at = limit_reset("You've hit your session limit · resets 5:40pm (Asia/Taipei)", now)
+    assert datetime.fromtimestamp(at).strftime("%d %H:%M") == "28 17:40"
+    at = limit_reset("You've hit your session limit · resets 2am", now)
+    assert datetime.fromtimestamp(at).strftime("%d %H:%M") == "29 02:00"
+    assert limit_reset("API Error: overloaded", now) is None
+    assert time.time() < limit_reset("hit your limit") <= time.time() + 5 * 3600 + 1
+
+
+def test_title_valid():
+    from remote_claude.naming import _clean, valid
+    assert _clean("大会话名字：问候打招呼") == "问候打招呼" and valid("问候打招呼")
+    assert not valid("Here's a tit") and not valid("对话名字") and not valid("好") and valid("大数据第二节磨课")
+
+
+def test_queue_merges_and_waits_for_client():
+    """还没开工时连着说的几句并成一件；刚开工、Claude 还没连上时说的话等连上就插进这一轮。"""
+    import asyncio
+    import time
+    from remote_claude.report import Turn
+    from remote_claude.sessions import Job, Runner, Session
+
+    async def go():
+        r = Runner(registry=None, on_done=None)
+        s = Session(num=3, name="做课", cwd="/tmp")
+        r.turns[3] = Turn(started=time.time(), request="压缩上下文")   # 正在压缩：后来的话排队
+        r.clients[3] = object()
+        r.workers[3] = asyncio.get_running_loop().create_future()
+        assert r.submit(s, Job(text="改封面")) == 1
+        assert r.submit(s, Job(text="标题也大一点")) == 1             # 并进前一件，不另排
+        q = r.queued(3)
+        assert len(q) == 1 and q[0].parts == ["改封面", "标题也大一点"] and q[0].text == "改封面\n\n标题也大一点"
+        assert r.unqueue_last(3).text.startswith("改封面") and not r.queued(3)
+        # 刚开工、还没连上
+        r.turns[3], r.clients = Turn(started=time.time(), request="改封面"), {}
+        injected = []
+
+        async def fake_inject(s_, client, job):
+            injected.append(job.text)
+        r._inject = fake_inject
+        assert r.submit(s, Job(text="顺便看下第二屏")) == -1
+        await asyncio.sleep(0.1)
+        r.clients[3] = object()
+        await asyncio.sleep(0.7)
+        assert injected == ["顺便看下第二屏"] and r.turns[3].injected == 1
+
+    asyncio.run(go())

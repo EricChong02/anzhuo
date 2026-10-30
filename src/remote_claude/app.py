@@ -48,6 +48,45 @@ def asks_user(text: str) -> str:
     return ""
 
 
+_OFFER = re.compile(r"(要不要|需不需要|是否需要|要我|需要我|我可以|我也可以|可以帮你|我再|顺便|还要我|想让我|如果你愿意|如果需要)")
+_APPROVE = "批准本会话编辑："
+
+
+def awaiting_kind(text: str) -> str:
+    """等你的轻重：decide = 真要你拍板（要你定、列了方案、要你批准编辑、直接问你）；
+    suggest = 活做完了，最后顺口问一句“要不要我再…？”——不算卡住，列表里不标琥珀色。"""
+    body = text.strip()
+    if not body:
+        return ""
+    if report.needs_decision(body) or len(_OPTIONS.findall(body)) >= 2 or _APPROVE in body:
+        return "decide"
+    lines = [ln.strip(" *#") for ln in body.splitlines() if ln.strip()]
+    if not lines[-1].endswith(("？", "?")):
+        return ""
+    return "suggest" if _OFFER.search(lines[-1]) else "decide"
+
+
+def limit_reset(text: str, now: float | None = None) -> float | None:
+    """“You've hit your session limit · resets 5:40pm (Asia/Taipei)” → 几点恢复（本机时间戳）；不是撞额度返回 None。"""
+    if not re.search(r"hit your .{0,20}limit|usage limit|limit reached", text or "", re.I):
+        return None
+    m = re.search(r"resets\s+(?:(\w{3})\w*\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", text, re.I)
+    now = now or time.time()
+    if not m:
+        return now + 5 * 3600
+    mon, day, hh, mm, ap = m.groups()
+    h = int(hh) % 12 + (12 if ap.lower() == "pm" else 0)
+    base = datetime.fromtimestamp(now)
+    months = {x: i for i, x in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+    if mon and mon.lower()[:3] in months:
+        at = base.replace(month=months[mon.lower()[:3]], day=int(day), hour=h, minute=int(mm or 0), second=0, microsecond=0)
+        if at.timestamp() < now - 86400:
+            at = at.replace(year=at.year + 1)
+        return at.timestamp()
+    at = base.replace(hour=h, minute=int(mm or 0), second=0, microsecond=0)
+    return at.timestamp() + (86400 if at.timestamp() <= now else 0)
+
+
 def inline_overrides(text: str) -> tuple[str | None, str | None]:
     """话里明说了模型或深度（“用 opus”“深度调到高”），就以你说的为准。"""
     model = effort = None
@@ -214,10 +253,10 @@ class Bridge:
             await asyncio.sleep(self.progress_every[long])
 
     async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
-        """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。"""
+        """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。网页开着时进度只在网页里看，钉钉只在钉钉里说的话才发。"""
         await asyncio.sleep(self.receipt_delay)
-        if job.finished or turn.ended or self.cfg.dingtalk_quiet:
-            return  # 安静模式：进度只在网页里看，钉钉不发工作台
+        if job.finished or turn.ended or self.cfg.dingtalk_quiet or (self.web.enabled and job.via != "dingtalk"):
+            return
         if self.board:
             return  # 工作台自己会刷新出这一件
         try:
@@ -226,7 +265,7 @@ class Bridge:
             log.warning("发工作台失败", exc_info=True)
             await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}", board=False)
 
-    async def compact(self, num: int | None) -> str:
+    async def compact(self, num: int | None, via: str = "dingtalk") -> str:
         """压缩某个对话的上下文：发 /compact 给它；正在做就排到这一轮之后。返回给网页的一句话。"""
         s = self.registry.get(num or self.registry.current)
         if not s or not (s.claude_id or s.codex_id):
@@ -236,9 +275,10 @@ class Bridge:
         if state := self.runner.compacting(s.num):   # 点了两次也只压一次
             return f"{s.label} " + ("正在压缩，大约一分钟。" if state == "running" else "已经排着要压缩了，手上的做完就压。")
         self._compact_from[s.num] = s.context_pct
-        ahead = self.runner.submit(s, Job(text=COMPACT))
+        ahead = self.runner.submit(s, Job(text=COMPACT, via=via))
         msg = f"{s.label} 开始压缩上下文" + (f"，等手上 {ahead} 件做完再压" if ahead else "") + "，大约一分钟。"
-        await self.detail("压缩", msg)
+        if via == "dingtalk" or not self.web.enabled:
+            await self.detail("压缩", msg)
         return msg
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
@@ -246,6 +286,8 @@ class Bridge:
             before = self._compact_from.pop(s.num, None)
             after = s.context_pct
             span = f"{before:.0f}% → {after:.0f}%" if before is not None and after is not None else (f"现在 {after:.0f}%" if after is not None else "")
+            if self.web.enabled and turn.via != "dingtalk":
+                return   # 网页里点的压缩，网页上看得到结果
             return await self.say("压缩好了", f"{s.label} 压缩好了：上下文 {span}。之前聊过的要点都还记得。")
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
@@ -267,10 +309,30 @@ class Bridge:
         s.last_title = title
         s.last_summary = f"你说“{turn.request}”，它答“{report.brief(turn.final_text, 60)}”"
         s.awaiting = "" if turn.is_error else asks_user(turn.final_text)
+        s.awaiting_kind = awaiting_kind(turn.final_text) if s.awaiting else ""
+        if turn.is_error and (until := limit_reset(turn.error or turn.final_text)):
+            s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
+            asyncio.create_task(self._auto_resume(s.num, until))
         self.registry.save()
-        if self.web.enabled:  # 手机通知：主屏幕上的小E 直接弹
-            head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting)
-            asyncio.create_task(self.web.push.send(head, what, s.num))
+        # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
+        # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
+        viewing = self.web.enabled and self.web.watching(s.num)
+        full = turn.via == "dingtalk" or not self.web.enabled
+        pushed = 0
+        if self.web.enabled and not viewing:
+            head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
+                                             s.awaiting_kind, s.limit_until if turn.is_error else 0)
+            pushed = await self.web.push.send(head, what, s.num)
+        if not full:
+            if not viewing and not pushed:
+                head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
+                                                 s.awaiting_kind, s.limit_until if turn.is_error else 0)
+                try:
+                    await self.say(f"#{s.num} {what[:20]}", f"**#{s.num} {s.name}**　{what}　[在案头看]({self.web.link(f'/_x/#s{s.num}')})",
+                                   board=False)
+                except Exception:  # noqa: BLE001
+                    log.exception("钉钉提醒 #%s 失败", s.num)
+            return
         try:
             await self.say(title, body, board=False)
             for img in turn.images:
@@ -294,6 +356,17 @@ class Bridge:
         except Exception:
             log.exception("推送 #%s 的结果失败", s.num)
         await self._board_follow()
+
+    async def _auto_resume(self, num: int, until: float) -> None:
+        """额度恢复后一分钟，替你说一句“继续”（你点了“别自动接”、或已经自己接着说了就不说）。"""
+        await asyncio.sleep(max(0.0, until + 60 - time.time()))
+        s = self.registry.get(num)
+        if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden:
+            return
+        s.limit_until = 0.0
+        self.record("小E", "额度恢复，自动接着做", num=num)
+        inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text="继续", via="auto")
+        await self._submit(s, "继续", inc)
 
     async def _reply(self, answer: str, text: str, inc: Incoming) -> None:
         """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
@@ -774,7 +847,7 @@ class Bridge:
         await self.say("接着还是新开", f"这句要接着 {cur.label}，还是新开一个？回编号：\n\n1. 接着 {cur.label}\n2. 新开（{where}）")
 
     async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
-        s.awaiting = ""
+        s.awaiting, s.awaiting_kind, s.limit_until = "", "", 0.0
         if text.strip() and text != COMPACT:
             shown = text.split("\n\n（下面是引用的内容")[0].strip()
             self.outgoing.setdefault(s.num, []).append({"t": time.time(), "text": shown})
@@ -786,15 +859,17 @@ class Bridge:
         for i, (code, fname) in enumerate(inc.files):
             path = await self.dt.download(code, inbox / f"{stamp}-{i}-{Path(fname).name}")
             text += f"\n\n（附件已存到：{path}）"
-        job = Job(text=text, images=images)
+        job = Job(text=text, images=images, via=inc.via)
         self.work_at = time.time()
         ahead = self.runner.submit(s, job)
         if ahead == -1:
+            if inc.via != "dingtalk" and self.web.enabled:
+                return   # 网页里插的话网页上看得到，钉钉不再说一遍
             return await self.detail("插话", f"插话给 {s.label} 了：它手上这一步做完就会看到，接着按你说的调整。")
         msg = opening or f"收到 · {s.label} 在做：{report.brief(text) or '看图'}"
         if ahead:
             msg += f"，前面还有 {ahead} 件，做完再做这件"
-        if opening or ahead:  # 其余的“收到”由进度卡代替（几秒内答完的不发）
+        if (opening or ahead) and (inc.via == "dingtalk" or not self.web.enabled):  # 其余的“收到”由进度卡代替；网页里说的网页上看
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
@@ -874,5 +949,8 @@ class Bridge:
         asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
+        for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
+            if s.limit_until and s.auto_resume:
+                asyncio.create_task(self._auto_resume(s.num, s.limit_until))
         log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
         await client.start()

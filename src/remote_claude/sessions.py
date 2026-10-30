@@ -26,6 +26,7 @@ from .report import Turn, brief
 log = logging.getLogger(__name__)
 
 STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，小E 分派时也不考虑
+CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收起（问个天气、查个词，不必在列表里挂一周）
 
 APPEND = """回复一律用简体中文，思考和过程中的说明也用简体中文；专有名词、代码、命令、路径保持原样。
 做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
@@ -69,6 +70,13 @@ class Session:
     renamed: bool = False  # 你手动改过名：自动起名不再动它
     titled: bool = False  # 已经自动起过短名字
     hidden_at: float = 0.0  # 删除（收起）的时间：30 天内搜得到、能找回
+    awaiting_kind: str = ""  # decide = 真在等你定（列了方案、要你批准、直接问你）；suggest = 活做完了、顺口问要不要再做点什么
+    worked: bool | None = None  # 动过手（改文件、跑命令、交图交文件）；只聊天的是 False，一天后收起；老对话不知道，按 7 天
+    limit_until: float = 0.0  # 撞上 5 小时额度：几点恢复；恢复后一分钟自动接着做（auto_resume 关了就不接）
+    auto_resume: bool = True
+    rewind_at: str = ""  # 你点了“回到这里”：下一句从这条记录接着（之后的收起）；还没说下一句前能撤销
+    rewind_note: str = ""  # 回到这里时顺带说明（收起了几条、文件退没退）
+    feedback: dict = field(default_factory=dict)  # 最近一次试课反馈在哪一屏：{course, section, screen, where}，回复里的试课链接直接跳回那屏
 
     @property
     def label(self) -> str:
@@ -116,10 +124,12 @@ class Registry:
         return self.sessions.get(num) if num is not None else None
 
     def visible(self) -> list[Session]:
-        """没被收起的对话：没删、7 天内动过（正在做或排队的总算在内）。"""
+        """没被收起的对话：没删、7 天内动过（只聊天的 1 天）；正在做、排队、在等你的总算在内。"""
         now = time.time()
         return [s for s in self.sessions.values()
-                if not s.hidden and (s.pinned or now - s.updated < STALE or s.status in ("running", "queued"))]
+                if not s.hidden and (s.pinned or s.status in ("running", "queued")
+                                     or (s.awaiting_kind == "decide" and now - s.updated < STALE)
+                                     or now - s.updated < (CHAT_STALE if s.worked is False else STALE))]
 
 
 class FolderBlocked(Exception):
@@ -131,6 +141,8 @@ class Job:
     text: str
     images: list[Path] = field(default_factory=list)
     finished: bool = False
+    via: str = ""  # 从哪说的（web / dingtalk / feedback / auto）
+    parts: list[str] = field(default_factory=list)  # 还没开工时你连着说的几句并成了这一件（网页上照旧一句一句显示）
 
 
 Notify = Callable[[Session, Turn], Awaitable[None]]
@@ -180,8 +192,23 @@ class Runner:
             turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
             asyncio.create_task(self._inject(s, client, job))
             return -1
+        if (turn and not client and s.engine != "codex" and turn.accepting and not turn.interrupted and job.text != COMPACT
+                and turn.request != _request_title(Job(text=COMPACT))):
+            # 刚开工、Claude 还没连上（头几秒）：等它连上就插进这一轮，不排到下一轮单独再答一遍
+            turn.injected += 1
+            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
+            asyncio.create_task(self._inject_when_ready(s, turn, job))
+            return -1
         q = self.queues.setdefault(s.num, asyncio.Queue())
         ahead = q.qsize() + (1 if s.num in self.turns else 0)
+        last = q._queue[-1] if q.qsize() else None  # noqa: SLF001
+        if last and last.text != COMPACT and job.text != COMPACT and last.via == job.via:
+            # 前一句还排着没开工，你又补了一句：并成一件交给它，免得它把几句话分成几轮一句句答
+            last.parts = last.parts or [last.text]
+            last.parts.append(job.text)
+            last.text = f"{last.text}\n\n{job.text}"
+            last.images += job.images
+            return ahead - 1
         q.put_nowait(job)
         if s.num not in self.workers or self.workers[s.num].done():
             self.workers[s.num] = asyncio.create_task(self._worker(s.num))
@@ -198,6 +225,18 @@ class Runner:
             if s.num not in self.workers or self.workers[s.num].done():
                 self.workers[s.num] = asyncio.create_task(self._worker(s.num))
 
+    async def _inject_when_ready(self, s: Session, turn: Turn, job: Job) -> None:
+        for _ in range(180):
+            if self.turns.get(s.num) is not turn or not turn.accepting:
+                break
+            if client := self.clients.get(s.num):
+                return await self._inject(s, client, job)
+            await asyncio.sleep(0.5)
+        q = self.queues.setdefault(s.num, asyncio.Queue())   # 没赶上这一轮：排到下一轮
+        q.put_nowait(job)
+        if s.num not in self.workers or self.workers[s.num].done():
+            self.workers[s.num] = asyncio.create_task(self._worker(s.num))
+
     async def _inject(self, s: Session, client: ClaudeSDKClient, job: Job) -> None:
         try:
             await client.query(self._prompt(job))
@@ -211,6 +250,33 @@ class Runner:
         """还排着没开始的（按顺序）。"""
         q = self.queues.get(num)
         return list(q._queue) if q else []  # noqa: SLF001 - asyncio.Queue 没有公开的查看方法
+
+    def unqueue_last(self, num: int) -> Job | None:
+        """撤回还排着没开始的最后一句。"""
+        q = self.queues.get(num)
+        if not q or q.empty():
+            return None
+        job = q._queue.pop()  # noqa: SLF001
+        return job
+
+    async def rewind_files(self, s: Session, user_uuid: str) -> str:
+        """把文件退回到你说某句话之前的样子（Claude 自己的改动记录，只有开了记录之后的轮次有）。返回空 = 成功，否则是原因。"""
+        options = ClaudeAgentOptions(cwd=s.cwd, add_dirs=s.add_dirs, resume=s.claude_id, setting_sources=[],
+                                     permission_mode="bypassPermissions", enable_file_checkpointing=True,
+                                     extra_args={"replay-user-messages": None}, stderr=lambda line: log.debug("claude: %s", line))
+        client = ClaudeSDKClient(options=options)
+        try:
+            await asyncio.wait_for(client.connect(), 90)
+            await asyncio.wait_for(client.rewind_files(user_uuid), 90)
+            return ""
+        except Exception as e:  # noqa: BLE001 - 退不回就告诉你原因，对话照样回到那里
+            log.warning("#%s 退回文件失败：%s", s.num, e)
+            return "那几轮的改动没有记录（多半是开启改动记录之前做的），文件没退回"
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
 
     def compacting(self, num: int) -> str:
         """这个对话的压缩：正在压返回 "running"，排着返回 "queued"，没有返回 ""。"""
@@ -301,7 +367,7 @@ class Runner:
             s.status = "queued"
             self.registry.save()
             async with self.sem:
-                turn = Turn(started=time.time(), request=_request_title(job))
+                turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time())
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
@@ -328,10 +394,15 @@ class Runner:
                     self.last[num] = turn
                     self.turns.pop(num, None)
                     self.clients.pop(num, None)
-                    if turn.is_error and s.claude_id == started_before and not turn.final_text:
+                    if (turn.is_error and s.claude_id == started_before and not turn.final_text
+                            and not re.search(r"hit your .{0,20}limit", turn.error)):   # 撞额度时它其实收到了，恢复后说“继续”就行
                         s.unsent = job.text  # Claude 一个字都没收到，下次一起带上
                     s.status = "error" if turn.is_error else "idle"
                     s.updated = time.time()
+                    if turn.changed_files or turn.commands or turn.images or turn.files:
+                        s.worked = True
+                    elif s.worked is None and started_before is None and not turn.is_error:
+                        s.worked = False   # 新开的对话头一轮只聊了天
                     self.registry.save()
             await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
             job.finished = True
@@ -342,8 +413,9 @@ class Runner:
     async def title_all(self, records_dir: Path) -> None:
         """还没起过短名字的对话（你手动改过名的除外）一个个补上：按它最近一轮你说的话和回复起。启动时跑一次。"""
         for s in list(self.registry.sessions.values()):
-            if s.renamed or (s.titled and len(s.name) <= 12) or s.status in ("running", "queued"):
-                continue   # 早先起的长名字（十几个字）也重起一次
+            from .naming import valid
+            if s.renamed or (s.titled and valid(s.name)) or s.status in ("running", "queued"):
+                continue   # 早先起的长名字、起坏了的（“Here's a tit”“大会话名字：…”）也重起一次
             recs = sorted(records_dir.glob(f"{s.num}-*.json"), key=lambda p: int(p.stem.split("-")[1]))
             try:
                 first = json.loads(recs[0].read_text()) if recs else {}
@@ -453,6 +525,8 @@ class Runner:
             model=s.model,
             effort=s.effort or self.default_effort or None,
             resume=s.claude_id,
+            resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
+            enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
             setting_sources=["user", "project", "local"],
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code", "append": APPEND},
@@ -481,6 +555,7 @@ class Runner:
                 except (StopAsyncIteration, asyncio.TimeoutError):
                     break
                 after_result = False
+                turn.last_at = time.time()
                 if isinstance(msg, (TaskStartedMessage, TaskProgressMessage, TaskNotificationMessage, TaskUpdatedMessage)):
                     track_agent(turn, msg)
                 elif isinstance(msg, SystemMessage):
@@ -526,6 +601,7 @@ class Runner:
                     turn.accepting = False
                     if msg.session_id:
                         s.claude_id = msg.session_id
+                        s.rewind_at = s.rewind_note = ""   # 已经从那条接着说了，回到这里落定
                     if not msg.is_error and NOISE.match(msg.result or ""):
                         # 上一轮留下的后台任务通知先被答了一句“No response requested.”，你这句还排在后面：接着读，别当成回复
                         after_result, wait_more = True, 60
@@ -646,6 +722,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
     started_cmds: set[str] = set()
 
     def on_event(method: str, prm: dict) -> None:
+        turn.last_at = time.time()
         item = prm.get("item") or {}
         kind = item.get("type")
         if method == "item/agentMessage/delta":

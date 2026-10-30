@@ -669,3 +669,82 @@ def test_start_keeps_picked_model(tmp_path):
         assert ss[2].engine == "claude" and ss[2].model
 
     asyncio.run(go())
+
+
+def test_notify_routing(tmp_path, monkeypatch):
+    """做完怎么通知：正开着看 → 什么都不发；手机通知发到了 → 钉钉不说；没发到 → 钉钉一句话带链接；钉钉里说的 → 照旧全发回钉钉。"""
+    from remote_claude.dingtalk import Incoming
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False,
+                 web_base="https://xe.example")
+
+    async def fake_run(self, s, job, turn):
+        turn.changed_files.append(str(tmp_path / "a.py"))
+        turn.final_text = "改好了"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+    pushes = []
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        ok = {"n": 1}
+
+        async def fake_push(title, body, num=None):
+            pushes.append(body)
+            return ok["n"]
+        b.web.push.send = fake_push
+        web = lambda t: Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text=t, via="web")
+        await b._new([], "查一下", web("查一下"))
+        await asyncio.sleep(0.2)
+        assert len(pushes) == 1 and dt.sent == []                       # 推送到了：钉钉安静
+        s = b.registry.get(1)
+        b.web.watch[1] = __import__("time").time()                     # 正开着看
+        await b._submit(s, "再查", web("再查"))
+        await asyncio.sleep(0.2)
+        assert len(pushes) == 1 and dt.sent == []
+        b.web.watch.clear()
+        ok["n"] = 0                                                     # 推送没发到
+        await b._submit(s, "又查", web("又查"))
+        await asyncio.sleep(0.2)
+        assert len(dt.sent) == 1 and "在案头看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
+        dt.sent.clear()
+        await b.on_raw(msg("#1 钉钉里问"))                              # 钉钉里说的：完整报告回钉钉
+        await asyncio.sleep(0.2)
+        assert any("改好了" in t for _, t in dt.sent)
+
+    asyncio.run(go())
+
+
+def test_limit_auto_resume(tmp_path, monkeypatch):
+    """撞上 5 小时额度：记下几点恢复；到点后自动说“继续”；点了“别自动接”就不说。"""
+    import time
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    runs = []
+
+    async def fake_run(self, s, job, turn):
+        runs.append(job.text)
+        if len(runs) == 1:
+            turn.is_error, turn.error = True, "You've hit your session limit · resets 5:40pm (Asia/Taipei)"
+        else:
+            turn.final_text = "接着做完了"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    from remote_claude import app as appmod
+    monkeypatch.setattr(appmod, "limit_reset", lambda text, now=None: time.time() - 59.9 if "limit" in text else None)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(cfg, dt, data_dir=tmp_path / "data")
+        await b.on_raw(msg("新开：做件事"))
+        await asyncio.sleep(0.5)
+        assert runs == ["做件事", "继续"] and b.registry.get(1).limit_until == 0
+
+    asyncio.run(go())

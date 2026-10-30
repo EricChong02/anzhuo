@@ -38,6 +38,8 @@ class Turn:
     plan: list = field(default_factory=list)  # 这件事拆成的几步：{text, status: pending/doing/done}
     agents: dict = field(default_factory=dict)  # 派出去的助手（子代理、后台命令）：task_id → {name, t0, t1, status, last}
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
+    last_at: float = 0.0  # 最近一次有动静（新的一步、一段话、助手进展）：网页据此提示“好一会儿没动静了”
+    via: str = ""  # 这一轮是从哪说的：web / dingtalk / feedback（钉钉里说的，结果照旧全发回钉钉）
 
 
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
@@ -62,12 +64,16 @@ def _plain(line: str) -> str:
     return re.sub(r"^\s*(?:#+|[-•>]|\d+[.、])\s*", "", line).strip()
 
 
-def push_message(name: str, request: str, final: str, is_error: bool, awaiting: str) -> tuple[str, str]:
+def push_message(name: str, request: str, final: str, is_error: bool, awaiting: str, kind: str = "",
+                 limit_until: float = 0) -> tuple[str, str]:
     """手机通知：标题是哪个对话，正文一句短话说怎么样了（细节点进去看）。"""
+    if limit_until:
+        import time as _t
+        return name, f"额度用完了，{_t.strftime('%H:%M', _t.localtime(limit_until))} 恢复后自动接着做"
     if is_error:
         return name, "出错了，点开看原因"
-    if awaiting:
-        return name, "等你回答：" + brief(_plain(awaiting), 18)
+    if awaiting and kind != "suggest":
+        return name, "等你定：" + brief(_plain(awaiting), 18)
     lines = [_plain(ln) for ln in (final or "").splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith(_SECTIONS) and ln != "---"]
     return name, "做完了" + ("：" + brief(lines[0], 18) if lines else "")

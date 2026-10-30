@@ -22,6 +22,29 @@ def test_preview_allowed():
     assert not any(preview_allowed(m, p) for m, p in bad)
 
 
+def test_course_list_stages(tmp_path):
+    """侧栏“课”：草稿和已上架的都列，标出走到哪了；发布后又改过的标出来。"""
+    import json, os
+    def course(rel, vis="hidden", t=0):
+        d = tmp_path / rel
+        (d / "fragments").mkdir(parents=True)
+        (d / "course.json").write_text(json.dumps({"title": rel.split("/")[-1].upper(), "catalog": {"visibility": vis}}))
+        os.utime(d / "course.json", (t, t))
+    now = time.time()
+    course("_drafts/a", t=now - 10)
+    course("topics/bx1/b", "published", t=now - 100)
+    course("topics/bx1/c", "published", t=now - 5000)
+    course("topics/bx2/d", t=now - 9000)
+    (tmp_path / "_published.json").write_text(json.dumps({"courses": {"b": {"since": {"version": now - 4000}},
+                                                                      "c": {"since": {"version": now - 4000}}}}))
+    w = Web("http://x", 0, tmp_path / "data", "", str(tmp_path))
+    got = {d["dir"]: (d["stage"], d["dirty"], d["rel"]) for d in w._drafts()}
+    assert [d["dir"] for d in w._drafts()] == ["a", "b", "c", "d"]
+    assert got == {"a": ("draft", False, "_drafts/a"), "b": ("published", True, "topics/bx1/b"),
+                   "c": ("published", False, "topics/bx1/c"), "d": ("hidden", False, "topics/bx2/d")}
+    assert "/workspace/topics/bx1/b/course.json" in w._drafts()[1]["url"].replace("%2F", "/")
+
+
 def test_course_previews(tmp_path):
     lesson = tmp_path / "_drafts" / "l01"
     (lesson / "fragments").mkdir(parents=True)

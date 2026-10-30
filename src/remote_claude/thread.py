@@ -100,6 +100,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
     items: list[dict] = []
     reply, steps, process = "", 0, []
     ts = 0.0  # 回复那段话的时间
+    end = ""  # 这一轮最后一条记录的编号：“回到这里”从它接着
 
     def flush():
         nonlocal reply, steps, process
@@ -107,7 +108,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
             # 最后那段话是回复本身，不算进过程
             if process and process[-1]["k"] == "say" and process[-1]["text"] == reply[:1500]:
                 process.pop()
-            items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:]})
+            items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:], **({"end": end} if end else {})})
             if times is not None:
                 items[-1]["ts"] = ts
         reply, steps, process = "", 0, []
@@ -130,7 +131,10 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                 items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
             else:
                 items.append({"who": "you", "text": text.strip()})
+            if getattr(m, "uuid", ""):
+                items[-1]["uuid"] = m.uuid
         elif m.type == "assistant" and isinstance(content, list):
+            end = getattr(m, "uuid", "") or end
             for b in content:
                 kind = b.get("type") if isinstance(b, dict) else None
                 if kind == "thinking" and (b.get("thinking") or "").strip():
@@ -145,6 +149,10 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                     if label:
                         process.append({"k": "do", "text": label, "detail": _detail(b.get("name", ""), b.get("input") or {})})
     flush()
+    # 压缩点之前的回复不能“回到这里”（要把压缩前的整段重新带上，上下文会撑爆）
+    last_note = max((i for i, it in enumerate(items) if it["who"] == "note"), default=-1)
+    for it in items[:last_note + 1]:
+        it.pop("end", None)
     out = items[-limit:]
     replies = [it for it in out if it["who"] == "claude"]
     for it in replies[:-PROCESS_KEEP]:
@@ -172,6 +180,7 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         it["title"] = rec.get("title", "")
         it["images"] = rec.get("images", [])
         it["files"] = rec.get("files", [])
+        it["nfiles"], it["ncmds"] = rec.get("nfiles", 0), rec.get("ncmds", 0)
         if rec.get("final_text") and rec.get("translated"):
             it["text"] = rec["final_text"]  # 钉钉里发的是译好的中文，网页也用它
     return items
