@@ -405,12 +405,29 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .quota-reset{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;margin-top:8px;font-size:13px;line-height:1.5;color:var(--ink)}
 .quota-reset span+span{color:var(--mute)}
 @media(min-width:601px){.quota-dialog{align-items:center}}
+
+.schedule-entry{min-height:44px;gap:10px;color:var(--mute)} .schedule-entry>svg{width:18px;height:18px}
+.schedule-dialog .box{width:min(520px,100%);padding:22px;max-height:calc(100dvh - 48px - env(safe-area-inset-bottom));overflow:auto}
+.schedule-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.schedule-head h2{font-size:20px;line-height:1.4;margin:0;font-weight:600}
+.schedule-dialog .schedule-head>button{width:32px;height:32px;padding:0;display:grid;place-items:center;background:var(--bg);border-radius:50%;flex:none}
+.schedule-head svg{width:18px;height:18px} .schedule-dialog .on{justify-content:center;margin-top:18px}
+.schedule-rows{max-height:60dvh;overflow:auto} .schedule-card{padding:14px 0;border-top:1px solid var(--line)} .schedule-card:first-child{border-top:0;padding-top:0}
+.schedule-card-top{display:flex;align-items:baseline;gap:12px;justify-content:space-between}.schedule-card h3{font-size:16px;font-weight:550;margin:0;overflow-wrap:anywhere}
+.schedule-card-top>span,.schedule-meta{font-size:13px;color:var(--mute);line-height:1.6}.schedule-card-top>span{white-space:nowrap}.schedule-meta{margin-top:5px}
+.schedule-dialog .bad,.schedule-error{color:var(--red)} .schedule-error{font-size:14px;line-height:1.5;margin-top:10px;overflow-wrap:anywhere}
+.schedule-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.schedule-dialog .schedule-tools button{width:auto;min-height:36px;height:auto;padding:6px 9px;font-size:13px;background:var(--bg);border-radius:8px}
+.schedule-empty{text-align:center;padding:28px 12px;color:var(--mute);font-size:15px}
+.schedule-form label{display:block;font-size:14px;color:var(--mute);margin-top:14px}
+.schedule-form input,.schedule-form textarea,.schedule-form select{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;margin:6px 0 0}
+.schedule-form textarea{resize:vertical;line-height:1.5}.schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.schedule-grid>*{min-width:0}
+@media(min-width:601px){.schedule-dialog{align-items:center}}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
     <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
-    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><div id="courses"></div><div id="list"></div>
       <button id="logoutBtn" hidden></button>
     </div>
     <div class="quota" id="quota" hidden></div>
@@ -757,6 +774,81 @@ function sheet(html) {
   el.onclick = e => { if (e.target === el) el.remove(); };
   document.body.appendChild(el); return el;
 }
+function scheduleDate(ts) {
+  return ts ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Taipei', month:'numeric', day:'numeric', weekday:'short', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).format(new Date(ts * 1000)) : '—';
+}
+function scheduleLocal(ts) {
+  return new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).format(new Date(ts * 1000)).replace(' ', 'T');
+}
+function scheduleModal(html) {
+  const el = sheet(html); el.classList.add('schedule-dialog');
+  const box = el.querySelector('.box'); box.setAttribute('role','dialog'); box.setAttribute('aria-modal','true'); box.setAttribute('aria-label','定时任务');
+  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
+  return el;
+}
+async function openSchedules() {
+  const el = scheduleModal(`<div class="schedule-head"><h2>定时任务</h2><button id="scheduleClose" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="scheduleRows" class="schedule-rows">正在读取…</div><button class="on" id="scheduleNew">新建定时任务</button>`);
+  el.querySelector('#scheduleClose').onclick = () => el.remove();
+  el.querySelector('#scheduleNew').onclick = () => { el.remove(); scheduleForm(); };
+  el.querySelector('#scheduleClose').focus();
+  const states = {idle:'待执行',dispatching:'正在提交',submitted:'排队中',running:'执行中',completed:'已完成',failed:'执行失败',uncertain:'待确认'};
+  let tasks = [];
+  async function load() {
+    try {
+      const d = await api('schedules'); if (!el.isConnected) return;
+      tasks = d.tasks || [];
+      if (d.error) { el.querySelector('#scheduleRows').textContent = d.error; return; }
+      el.querySelector('#scheduleRows').innerHTML = tasks.length ? tasks.map(t => `<article class="schedule-card"><div class="schedule-card-top"><h3>${esc(t.title)}</h3><span class="${['failed','uncertain'].includes(t.state) ? 'bad' : ''}">${['failed','uncertain'].includes(t.state) ? states[t.state] : !t.enabled && !['submitted','running','dispatching'].includes(t.state) ? (t.kind === 'once' && t.state === 'completed' ? '已完成' : '已暂停') : states[t.state] || t.state}</span></div>
+        <div class="schedule-meta">${t.kind === 'once' ? '单次' : t.kind === 'daily' ? '每天' : '每周' + ['一','二','三','四','五','六','日'][t.weekday]} · ${t.kind === 'once' ? scheduleDate(Date.parse(t.run_at)/1000) : esc(t.time)} · ${esc((modelOpts.find(m => m[0] === t.model) || [, '继承 / 自动'])[1])}</div>
+        ${t.enabled && t.next_at ? `<div class="schedule-meta">下次：${scheduleDate(t.next_at)}</div>` : ''}
+        ${t.error ? `<div class="schedule-error">${esc(t.error)}</div>` : ''}
+        <div class="schedule-tools">${t.target ? `<button data-open="${t.target}">查看对话</button>` : ''}<button data-edit="${t.id}">${t.kind === 'once' && !t.next_at ? '重新安排' : '修改'}</button>${t.kind === 'once' && !t.next_at ? '' : `<button data-action="${t.enabled ? 'pause' : 'resume'}" data-id="${t.id}">${t.enabled ? '暂停' : '恢复'}</button>`}<button class="bad" data-action="delete" data-id="${t.id}">删除</button></div></article>`).join('') : '<div class="schedule-empty">还没有定时任务</div>';
+    } catch (e) { if (el.isConnected) el.querySelector('#scheduleRows').textContent = '暂时读不到任务，请稍后重试'; }
+  }
+  el.querySelector('#scheduleRows').onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.open) { el.remove(); openSession(+b.dataset.open); return; }
+    if (b.dataset.edit) { const t = tasks.find(t => t.id === b.dataset.edit); el.remove(); scheduleForm(t); return; }
+    if (b.dataset.action) {
+      if (b.dataset.action === 'delete' && b.dataset.confirm !== 'yes') { b.dataset.confirm = 'yes'; b.textContent = '再次点击删除'; return; }
+      b.disabled = true;
+      const d = await api('schedules', {action:b.dataset.action,id:b.dataset.id}).catch(() => null);
+      if (!d?.ok) toast(d?.error || '没改成功，请重试');
+      await load();
+    }
+  };
+  await load();
+  const timer = setInterval(() => { if (!el.isConnected) clearInterval(timer); else load(); }, 5000);
+}
+async function scheduleForm(task = {}) {
+  await loadSessions();
+  const el = scheduleModal(`<div class="schedule-head"><h2>${task.id ? '修改定时任务' : '新建定时任务'}</h2><button id="scheduleBack" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button></div>
+    <form class="schedule-form"><label>名称<input name="title" maxlength="80" placeholder="例如：早间要闻" value="${esc(task.title || '')}"></label>
+    <label>要做的事<textarea name="prompt" required maxlength="20000" rows="3" placeholder="写清希望案头完成的任务">${esc(task.prompt || '')}</textarea></label>
+    <div class="schedule-grid"><label>执行频率<select name="kind"><option value="once">单次</option><option value="daily">每天</option><option value="weekly">每周</option></select></label><label id="scheduleWeek">星期<select name="weekday">${['周一','周二','周三','周四','周五','周六','周日'].map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></label></div>
+    <label id="scheduleOnce">执行日期与时间<input type="datetime-local" name="run_at"></label><label id="scheduleClock">执行时刻<input type="time" name="time"></label>
+    <div class="schedule-meta">按台北时间执行</div>
+    <label>在哪个对话执行<select name="target"><option value="">新开专用对话</option>${sessions.map(s=>`<option value="${s.num}">#${s.num} ${esc(s.name)}</option>`).join('')}</select></label>
+    <label id="scheduleFolder">工作文件夹<select name="folder"><option value="">独立临时文件夹</option>${folders.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select></label>
+    <div class="schedule-grid"><label>模型<select name="model"><option value="auto">继承 / 自动</option>${modelOpts.map(([k,t])=>`<option value="${k}">${esc(t)}</option>`).join('')}</select></label><label>思考深度<select name="effort">${EFFORT_OPTS.map(([k,t])=>`<option value="${k}">${t}</option>`).join('')}</select></label></div>
+    <div class="schedule-error" id="scheduleError" role="alert" hidden></div><button class="on" type="submit">保存任务</button></form>`);
+  const form = el.querySelector('form'), field = k => form.elements.namedItem(k);
+  field('kind').value = task.kind || 'once'; field('weekday').value = task.weekday ?? 0; field('time').value = task.time || '08:00';
+  field('run_at').value = scheduleLocal(task.kind === 'once' && task.run_at ? Date.parse(task.run_at)/1000 : Date.now()/1000+3600);
+  field('target').value = task.target || ''; field('folder').value = task.folder || ''; field('model').value = task.model || 'auto'; field('effort').value = task.effort || 'medium';
+  const change = () => { el.querySelector('#scheduleOnce').hidden = field('kind').value !== 'once'; el.querySelector('#scheduleClock').hidden = field('kind').value === 'once'; el.querySelector('#scheduleWeek').hidden = field('kind').value !== 'weekly'; el.querySelector('#scheduleFolder').hidden = !!field('target').value; };
+  field('kind').onchange = change; field('target').onchange = change; change();
+  el.querySelector('#scheduleBack').onclick = () => { el.remove(); openSchedules(); };
+  form.onsubmit = async e => {
+    e.preventDefault(); const b = form.querySelector('button[type=submit]'); b.disabled = true;
+    const data = Object.fromEntries(new FormData(form)); data.action = 'save'; if (task.id) data.id = task.id;
+    const d = await api('schedules', data).catch(() => null);
+    if (!d?.ok) { const err = el.querySelector('#scheduleError'); err.hidden = false; err.textContent = d?.error || '没保存成功，请重试'; b.disabled = false; return; }
+    el.remove(); openSchedules();
+  };
+}
+$('#schedulesBtn').onclick = openSchedules;
+
 function rowMenu(num) {
   const s = sessions.find(x => x.num === num); if (!s) return;
   const el = sheet(`<div class="t">${esc(s.name)}</div>
@@ -1515,6 +1607,7 @@ function wireComposer(sendFn, onSent, onOpening) {
       });
       $('#warn').classList.remove('prog'); warn('');
       if (r.ok) {
+        if (r.scheduled) { undo(); toast('定时任务已安排 · ' + scheduleDate(r.scheduled.next_at)); }
         if (item) item.acked = true;
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }

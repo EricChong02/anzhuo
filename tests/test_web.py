@@ -712,3 +712,37 @@ def test_quota_reset_epoch_is_absolute(monkeypatch):
     assert rows[0]["reset_at"] == datetime.datetime(2027, 1, 1, 4).timestamp()
     assert rows[1]["reset_at"] < now  # 已过期的时间不能被误认成明年
     assert rows[2]["reset_at"] is None
+
+def test_schedule_management_and_natural_request_api(tmp_path):
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace as NS
+    from remote_claude.app import Bridge
+    from remote_claude.config import Config
+    from remote_claude.schedules import TZ
+    from remote_claude.sessions import Session
+    async def go():
+        b=Bridge(Config(client_id='test',allowed_user_ids=['me'],scratch_root=str(tmp_path/'scratch')),NS(secret='x'),tmp_path/'data')
+        w=b.web;w.base='http://x.example';w.user='u';w.pw_hash=hash_password('p',iters=1000)
+        s=b.registry.add(Session(num=b.registry.reserve_num(),name='现有对话',cwd=str(tmp_path)))
+        c=TestClient(TestServer(w.app()));await c.start_server()
+        try:
+            assert (await c.get('/_x/api/schedules')).status==401
+            await c.post('/_x/login',data={'username':'u','password':'p'})
+            w.base='https://x.example'  # HTTP TestServer 已取得测试 Cookie，再验证生产同源规则
+            data={'action':'save','prompt':'整理要闻','kind':'once','model':'gpt','run_at':(datetime.now(TZ)+timedelta(hours=1)).isoformat()}
+            created=await (await c.post('/_x/api/schedules',json=data)).json()
+            assert created['ok'];key=created['task']['id']
+            rows=await (await c.get('/_x/api/schedules')).json();assert len(rows['tasks'])==1
+            assert (await c.post('/_x/api/schedules',json={'id':key,'action':'pause'},headers={'Origin':'https://evil.example'})).status==403
+            for action in ['pause','resume']:
+                assert (await (await c.post('/_x/api/schedules',json={'id':key,'action':action})).json())['ok']
+            data.update(id=key,prompt='修改后的内容')
+            assert (await (await c.post('/_x/api/schedules',json=data)).json())['task']['prompt']=='修改后的内容'
+            natural=await (await c.post('/_x/api/send',json={'num':s.num,'text':'两小时后接着这个对话做'})).json()
+            assert natural['scheduled']['target']==s.num and not b.runner.busy(s.num)
+            bad=await (await c.post('/_x/api/send',json={'text':'每天早上25点整理'})).json()
+            assert not bad['ok']
+            assert (await (await c.post('/_x/api/schedules',json={'id':key,'action':'delete'})).json())['ok']
+            assert key not in b.schedules.tasks
+        finally:await c.close()
+    asyncio.run(go())

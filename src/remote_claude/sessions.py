@@ -145,6 +145,8 @@ class FolderBlocked(Exception):
 
 @dataclass
 class Job:
+    schedule_id: str = field(default="", kw_only=True)
+    schedule_run_id: str = field(default="", kw_only=True)
     text: str
     images: list[Path] = field(default_factory=list)
     finished: bool = False
@@ -374,7 +376,7 @@ class Runner:
             s.status = "queued"
             self.registry.save()
             async with self.sem:
-                turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time())
+                turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()

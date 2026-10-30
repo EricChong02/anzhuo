@@ -15,6 +15,8 @@ class Turn:
     started: float
     checkpoint_before: str = ""
     checkpoint_after: str = ""
+    schedule_id: str = ""
+    schedule_run_id: str = ""
     codex_turn_id: str = ""
     request: str = ""  # 这一轮你说的话的开头，做标题
     ended: float = 0.0

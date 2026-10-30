@@ -400,7 +400,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 dest.append(src)
         rec = {
             "id": tid, "label": label, "title": title, "request": turn.request, "cwd": cwd,
-            "started": turn.started, "ended": turn.ended, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
+            "started": turn.started, "ended": turn.ended, "schedule_id": turn.schedule_id, "schedule_run_id": turn.schedule_run_id, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "previews": course_previews(files, self.preview_root), "translated": turn.translated,
@@ -1070,12 +1070,45 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             paths.append(str(p))
         return paths
 
+    async def _api_schedules(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        if request.method == "GET":
+            return web.json_response({"tasks": b.schedules.rows(), "timezone": "Asia/Taipei", "error": b.schedules.load_error})
+        if not self._same_origin(request): raise web.HTTPForbidden()
+        data = await request.json()
+        try:
+            async with b.schedules.lock:
+                action = data.get("action", "save")
+                if action == "save":
+                    task = b.create_schedule(data)
+                    return web.json_response({"ok": True, "task": task})
+                b.schedules.action(str(data.get("id") or ""), action)
+            return web.json_response({"ok": True})
+        except (ValueError, TypeError) as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
     async def _api_send(self, request: web.Request) -> web.Response:
         """在某个对话里说话（它正在做就是插话）；没给 num 就是新开一个对话。"""
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         data = await request.json()
         text = str(data.get("text") or "").strip()
+        from .schedules import parse_request
+        try:
+            plan = parse_request(text)
+            if plan:
+                if data.get("images") or data.get("files"):
+                    raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
+                from .app import inline_overrides, MODELS
+                m, e = inline_overrides(text)
+                model = "gpt" if m == "gpt" else next((k for k, v in MODELS.items() if v == m), "auto")
+                plan.update(target=data.get("num"), model=data.get("model") or model, effort=data.get("effort") or e or "medium",
+                            folder=data.get("folder") if data.get("folder") in self.bridge.cfg.folders else "")
+                async with self.bridge.schedules.lock:
+                    task = self.bridge.create_schedule(plan)
+                return web.json_response({"ok": True, "scheduled": task})
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
         images = await self._save_images(data)
         uploaded = await self._save_files(data)
         if uploaded:
@@ -1603,6 +1636,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/manage/{{num:\\d+}}", self._api_manage)
         app.router.add_get(f"{PREFIX}/api/search", self._api_search)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
+        app.router.add_get(f"{PREFIX}/api/schedules", self._api_schedules)
+        app.router.add_post(f"{PREFIX}/api/schedules", self._api_schedules)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
         app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)

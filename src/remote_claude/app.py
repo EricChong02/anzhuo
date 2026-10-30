@@ -118,6 +118,8 @@ class Bridge:
         self.cfg = cfg
         self.dt = dt
         self.data_dir = data_dir
+        from .schedules import Schedules
+        self.schedules = Schedules(data_dir / "schedules.json")
         self.registry = Registry(data_dir / "sessions.json")
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
                              self._confirm_asked)
@@ -148,6 +150,62 @@ class Bridge:
             if s.status in ("running", "queued"):
                 s.status = "error"
         self.registry.save()
+
+    def create_schedule(self, data: dict) -> dict:
+        target = self.registry.get(int(data["target"])) if data.get("target") else None
+        if data.get("target") and (not target or target.hidden):
+            raise ValueError("目标对话不存在")
+        model = data.get("model") or "auto"
+        if target and model != "auto" and (model == "gpt") != (target.engine == "codex"):
+            raise ValueError("已有对话不能切换 Claude / Codex，请选择继承模型或新开专用对话")
+        if data.get("folder") and data["folder"] not in self.cfg.folders:
+            raise ValueError("请选择已配置的工作文件夹")
+        return self.schedules.upsert(data)
+
+    async def _schedule_failed(self, task: dict):
+        body = f"{task['title']}：{task['error']}。计划已暂停，可在定时任务中修改。"
+        pushed = await self.web.push.send("定时任务未执行", body, task.get("target")) if self.web.enabled else 0
+        if not pushed:
+            await self.say("定时任务未执行", body, board=False)
+
+    def _scheduled_busy(self, num: int) -> bool:
+        s = self.registry.get(num)
+        return self.runner.busy(num) or bool(s and s.status in ("queued", "running"))
+
+    async def _dispatch_schedule(self, task: dict) -> int:
+        s = self.registry.get(task.get("target"))
+        if task.get("target") and (not s or s.hidden):
+            raise ValueError("目标对话已收起或不存在，请修改任务")
+        if s and self._scheduled_busy(s.num):
+            raise ValueError("目标对话正忙，请稍后重新安排")
+        model = task["model"]
+        if s and model != "auto" and (model == "gpt") != (s.engine == "codex"):
+            raise ValueError("目标对话的模型类型发生变化，请修改任务")
+        if not s:
+            num = self.registry.reserve_num()
+            folder = task.get("folder")
+            cwd = Path(self.cfg.folders[folder]).expanduser() if folder else folders.scratch_dir(self.cfg, num)
+            if not cwd.is_dir(): raise ValueError("工作文件夹不存在")
+            if why := await asyncio.to_thread(folders.blocked, [cwd]):
+                raise ValueError("工作文件夹不可访问")
+            pick = model if model != "auto" else (self.cfg.dev_model if _looks_like_project(cwd) else self.cfg.simple_model)
+            s = Session(num=num, name=task['title'], cwd=str(cwd), engine="codex" if pick == "gpt" else "claude",
+                        model=None if pick == "gpt" else MODELS[pick], effort=task['effort'], renamed=True, titled=True)
+            current = self.registry.current
+            self.registry.add(s)
+            self.registry.current = current
+            self.registry.save()
+            task['target'] = s.num
+            self.schedules.save()
+        else:
+            if model != "auto" and model != "gpt": s.model = MODELS[model]
+            s.effort = task['effort']
+        s.awaiting = s.awaiting_kind = ""
+        self.registry.save()
+        job = Job(text=task['prompt'], via="schedule", schedule_id=task['id'], schedule_run_id=task['run_id'])
+        self.outgoing.setdefault(s.num, []).append({'t': time.time(), 'text': task['prompt']})
+        self.runner.submit(s, job)
+        return s.num
 
     # ---------- 发消息 ----------
     def record(self, who: str, text: str, **extra) -> None:
@@ -254,6 +312,8 @@ class Bridge:
 
     async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
         """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。网页开着时进度只在网页里看，钉钉只在钉钉里说的话才发。"""
+        if job.schedule_id:
+            self.schedules.started(job.schedule_id, job.schedule_run_id)
         await asyncio.sleep(self.receipt_delay)
         if job.finished or turn.ended or self.cfg.dingtalk_quiet or (self.web.enabled and job.via != "dingtalk"):
             return
@@ -282,6 +342,8 @@ class Bridge:
         return msg
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if turn.schedule_id:
+            self.schedules.finish(turn.schedule_id, turn.schedule_run_id, turn.error or ("任务未完成" if turn.is_error or turn.interrupted else ""))
         if turn.request == "压缩上下文" and not turn.is_error:
             before = self._compact_from.pop(s.num, None)
             after = s.context_pct
@@ -786,6 +848,21 @@ class Bridge:
         await self._submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
 
     async def _message(self, cmd: Cmd, inc: Incoming, routed: bool = False) -> None:
+        if not routed:
+            from .schedules import parse_request, TZ
+            try:
+                plan = parse_request(cmd.text or "")
+                if plan:
+                    if inc.image_codes or inc.local_images or inc.files:
+                        raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
+                    m, e = inline_overrides(cmd.text)
+                    model = "gpt" if m == "gpt" else next((k for k, v in MODELS.items() if v == m), "auto")
+                    plan.update(target=cmd.num or (self.registry.current if re.search("这个对话|接着|继续", cmd.text) else None), model=model, effort=e or "medium")
+                    task = self.create_schedule(plan)
+                    at = datetime.fromtimestamp(task['next_at'], TZ).strftime('%m月%d日 %H:%M')
+                    return await self.say("定时任务已安排", f"已安排：{task['title']}，下次 {at} 执行。可在网页的定时任务中修改。", board=False)
+            except ValueError as ex:
+                return await self.say("定时任务", str(ex), board=False)
         num = cmd.num
         if num is None and inc.quoted_text:
             m = re.search(r"#(\d{1,4})", inc.quoted_text)
@@ -948,6 +1025,7 @@ class Bridge:
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
+        asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
