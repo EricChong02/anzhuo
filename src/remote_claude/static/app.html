@@ -244,13 +244,12 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .mmenu .lb{font-size:var(--t2);color:var(--mute);padding:8px 10px 4px}
 .mo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8px 10px;border-radius:var(--r1);color:var(--ink)}
 @media (hover:hover){.mo:hover,.item:hover,.amenu button:hover{background:var(--line)}}   /* 手机上点过的一项会一直“悬停”着发灰，看着像卡住了，只在有鼠标时才有 */
-.mo .tx{flex:1} .mo b{display:block;font-size:var(--t3);font-weight:550} .mo small{display:block;font-size:var(--t2);color:var(--mute)}
+.mo .tx{flex:1} .mo b{display:block;font-size:var(--t3);font-weight:550}
 .mo .ok{width:16px;height:16px;color:var(--acc);visibility:hidden} .mo.on .ok{visibility:visible}
 .seg{display:flex;gap:4px;padding:4px 6px 6px} .seg button{flex:1;height:34px;border-radius:var(--r1);font-size:var(--t2);color:var(--ink);background:var(--bg)}
 .seg button.on{background:var(--accsoft);color:var(--acc);font-weight:600}
 /* 新对话页输入框在屏幕中间，上方放不下整张菜单，改成往下展开 */
 @media (min-width:601px){.newv .mmenu{bottom:auto;top:calc(100% + 10px)}} @media (min-width:821px){.main .newv{justify-content:flex-start;padding-top:10vh}} .mmenu{max-height:calc(100dvh - 140px);overflow:auto}
-.mmenu .tip{font-size:var(--t2);color:var(--mute);padding:2px 10px 8px}
 @media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(10px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:var(--r3)}}
 .send{width:38px;height:38px;border-radius:50%;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;flex:none}
 .send:disabled{background:var(--line);color:var(--mute)}
@@ -737,24 +736,24 @@ function composerHTML(ph) {
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
-const MODEL_OPTS = [['opus', 'Opus', '最强，做课和开发'], ['sonnet', 'Sonnet', '快一些，日常事够用'], ['haiku', 'Haiku', '最快最省，简单问答']];
+const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
 function renderModel(st, onPick, isNew) {
   const el = $('#mpw'); if (!el) return;
   mpRedraw = () => renderModel(st, onPick, isNew);
-  const GPT = ['gpt', 'GPT', 'ChatGPT 自带的 Codex，用会员额度；聊天、干活都行'];
+  const GPT = ['gpt', 'GPT'];
   const mname = st.model === 'auto' ? '自动' : ([...MODEL_OPTS, GPT].find(m => m[0] === st.model) || [, '默认'])[1];
-  const models = isNew ? [['auto', '自动', '做课开发用 Opus，简单事用 Sonnet'], ...MODEL_OPTS, GPT]
-    : st.model === 'gpt' ? [[...GPT.slice(0, 2), '这个对话用 GPT，不能中途换成 Claude']] : MODEL_OPTS;
+  const models = isNew ? [['auto', '自动'], ...MODEL_OPTS, GPT]
+    : st.model === 'gpt' ? [GPT] : MODEL_OPTS;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
-      ${models.map(([k, t, d]) =>
-        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b><small>${d}</small></span>${ok}</button>`).join('')}
+      ${models.map(([k, t]) =>
+        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${t}</b></span>${ok}</button>`).join('')}
       <div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div>
-      <div class="tip">${isNew ? '越高想得越细，也越慢、越费额度' : '从下一轮起生效'}</div></div>` : '');
+      </div>` : '');
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -1120,11 +1119,10 @@ function renderThread(d) {
       const at = plan.length ? `第 ${Math.min(plan.length, done + 1)}/${plan.length} 步 · ` : L.total ? `第 ${L.total} 步 · ` : '';
       const popen = openProc.has('plan');
       const seg = plan.length > 1 ? `<button class="seg" data-p="plan" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>` : '';
-      const away = L.elapsed < 150 ? ` · ${pushOn() ? '做完会弹通知，可以先切走' : '做完钉钉会说一声，可以先切走'}` : '';
       const left = plan.length - done, eta = plan.length && done >= 2 && left > 0 ? Math.max(1, Math.round((L.elapsed / done) * left / 60)) : 0;
       const pop = openProc.has('live');
       h += `<div class="live"><div class="lh"><i class="spin"></i><span class="lt">${head}</span><button class="stop" id="stop">${ICON.stop}停止</button></div>
-      <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${eta ? ` · 预计还要约 ${eta} 分钟` : ''}${L.injected ? ` · 插话 ${L.injected} 次` : ''}${away}</div>
+      <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${eta ? ` · 预计还要约 ${eta} 分钟` : ''}${L.injected ? ` · 插话 ${L.injected} 次` : ''}</div>
       ${seg}${popen && plan.length > 1 ? planHTML(plan) : ''}
       <div class="silence" data-t0="${Date.now() / 1000 - (L.idle || 0)}"></div>${agentsHTML(L.agents || [])}
       ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process.slice(-14), 'live') : ''}` : ''}</div>`;
