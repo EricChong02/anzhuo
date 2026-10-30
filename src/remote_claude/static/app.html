@@ -603,18 +603,19 @@ function md(src) {
   return out.join('');
 }
 // 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
-function quotaResetLabel(l) {
+function quotaResetLabel(l, now = Date.now()) {
   if (l.name === '5 小时') return ((l.reset || '').match(/\b\d{1,2}:\d{2}\b/) || [''])[0];
   if (l.name !== '本周') return l.reset || '';
   let d = l.reset_at == null ? null : new Date(Number(l.reset_at) * 1000);
   if (!d || !Number.isFinite(d.getTime())) {
     const m = (l.reset || '').match(/^(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})$/);
     if (!m) return '';
-    const now = Date.now(), year = new Date(now).getFullYear();
+    const year = new Date(now).getFullYear();
     d = [year - 1, year, year + 1].map(y => new Date(y, +m[1] - 1, +m[2], +m[3], +m[4]))
       .sort((a, b) => Math.abs(a.getTime() - now) - Math.abs(b.getTime() - now))[0];
   }
-  return `${['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const day = d.toDateString() === new Date(now).toDateString() ? '今天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+  return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function qcell(l, hot = 80) {
   const reset = quotaResetLabel(l);
@@ -627,7 +628,7 @@ function quotaGroups() {
 }
 function quotaReset(l, now = Date.now()) {
   const at = l.reset_at == null ? NaN : Number(l.reset_at) * 1000;
-  if (!Number.isFinite(at)) return {relative: l.reset ? '重置时间' : '暂未提供重置时间', absolute: quotaResetLabel(l)};
+  if (!Number.isFinite(at)) return {relative: l.reset ? '重置时间' : '暂未提供重置时间', absolute: quotaResetLabel(l, now)};
   const mins = Math.ceil((at - now) / 60000);
   let relative = '等待额度刷新';
   if (mins > 0) {
@@ -638,7 +639,7 @@ function quotaReset(l, now = Date.now()) {
   const sameDay = x => d.toDateString() === x.toDateString();
   const day = sameDay(today) ? '今天' : sameDay(tomorrow) ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`;
   const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return {relative, absolute: l.name === '5 小时' ? clock : l.name === '本周' ? quotaResetLabel(l) : `${day} ${clock}`};
+  return {relative, absolute: l.name === '5 小时' ? clock : l.name === '本周' ? quotaResetLabel(l, now) : `${day} ${clock}`};
 }
 function renderQuotaDetails() {
   const el = $('#quotaDetailBody'); if (!el) return;
