@@ -252,7 +252,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .seg{display:flex;gap:4px;padding:4px 6px 6px} .seg button{flex:1;height:34px;border-radius:var(--r1);font-size:var(--t2);color:var(--ink);background:var(--bg)}
 .seg button.on{background:var(--accsoft);color:var(--acc);font-weight:600}
 /* 新对话页输入框在屏幕中间，上方放不下整张菜单，改成往下展开 */
-@media (min-width:601px){.newv .mmenu{bottom:auto;top:calc(100% + 10px)}} @media (min-width:821px){.main .newv{justify-content:flex-start;padding-top:10vh}} .mmenu{max-height:calc(100dvh - 140px);overflow:auto}
+@media (min-width:601px){.newv .mmenu{bottom:auto;top:calc(100% + 10px)}} .mmenu{max-height:calc(100dvh - 140px);overflow:auto}
 @media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(10px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:var(--r3)}}
 .send{width:38px;height:38px;border-radius:50%;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;flex:none}
 .send:disabled{background:var(--line);color:var(--mute)}
