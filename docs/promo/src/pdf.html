@@ -1,0 +1,253 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>案头 · 项目介绍</title>
+<link rel="stylesheet" href="base.css">
+<style>
+@page{size:794px 1123px;margin:0}
+.page{position:relative;width:794px;height:1123px;overflow:hidden;page-break-after:always;background:var(--bg);padding:54px 56px}
+.page:last-child{page-break-after:auto}
+.top{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;letter-spacing:.04em}
+.brand img{width:30px;height:30px;border-radius:8px}
+.brand small{font-weight:500;color:var(--faint);letter-spacing:.2em;font-size:10px;margin-left:4px}
+.pg{font-size:11px;color:var(--faint);letter-spacing:.2em}
+h1.hero{font-size:68px;line-height:1.12;margin-top:76px;color:var(--ink)}
+h1.hero em{font-style:normal;color:var(--blue)}
+.lede{font-size:17px;line-height:1.8;color:#3a3d43;margin-top:26px;max-width:470px}
+.hero-phones{position:absolute;right:46px;top:236px;width:360px;height:600px}
+.hero-phones .phone{position:absolute}
+.facts{position:absolute;left:56px;right:56px;bottom:84px;display:flex;border-top:1px solid var(--line)}
+.fact{flex:1;padding:22px 0 0}
+.fact+.fact{padding-left:24px;border-left:1px solid var(--line)}
+.fact b{display:block;font-size:40px;font-family:"Songti SC",serif;font-weight:900;color:var(--blue);line-height:1}
+.fact span{display:block;margin-top:9px;font-size:13px;color:var(--mute);line-height:1.6}
+.foot{position:absolute;left:56px;right:56px;bottom:34px;display:flex;justify-content:space-between;font-size:11px;color:var(--faint);letter-spacing:.06em}
+h2.t{font-size:34px;line-height:1.28;margin-top:30px}
+.sub{font-size:14px;color:var(--mute);line-height:1.8;margin-top:12px;max-width:560px}
+/* 对比时间线 */
+.cmp{margin-top:30px;background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px 26px}
+.row{display:flex;align-items:center;gap:0;position:relative}
+.row+.row{margin-top:20px;padding-top:20px;border-top:1px dashed var(--line)}
+.lab{width:84px;font-size:12px;font-weight:700;letter-spacing:.06em;flex:none}
+.lab.no{color:var(--faint)}.lab.yes{color:var(--blue)}
+.tl{flex:1;display:flex;align-items:flex-start;position:relative}
+.tl:before{content:"";position:absolute;left:8px;right:8px;top:7px;height:2px;background:var(--line)}
+.row.y .tl:before{background:linear-gradient(90deg,var(--blue),var(--blue2))}
+.st{flex:1;position:relative;padding-top:20px;font-size:11.5px;line-height:1.55;color:var(--mute)}
+.st:before{content:"";position:absolute;left:0;top:1px;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--line)}
+.row.y .st:before{border-color:var(--blue)}
+.st b{display:block;font-size:12.5px;color:var(--ink);font-weight:700}
+.st.hot:before{border-color:var(--amber);background:var(--amber)}
+.st.hot b{color:var(--amber)}
+.row.n .st.gap b{color:var(--faint)}
+.vals{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}
+.val{background:var(--navy);color:var(--cream);border-radius:16px;padding:22px 20px 22px}
+.val b{display:block;font-family:"Songti SC",serif;font-weight:900;font-size:21px;line-height:1.3}
+.val p{margin-top:10px;font-size:12.5px;line-height:1.75;color:#B9C2D8}
+.val .n{font-size:11px;letter-spacing:.2em;color:#7F93BF;margin-bottom:12px;display:block}
+.feats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:26px}
+.feat{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:15px 15px 14px}
+.feat b{display:block;font-size:13.5px}
+.feat span{display:block;margin-top:6px;font-size:11.5px;line-height:1.65;color:var(--mute)}
+.feat i{font-style:normal;display:block;font-size:11px;font-weight:700;color:var(--blue);letter-spacing:.14em;margin-bottom:8px}
+/* 页 3 */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:26px}
+.step{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px 18px 18px;position:relative}
+.step .no{font-family:"Songti SC",serif;font-weight:900;font-size:38px;color:var(--blue);line-height:1}
+.step b{display:block;margin-top:10px;font-size:15px}
+.step p{margin-top:8px;font-size:12px;line-height:1.75;color:var(--mute)}
+.step .code{margin-top:12px;font-size:10.5px;padding:11px 12px}
+.gal{position:relative;margin-top:34px;height:470px}
+.gal .win{position:absolute;left:0;top:18px;width:470px}
+.gal .phone{position:absolute}
+.cap{position:absolute;font-size:11.5px;color:var(--mute);line-height:1.6;width:170px}
+.cap b{display:block;color:var(--ink);font-size:12.5px;margin-bottom:2px}
+/* 页 4 */
+.arch{margin-top:26px;background:var(--navy);border-radius:20px;padding:26px 24px 22px;color:var(--cream);position:relative}
+.flow{display:flex;align-items:stretch;gap:0}
+.node{flex:1;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:14px 13px;background:rgba(255,255,255,.04);position:relative}
+.node small{display:block;font-size:10px;letter-spacing:.18em;color:#8FA2CC;margin-bottom:6px}
+.node b{display:block;font-size:14px;line-height:1.4}
+.node p{margin-top:6px;font-size:11px;line-height:1.65;color:#AEB9D3}
+.node.core{background:linear-gradient(160deg,#27407a,#1b2e57);border-color:rgba(255,255,255,.3);flex:1.35}
+.arrow{width:34px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#7F93BF;font-size:18px}
+.arrow span{font-size:9.5px;letter-spacing:.06em;margin-top:2px;color:#7F93BF;text-align:center;line-height:1.3}
+.store{display:flex;gap:10px;margin-top:14px}
+.store div{flex:1;font-size:11px;color:#AEB9D3;border:1px dashed rgba(255,255,255,.22);border-radius:10px;padding:9px 12px;line-height:1.55}
+.store b{color:var(--cream)}
+.sec{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
+.sec div{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px 16px}
+.sec b{display:block;font-size:14px}
+.sec p{margin-top:7px;font-size:11.8px;line-height:1.75;color:var(--mute)}
+.sec i{font-style:normal;color:var(--amber);font-weight:700;font-size:11px;letter-spacing:.14em;display:block;margin-bottom:8px}
+.start{display:flex;gap:18px;margin-top:22px;align-items:stretch}
+.start .code{flex:1.25;font-size:11px}
+.start .side{flex:1;display:flex;flex-direction:column;justify-content:space-between}
+.start .side p{font-size:12px;line-height:1.8;color:var(--mute)}
+.url{font-family:"SF Mono",Menlo,monospace;font-size:12.5px;color:var(--blue);font-weight:600;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--paper);display:block}
+.note{font-size:11px;color:var(--faint);line-height:1.7;margin-top:16px}
+
+h1.hero{font-size:62px;margin-top:54px;line-height:1.14}
+.lede{max-width:560px;margin-top:22px}
+.hero-phones{left:56px;right:56px;top:392px;width:auto;height:520px}
+.arrow span{font-size:9px}
+/* 第 2 页压缩 */
+h2.t{font-size:31px;margin-top:22px}
+.sub{margin-top:10px;font-size:13.5px;max-width:640px}
+.cmp{margin-top:20px;padding:16px 22px}
+.row+.row{margin-top:14px;padding-top:14px}
+.vals{margin-top:18px;gap:12px}
+.val{padding:16px 16px}.val b{font-size:18px}.val p{margin-top:7px;font-size:12px;line-height:1.65}.val .n{margin-bottom:8px}
+.feats{margin-top:18px;gap:10px}
+.feat{padding:11px 12px 11px}.feat b{font-size:12.8px}.feat b em{font-style:normal;color:var(--blue);font-size:10.5px;letter-spacing:.1em;margin-right:6px}
+.feat span{margin-top:5px;font-size:11px;line-height:1.6}
+/* 第 3 页 */
+.steps3{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:22px}
+.steps3 .no{font-family:"Songti SC",serif;font-weight:900;font-size:34px;color:var(--blue);line-height:1}
+.steps3 b{display:block;margin-top:8px;font-size:15px}
+.steps3 p{margin-top:6px;font-size:12px;line-height:1.75;color:var(--mute)}
+.phones3{display:flex;justify-content:space-between;margin-top:20px;padding:0 14px}
+.col3{width:168px;text-align:left}
+.col3 .cap{position:static;width:auto;margin-top:12px;font-size:11px}
+.crop{position:relative;margin-top:16px;height:176px;overflow:hidden;border-radius:14px 14px 0 0;box-shadow:0 0 0 1px rgba(16,26,49,.08),0 20px 40px rgba(16,26,49,.14)}
+.crop .bar{height:24px;background:linear-gradient(#f3f2ee,#eae8e1);display:flex;align-items:center;gap:6px;padding-left:11px;border-bottom:1px solid #dcd8cc}
+.crop .bar i{width:9px;height:9px;border-radius:50%;display:block;background:#d2cfc5}
+.crop .bar i:nth-child(1){background:#ee6a5f}.crop .bar i:nth-child(2){background:#f5bd4f}.crop .bar i:nth-child(3){background:#61c454}
+.crop img{display:block;width:100%}
+.crop:after{content:"";position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(transparent,var(--bg))}
+.cap-w{font-size:11.5px;color:var(--mute);margin-top:8px}
+.cap-w b{color:var(--ink);font-size:12.5px;margin-right:6px}
+/* 第 4 页 */
+.arch{margin-top:24px}.sec{margin-top:18px}.start{margin-top:20px}
+.own{margin-top:16px;border:1.5px solid var(--amber);border-radius:14px;padding:13px 16px;font-size:12.5px;line-height:1.75;color:#5a4a2a;background:#fbf4e4}
+.own b{color:var(--amber)}
+.anywhere{margin-top:20px;border-radius:18px;padding:22px 26px;display:flex;justify-content:space-between;align-items:center;gap:20px;color:var(--cream);background:radial-gradient(120% 160% at 100% 0%,#2b4a8a 0%,#14224a 55%,#0F1A31 100%)}
+.anywhere b{display:block;font-size:22px;line-height:1.4}
+.anywhere p{font-size:12px;line-height:1.75;color:#B9C2D8;margin-top:10px;max-width:380px}
+.devs{display:flex;flex-direction:column;gap:7px;align-items:flex-end}
+.devs span{font-size:11.5px;padding:5px 13px;border-radius:99px;border:1px solid rgba(255,255,255,.28);color:#DCE4F5;background:rgba(255,255,255,.06)}
+</style></head><body>
+
+<!-- ============ 第 1 页：封面 ============ -->
+<section class="page">
+  <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">开源 · MIT</div></div>
+  <h1 class="hero serif">人不在电脑前，<br><em>AI 照样干活。</em></h1>
+  <p class="lede"><b>在任何地方、用任何设备，只要有浏览器</b>，就能可视化地远程指挥家里电脑里的 <b>Claude Code</b> 与 <b>Codex</b>：派活、看进度、点一下批准、收文件。数据留在你自己的电脑上。</p>
+  <div class="hero-phones">
+    <div class="phone" style="--w:226px;left:30px;top:78px;transform:rotate(-5deg);z-index:1"><img src="../../images/m-list.png"></div>
+    <div class="phone" style="--w:276px;left:203px;top:0;z-index:3"><img src="../../images/m-decision.png"></div>
+    <div class="phone" style="--w:226px;left:426px;top:90px;transform:rotate(5deg);z-index:2"><img src="../../images/m-running.png"></div>
+  </div>
+  <div class="facts">
+    <div class="fact"><b>0</b><span>个对外开放的端口<br>电脑主动连出去</span></div>
+    <div class="fact"><b>任意</b><span>设备、任意地点<br>手机、平板、电脑，有浏览器就行</span></div>
+    <div class="fact"><b>2</b><span>个引擎同一套界面<br>Claude · GPT（Codex）</span></div>
+    <div class="fact"><b>2</b><span>个入口<br>网页（默认）· 钉钉（可选）</span></div>
+  </div>
+  <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>01 / 04</span></div>
+</section>
+
+<!-- ============ 第 2 页：价值 ============ -->
+<section class="page">
+  <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">价值与功能</div></div>
+  <div class="eyebrow" style="margin-top:52px">WHY</div>
+  <h2 class="t serif">AI 干活很快，<br>卡住它的常常只是一句话。</h2>
+  <p class="sub">一个任务十几分钟，它却可能在第 7 分钟停在“选 A 还是 B？”。人一离开电脑，它就一直等。</p>
+  <div class="cmp">
+    <div class="row n"><div class="lab no">没有案头</div><div class="tl">
+      <div class="st"><b>10:02</b>派活，然后出门</div>
+      <div class="st hot"><b>10:09</b>它停在“选 A 还是 B？”</div>
+      <div class="st gap"><b>……</b>干等 7 个多小时</div>
+      <div class="st"><b>17:40</b>回到电脑才继续</div></div></div>
+    <div class="row y"><div class="lab yes">有案头</div><div class="tl">
+      <div class="st"><b>10:02</b>手机上说一句话</div>
+      <div class="st hot"><b>10:09</b>手机弹出通知“等你定”</div>
+      <div class="st"><b>10:10</b>点一下 A</div>
+      <div class="st"><b>10:24</b>做完，截图和文件到手</div></div></div>
+  </div>
+  <div class="vals">
+    <div class="val"><span class="n">01</span><b>不再被桌面绑住</b><p>地铁上、会议间隙、床上，决策几十秒搞定；AI 的时间不再浪费在等你。</p></div>
+    <div class="val"><span class="n">02</span><b>放手但不失控</b><p>进度看得见，危险命令先问你，不认识的设备随时踢下线。</p></div>
+    <div class="val"><span class="n">03</span><b>数据留在自己手里</b><p>跑在你自己的电脑上，不经过任何第三方服务器；MIT 开源，代码可读。</p></div>
+  </div>
+  <div class="feats">
+    <div class="feat"><b><em>01</em>多对话并行</b><span>同时 3 个，其余排队；桌面、手机接着聊同一个对话</span></div>
+    <div class="feat"><b><em>02</em>实时进度</b><span>当前一步、进度条、预计剩余时间，可看完整过程</span></div>
+    <div class="feat"><b><em>03</em>随时插话与停下</b><span>它做的时候你再说话，做完手上这一步就会看到</span></div>
+    <div class="feat"><b><em>04</em>“要你定”变按钮</b><span>A / B / C 加推荐，点一下就交回对话</span></div>
+    <div class="feat"><b><em>05</em>危险命令先问你</b><span>删文件、git push 等先弹出，点“允许”才继续</span></div>
+    <div class="feat"><b><em>06</em>手机通知</b><span>做完、等你定、出错时弹出；你正看着就不打扰</span></div>
+    <div class="feat"><b><em>07</em>文件图片双向传</b><span>你发图发文件，它交截图、PDF，最大 300MB</span></div>
+    <div class="feat"><b><em>08</em>回退 · 分叉 · 复制</b><span>回到某句话之前重来，可连文件一起退回</span></div>
+    <div class="feat"><b><em>09</em>定时任务</b><span>“每周五下午 3 点汇总周报”，直接说就行</span></div>
+    <div class="feat"><b><em>10</em>额度与上下文</b><span>撞到 5 小时额度，恢复后自动说“继续”</span></div>
+    <div class="feat"><b><em>11</em>Claude + GPT</b><span>Claude Agent SDK 与 Codex，同一套界面</span></div>
+    <div class="feat"><b><em>12</em>网页 + 钉钉</b><span>网页开箱即用；钉钉机器人按需接入</span></div>
+  </div>
+  <div class="anywhere"><div><div class="eyebrow" style="color:#8FA2CC;margin-bottom:10px">ANYWHERE · ANY DEVICE</div><b class="serif">只要有浏览器，<br>随时随地看见并指挥家里的电脑。</b><p>打开网址、登录，就能看到电脑上正在做的一切，并直接动手。通路由你自备，见最后一页。</p></div>
+    <div class="devs"><span>iPhone</span><span>iPad</span><span>安卓手机</span><span>笔记本</span><span>别人的电脑</span></div></div>
+  <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>02 / 04</span></div>
+</section>
+
+<!-- ============ 第 3 页：用法与页面 ============ -->
+<section class="page">
+  <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">用法与页面</div></div>
+  <div class="eyebrow" style="margin-top:52px">HOW</div>
+  <h2 class="t serif">三步用起来，<br>之后全在手机上。</h2>
+  <div class="steps3">
+    <div><div class="no">1</div><b>在电脑上装好</b><p>需要 Mac、uv 和一个 Claude 账号。几条命令，十分钟，命令见最后一页。</p></div>
+    <div><div class="no">2</div><b>手机上说一句话</b><p>选工作文件夹（上次用的默认选中），写要做的事。它在你的电脑上开工，进度实时可见。</p></div>
+    <div><div class="no">3</div><b>需要你时点一下</b><p>选方案、批准危险命令、收文件，都是按钮。做完弹通知，没事就不打扰。</p></div>
+  </div>
+  <div class="phones3">
+    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-new.png"></div><div class="cap"><b>派活</b>选文件夹：最近用过的、常用短名、临时文件夹，或手输路径。</div></div>
+    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-running.png"></div><div class="cap"><b>看进度</b>一步一格的进度条，随时插话或停止，点开看完整过程。</div></div>
+    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-decision.png"></div><div class="cap"><b>点一下</b>它列出方案和推荐，选项变成按钮，点了就接着做。</div></div>
+  </div>
+  <div class="crop"><div class="bar"><i></i><i></i><i></i></div><img src="../../images/desk-decision.png"></div>
+  <div class="cap-w"><b>电脑端</b>左边按“需要你 / 在做 / 新完成”分组，右边是对话；同一套界面，手机电脑通用。</div>
+  <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>03 / 04</span></div>
+</section>
+
+<!-- ============ 第 4 页：架构与安全 ============ -->
+<section class="page">
+  <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">架构与安全</div></div>
+  <div class="eyebrow" style="margin-top:52px">UNDER THE HOOD</div>
+  <h2 class="t serif">电脑不对外开放任何端口，<br>所有数据留在本机。</h2>
+  <div class="arch">
+    <div class="flow">
+      <div class="node"><small>你</small><b>手机 / 平板 / 浏览器</b><p>可加到主屏幕当 App<br>可选：钉钉</p></div>
+      <div class="arrow">→<span>HTTPS</span></div>
+      <div class="node"><small>你自备的通路</small><b>Tailscale · Cloudflare · 自己的服务器 + SSH 隧道</b><p>只转发，不存任何数据</p></div>
+      <div class="arrow">→<span>只到<br>本机</span></div>
+      <div class="node core"><small>你的电脑 · 案头</small><b>Python 单进程<br>aiohttp + 原生 HTML</b><p>登录、对话、通知、危险命令确认都在这里</p></div>
+      <div class="arrow">→<span>SDK</span></div>
+      <div class="node"><small>干活的</small><b>Claude Code<br>Codex（GPT）</b><p>官方 SDK 与 CLI</p></div>
+    </div>
+    <div class="store">
+      <div><b>对话内容</b> 存在 Claude / Codex 自己的目录，桌面端、命令行、手机能接着聊同一个对话</div>
+      <div><b>密钥</b> 只在 macOS 钥匙串：网页密码指纹、钉钉密钥、推送私钥</div>
+      <div><b>案头自己的记录</b> 对话编号表、每轮过程、收发的文件，都在本机数据目录</div>
+    </div>
+  </div>
+  <div class="own"><b>要自备一条通路。</b>案头不提供任何中转服务，作者自己的服务器也不对外开放使用。想在外面用，请准备你自己的：一台服务器（仓库里有现成的一键脚本），或不需要服务器的 Tailscale / Cloudflare Tunnel。</div>
+  <div class="sec">
+    <div><i>DOOR 01</i><b>登录是第一道门</b><p>PBKDF2 密码指纹；同一来源错 5 次锁 15 分钟；写接口校验同源；设备可逐台退出。</p></div>
+    <div><i>DOOR 02</i><b>危险命令先问你</b><p>git push、rm、sudo 等先停下，等你点“允许”；可选 AI 审核员，默认关。它是安全带，不是沙箱。</p></div>
+    <div><i>DOOR 03</i><b>不预先授权任何事</b><p>提交、推送、部署都会问你；想少问，你自己写进配置，后果自己清楚。</p></div>
+  </div>
+  <div class="start">
+    <div class="code"><span class="c"># 先不连 AI，看一眼界面</span>
+git clone github.com/EricChong02/anzhuo
+cd anzhuo &amp;&amp; uv sync
+.venv/bin/python scripts/demo.py
+<span class="c"># 真正用起来</span>
+scripts/claude_login.sh
+.venv/bin/anzhuo passwd
+.venv/bin/anzhuo run</div>
+    <div class="side">
+      <div><span class="url">github.com/EricChong02/anzhuo</span><p style="margin-top:12px">完整文档在仓库 <b>docs/</b>：安装、使用、配置、钉钉、外网访问、安全、架构、常见问题。</p></div>
+      <p>目前只在 macOS 上验证 · 界面为中文 · 个人使用，勿做成多人共用的服务。非官方项目，与 Anthropic、OpenAI、钉钉无关。MIT 许可。</p>
+    </div>
+  </div>
+  <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>04 / 04</span></div>
+</section>
+</body></html>

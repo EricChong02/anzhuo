@@ -1,0 +1,1690 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="案头">
+<meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
+<title>案头</title>
+<link rel="apple-touch-icon" href="/_x/icon.png"><link rel="manifest" href="/_x/manifest.json">
+<style>
+[hidden]{display:none!important}
+:root{--bg:#fafaf9;--side:#f2f2ef;--panel:#fff;--bubble:#ebebe6;--ink:#1c1c1e;--mute:#6b6b70;--faint:#a3a3a8;--line:rgba(0,0,0,.08);
+  /* 墨蓝：主色只用在“能点的、在进行的”；琥珀色只留给“等你定” */
+  --acc:#2c4a74;--accsoft:rgba(44,74,116,.09);--acc-shadow:rgba(44,74,116,.28);--on-acc:#fff;
+  --amber:#b07a06;--amber-soft:rgba(197,138,6,.10);--red:#c0392b;--green:#2f7d55;--glass:rgba(250,250,249,.82);--shadow:0 6px 24px rgba(0,0,0,.06);
+  --toast-bg:#26282c;--toast-ink:#fff;--toast-acc:#a9c1e6;
+  /* 字号只用这 5 档：小注、次要、正文小、正文、标题；iPad 整体大一档 */
+  --t1:12.5px;--t2:14px;--t3:15.5px;--t4:16.5px;--t5:20px;--fs:var(--t4);
+  /* 圆角：小控件、卡片、大面（气泡 / 输入框 / 弹层）、胶囊 */
+  --r1:8px;--r2:14px;--r3:20px;--rf:999px}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--side:#1b1b1b;--panel:#222;--bubble:#2c2c2e;--ink:#ececec;--mute:#9b9b9b;--faint:#6e6e72;--line:rgba(255,255,255,.09);
+  --acc:#8fb0de;--accsoft:rgba(143,176,222,.14);--acc-shadow:rgba(0,0,0,.4);--on-acc:#10203a;
+  --amber:#f0bd4f;--amber-soft:rgba(240,189,79,.12);--red:#f08070;--green:#6fcf97;--glass:rgba(22,22,22,.82);--shadow:0 6px 24px rgba(0,0,0,.3);
+  --toast-bg:#3a3a3c;--toast-ink:#f2f2f2;--toast-acc:#a9c1e6;
+}}
+html.ipad{--t1:13.5px;--t2:15px;--t3:16.5px;--t4:18px;--t5:21px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--ink);font:var(--t4)/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+a{color:var(--acc);text-decoration:none}
+svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.app{display:grid;grid-template-columns:296px 1fr;height:100dvh}
+
+/* 侧栏 */
+.side{background:var(--side);display:flex;flex-direction:column;min-height:0}
+.brand{display:flex;align-items:center;padding:18px 14px 10px 20px}
+.brand b{font-size:var(--t5);flex:1;letter-spacing:.5px}
+.brand img{width:28px;height:28px;border-radius:var(--r1);margin-right:9px;flex:none}
+.find{display:flex;align-items:center;gap:8px;height:38px;margin:8px 14px 4px;padding:0 12px;border-radius:var(--r2);background:var(--line);color:var(--mute)}
+.find svg{width:16px;height:16px;flex:none} .find input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:max(16px,var(--t3));color:var(--ink);outline:none}
+.find:focus-within{background:var(--panel);box-shadow:0 0 0 1.5px var(--acc)} .find .clr{display:none;color:var(--mute);font-size:var(--t5);line-height:1;padding:4px}
+.find.has .clr{display:block}
+.cats{display:flex;gap:6px;overflow-x:auto;padding:6px 14px 2px;scrollbar-width:none} .cats::-webkit-scrollbar{display:none}
+.cat{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);border:1px solid var(--line);font-size:var(--t2);color:var(--ink);display:flex;align-items:center;gap:5px}
+.cat small{color:var(--mute);font-size:var(--t1)} .cat.on{background:var(--ink);border-color:var(--ink);color:var(--bg)} .cat.on small{color:inherit;opacity:.65}
+.item .more{display:none;flex:none;width:30px;height:30px;border-radius:var(--r1);color:var(--mute);place-items:center;font-size:var(--t4);letter-spacing:1px}
+@media (hover:hover){.item:hover .more{display:grid} .item .more:hover{background:var(--line)}}
+.item .hit{font-size:var(--t1);color:var(--mute);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .item .ctag{margin-left:auto;font-size:var(--t1);color:var(--mute)}
+mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1px}
+.amenu{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.3);display:flex;align-items:flex-end;justify-content:center;padding:12px 12px calc(16px + env(safe-area-inset-bottom))}
+.amenu .box{width:min(420px,100%);background:var(--panel);border-radius:var(--r3);padding:8px;box-shadow:var(--shadow)}
+.amenu .t{font-size:var(--t1);color:var(--mute);padding:8px 12px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.amenu button{display:flex;align-items:center;gap:12px;width:100%;height:50px;font-size:var(--t4);padding:0 12px;border-radius:var(--r2);color:var(--ink);text-align:left}
+.amenu button.on{color:var(--acc);font-weight:600} .amenu .v{margin-left:auto;font-size:var(--t2);color:var(--mute)}
+.amenu .del{color:var(--red)} .amenu .sep{height:1px;background:var(--line);margin:4px 8px}
+.amenu input{width:100%;height:46px;border-radius:var(--r2);border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:var(--t4);padding:0 12px;margin:4px 0 8px;box-sizing:border-box}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom));z-index:80;background:var(--toast-bg);color:var(--toast-ink);border-radius:var(--rf);height:44px;display:flex;align-items:center;gap:6px;padding:0 6px 0 18px;font-size:var(--t3);white-space:nowrap;max-width:92vw}
+.toast span{overflow:hidden;text-overflow:ellipsis} .toast button{color:var(--toast-acc);font-weight:600;padding:0 12px;height:36px;font-size:var(--t3)}
+.sum{padding:0 20px 4px;color:var(--mute);font-size:var(--t2)} .sum .r{color:var(--acc)} .sum .w{color:var(--amber)}
+.icon-btn{width:38px;height:38px;border-radius:var(--r1);display:grid;place-items:center;color:var(--ink)}
+.icon-btn:hover{background:var(--line)}
+.scroll{overflow:auto;flex:1;padding:0 10px 20px}
+.label{font-size:var(--t2);color:var(--mute);padding:14px 10px 6px}
+.item{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border-radius:var(--r1);padding:9px 10px;color:var(--ink)}
+.item.sel{background:var(--accsoft)}
+.item .tx{min-width:0;flex:1}
+.item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--t3)}
+.item.sel .nm{font-weight:600}
+.item .st{font-size:var(--t2);color:var(--mute);display:flex;align-items:center;gap:6px;margin-top:1px;min-width:0} .item .st .sx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:transparent;border:1.5px solid var(--mute);flex:none}
+.running .dot{background:var(--acc);border-color:var(--acc);animation:pulse 1.6s ease-in-out infinite}
+.awaiting .dot{background:var(--amber);border-color:var(--amber)} .awaiting .st{color:var(--amber)}
+.error .dot{background:var(--red);border-color:var(--red)}
+.idle .dot,.queued .dot{display:none}
+.unread .dot{display:block;background:var(--mute);border-color:var(--mute);width:6px;height:6px} .unread .nm{font-weight:650} .unread.idle .st{color:var(--ink)}
+.paused .dot{display:block;background:transparent;border-color:var(--faint)} .paused .st{color:var(--mute)}
+.suggest .st{color:var(--mute)}
+.awaiting.unread .dot{background:var(--amber);border-color:var(--amber)}
+.error.unread .dot,.error .dot{background:var(--red);border-color:var(--red)} .error .st{color:var(--red)}
+/* 额度：一格一个数（5 小时 / 本周），数字在上、细条在下；有 GPT 时 Claude、GPT 各一列 */
+.quota{padding:6px 14px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+
+.qh{font-size:var(--t1);color:var(--faint);font-weight:600;letter-spacing:.02em;margin-bottom:-4px}
+.qm{min-width:0} .ql{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t1);color:var(--mute);line-height:1.4}
+.ql b{font-size:var(--t2);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.qb{height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:5px} .qb i{display:block;height:100%;border-radius:var(--rf);background:var(--acc)}
+.qm.hot .ql b{color:var(--amber)} .qm.hot .qb i{background:var(--amber)} .qr{font-size:var(--t1);color:var(--faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* GPT 对话在状态行前面标个小字；Claude 是默认的，不标 */
+.eng{flex:none;font-size:10.5px;font-weight:650;letter-spacing:.04em;line-height:15px;padding:0 5px;border-radius:5px;color:var(--mute);box-shadow:inset 0 0 0 1px var(--line)}
+.pill.warn{color:var(--amber);border-color:var(--amber)}
+.notice{position:fixed;left:50%;top:calc(78px + env(safe-area-inset-top));transform:translate(-50%,-24px);opacity:0;z-index:20;display:flex;align-items:center;gap:10px;
+  max-width:min(92vw,440px);padding:10px 16px;border-radius:var(--r2);background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
+  border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t3);transition:transform .25s ease,opacity .25s,visibility .25s;cursor:pointer;visibility:hidden}
+.notice.on{transform:translate(-50%,0);opacity:1;visibility:visible} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:14px 16px;width:260px;display:flex;flex-direction:column;gap:12px}
+.usage .qh{margin:0} .usage .w{font-size:var(--t2);color:var(--amber);line-height:1.5} .usage .pill{margin-top:2px}
+@keyframes pulse{50%{opacity:.35}}
+
+/* 主区 */
+.main{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative}
+.head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:10px 16px;min-height:58px;
+  background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(16px);backdrop-filter:saturate(1.4) blur(16px);border-bottom:1px solid var(--line)}
+.head .ti{flex:1;min-width:0} .head .ti b{display:block;font-size:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head .ti b.wt{display:flex;align-items:center;min-width:0} .head .ti b.wt .tt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.head .ti span{font-size:var(--t2);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.head .ti span.running{color:var(--acc)} .head .ti span.awaiting{color:var(--amber)} .head .ti span.error{color:var(--red)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:var(--rf);border:1px solid var(--line);background:var(--panel);font-size:var(--t2);color:var(--ink)}
+.pill:hover{border-color:var(--acc)} .pill svg{width:16px;height:16px}
+.back{display:none}
+.feed{flex:1;overflow:auto;padding:24px 20px calc(150px + var(--kb,0px));scroll-behavior:auto}
+.col{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+.you{align-self:flex-end;max-width:82%;background:var(--bubble);border-radius:var(--r3);padding:10px 16px;white-space:pre-wrap;word-break:break-word}
+.you.pending{opacity:.85}
+.cl{line-height:1.75;word-break:break-word}
+.cl .md{font-size:var(--fs);line-height:1.8;letter-spacing:.01em}
+.md>:first-child{margin-top:0} .md>:last-child{margin-bottom:0}
+.md p{margin:0 0 .75em} .md h4{font-size:1.06em;font-weight:650;margin:1.3em 0 .45em}
+.md h5{font-size:.82em;font-weight:600;color:var(--mute);letter-spacing:.06em;margin:1.35em 0 .3em}
+.md ul,.md ol{margin:0 0 .8em;padding-left:1.4em} .md li{margin:.25em 0;padding-left:.15em} .md li::marker{color:var(--mute)}
+.md b{font-weight:650} .md hr{border:0;border-top:1px solid var(--line);margin:1.2em 0}
+.md blockquote{margin:0 0 .8em;padding:.1em 0 .1em 1em;border-left:3px solid var(--line);color:var(--mute)}
+.md pre{margin:0 0 .9em;padding:12px 14px;border-radius:var(--r2);background:var(--side);font:13.5px/1.6 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
+.md .tw{overflow-x:auto;margin:0 0 .9em} .pi .pt .md,.pi.say .pt{white-space:normal} .pi.say .pt p{margin:0 0 .4em}
+.ptog{display:inline-flex;align-items:center;gap:6px;font-size:var(--t2);color:var(--mute);margin-bottom:8px;padding:4px 0}
+.ptog svg{width:15px;height:15px;transition:transform .15s} .ptog.open svg{transform:rotate(90deg)}
+.plist{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;font-size:var(--t3);line-height:1.6}
+.pi{display:flex;gap:10px;align-items:flex-start} .pi>svg{width:16px;height:16px;margin-top:4px;color:var(--mute)}
+.pi .pt{min-width:0;flex:1;white-space:pre-wrap;word-break:break-word}
+.pi.think .pt{color:var(--mute);font-style:italic}
+.pi.do .pt{color:var(--mute)} .pi.do b{font-weight:500;color:var(--ink)}
+.pi code.pd{display:block;margin-top:2px;white-space:pre-wrap;word-break:break-all;font-size:var(--t1)}
+.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.pt.wait{color:var(--mute)}
+.tick{font-weight:inherit;font-variant-numeric:tabular-nums}
+.yimgs{margin:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end} .yimgs img{width:92px;height:92px;object-fit:cover;border-radius:var(--r1);display:block}
+.qtag{display:block;margin-top:6px;font-size:var(--t2);color:var(--mute)}
+.queue{color:var(--mute);font-size:var(--t3);padding:0 4px}
+.plan{margin:10px 0 0;padding:10px 12px;border-radius:var(--r2);background:var(--bg);font-size:var(--t3)}
+.plan .ah{color:var(--mute);font-size:var(--t2);margin-bottom:4px}
+.ps{display:flex;align-items:center;gap:8px;padding:3px 0} .ps .spin{width:13px;height:13px} .ps .ok{color:var(--acc);width:13px;text-align:center}
+.ps .n{width:13px;text-align:center;font-size:var(--t1);color:var(--mute)} .ps.done .an{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line)}
+.ps.doing .an{font-weight:600} .ps .an{flex:1;min-width:0}
+.agents{margin:10px 0 0;padding:10px 12px;border-radius:var(--r2);background:var(--bg);font-size:var(--t3)}
+.agents .ah{color:var(--mute);font-size:var(--t2);margin-bottom:4px}
+.ag{display:flex;align-items:center;gap:8px;padding:3px 0} .ag .spin{width:13px;height:13px}
+.ag .an{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .ag .am{color:var(--mute);font-size:var(--t2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ag .ok{color:var(--acc);width:13px;text-align:center} .ag .bad{color:var(--red);width:13px;text-align:center} .ag.done .an,.ag.stopped .an{color:var(--mute)}
+.pi.sub{padding-left:22px} .pi .who{font-style:normal;font-size:var(--t1);color:var(--acc);background:var(--accsoft);border-radius:var(--r1);padding:0 6px;margin-right:6px}
+.live .lsub{margin-top:8px;color:var(--mute);font-size:var(--t3)}
+.live .partial{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:var(--t3);line-height:1.65}
+.caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.plist .pfull{align-self:flex-start;font-size:var(--t2);color:var(--acc);text-decoration:none}
+.live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
+.cl .md table{border-collapse:collapse;font-size:.92em;line-height:1.6}
+.cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:8px 16px 8px 0;text-align:left;vertical-align:top}
+.cl .md th{font-weight:600}
+.cl .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.note{align-self:center;font-size:var(--t2);color:var(--mute)}
+.imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
+.file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
+.file:hover{border-color:var(--acc)} .file .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .file .fs{color:var(--mute);font-size:var(--t2);flex:none}
+.file svg{color:var(--acc)}
+.chipf{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 10px;border-radius:var(--r1);background:var(--bg);border:1px solid var(--line);font-size:var(--t2);max-width:220px;position:relative}
+.chipf span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5px;border-radius:var(--r1)}
+.live{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:14px 16px;box-shadow:var(--shadow)}
+.live .lh{display:flex;align-items:center;gap:10px}
+.live .lh span{flex:1;font-weight:600}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--accsoft);border-top-color:var(--acc);animation:rot .9s linear infinite;flex:none}
+@keyframes rot{to{transform:rotate(360deg)}}
+.live ol{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.live li{color:var(--mute);font-size:var(--t3);display:flex;gap:10px} .live li i{font-style:normal;min-width:22px;text-align:right}
+.live li:last-child{color:var(--ink)}
+.stop{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--rf);border:1px solid var(--line);font-size:var(--t2)}
+.stop:hover{border-color:var(--red);color:var(--red)} .stop svg{width:14px;height:14px}
+.ask{display:flex;flex-direction:column;gap:8px}
+.ask .q{font-weight:600} .ask .ah{font-size:var(--t1);color:var(--faint);letter-spacing:.02em;margin-bottom:-2px}
+.confirm{background:var(--panel);border:1px solid var(--amber);border-radius:var(--r2);padding:14px 16px;box-shadow:var(--shadow)}
+.confirm .q{font-weight:600;font-size:var(--t3)}
+.confirm pre{margin:8px 0 12px;white-space:pre-wrap;word-break:break-all;font:13.5px/1.5 ui-monospace,Menlo,monospace;background:var(--bg);border-radius:var(--r1);padding:8px 10px;max-height:160px;overflow:auto}
+.confirm .cb{display:flex;gap:8px} .confirm .cb button{flex:1;height:44px;border-radius:var(--r2);font-size:var(--t3);background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;gap:6px}
+.confirm .cb .ok{background:var(--acc);color:var(--on-acc)} .confirm .tip{margin-top:8px;font-size:var(--t2);color:var(--mute)}
+.opt{display:flex;align-items:center;gap:12px;text-align:left;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:12px 14px}
+.opt:hover{border-color:var(--acc)} .opt.rec{border-color:var(--acc)}
+.opt .k{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accsoft);color:var(--acc);font-weight:600;font-size:var(--t2);flex:none}
+.opt .v{flex:1} .opt .tag{font-size:var(--t2);color:var(--acc)}
+.opt:disabled{opacity:.5}
+
+/* 输入条 */
+.dock{position:absolute;left:0;right:0;bottom:var(--kb,0px);padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
+  background:linear-gradient(to bottom,transparent,var(--bg) 26px)}
+.quick{pointer-events:auto;max-width:760px;margin:0 auto 8px;display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}
+.quick::-webkit-scrollbar{display:none}
+.quick button{flex:none;height:36px;padding:0 16px;border-radius:var(--rf);background:var(--panel);border:1px solid var(--line);font-size:var(--t3)}
+.jump{pointer-events:auto;margin:0 auto 8px;height:36px;padding:0 14px;border-radius:var(--rf);
+  background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t2);display:none;align-items:center;gap:4px}
+.jump.on{display:inline-flex} .jump svg{width:16px;height:16px}
+.fold .md{max-height:16em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
+.more{margin-top:6px;font-size:var(--t3);color:var(--acc)}
+.fab{display:none;position:fixed;right:20px;bottom:calc(22px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--acc);color:var(--on-acc);
+  box-shadow:0 8px 24px var(--acc-shadow);place-items:center;z-index:5} .fab svg{width:24px;height:24px}
+.composer{pointer-events:auto;max-width:760px;margin:0 auto;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--shadow);padding:8px}
+.composer.drop{border-color:var(--acc);box-shadow:0 0 0 3px var(--accsoft),var(--shadow)}
+.composer.drop textarea::placeholder{color:var(--acc)}
+.composer .row{display:flex;align-items:center;gap:6px} .composer .row .gap{flex:1}
+/* 字在上面占满整行，附件 / 模型 / 发送在下面一排（像 Claude 手机版），字不会被挤成窄条 */
+.composer textarea{display:block;width:100%;box-sizing:border-box;border:0;outline:none;background:transparent;font:inherit;font-size:var(--t3);color:var(--ink);resize:none;padding:8px 8px 4px;max-height:30vh;min-height:40px;line-height:1.5;font-size:max(16px,var(--t4))}
+.lightbox{position:fixed;inset:0;z-index:50;touch-action:none;background:rgba(0,0,0,.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center;user-select:none;-webkit-user-select:none}
+.lightbox .x{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:2;height:44px;padding:0 16px 0 12px;border-radius:var(--rf);background:#fff;color:#1c1c1e;
+  font-size:var(--t3);font-weight:600;display:flex;align-items:center;gap:4px;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.fv{background:#111;touch-action:auto;flex-direction:column;justify-content:flex-start;padding-top:calc(68px + env(safe-area-inset-top))}
+.fv iframe,.fv img{flex:1;width:100%;border:0;background:#fff;max-height:none} .fv img{object-fit:contain;background:none}
+.fv .pages{flex:1;min-height:0;width:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 0 calc(24px + env(safe-area-inset-bottom))}
+.fv .pages img{display:block;width:100%;height:auto;background:#fff} .fv .pn{color:#999;font-size:var(--t1);text-align:center;padding:6px 0 14px}
+.fv .tip{color:#ddd;font-size:var(--t3);line-height:1.7;padding:40px 28px;text-align:center}
+.fv .sh{position:fixed;top:calc(12px + env(safe-area-inset-top));left:14px;height:44px;padding:0 16px;border-radius:var(--rf);background:rgba(255,255,255,.16);color:#fff;font-size:var(--t3)}
+.fv .nm{position:fixed;top:calc(24px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#aaa;font-size:var(--t2);padding:0 150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
+.lightbox .x b{font-size:26px;line-height:1;font-weight:400}
+.lightbox .cnt{position:fixed;top:calc(22px + env(safe-area-inset-top));left:18px;color:rgba(255,255,255,.85);font-size:var(--t3);font-variant-numeric:tabular-nums;pointer-events:none}
+.lightbox .nav{position:fixed;top:50%;transform:translateY(-50%);width:48px;height:64px;border-radius:var(--r2);background:rgba(255,255,255,.12);color:#fff;font-size:34px;line-height:1;display:none;z-index:2}
+.lightbox .prev{left:14px} .lightbox .next{right:14px} .lightbox .nav[hidden]{display:none!important}
+@media (hover:hover){.lightbox .nav{display:grid;place-items:center} .lightbox .nav:hover{background:rgba(255,255,255,.22)}}
+.sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px}
+.sheet .box{width:min(340px,100%);background:var(--panel);border-radius:var(--r3);padding:18px;box-shadow:var(--shadow)}
+.sheet b{display:block;font-size:var(--t4);margin-bottom:4px} .sheet p{margin:0 0 14px;color:var(--mute);font-size:var(--t3)}
+.sheet button{display:block;width:100%;height:46px;border-radius:var(--r2);font-size:var(--t3);margin-top:8px;background:var(--bg);color:var(--ink)}
+.devs{max-height:46vh;overflow:auto;margin:0 -4px 6px}
+.dev{display:flex;align-items:center;gap:10px;padding:10px 4px;border-top:1px solid var(--line)}
+.dev .dn{flex:1;min-width:0} .dev b{display:flex;align-items:center;gap:6px;font-size:var(--t3);margin:0}
+.dev small{display:block;color:var(--mute);font-size:var(--t2)}
+.dev .me{font-size:var(--t1);font-weight:600;color:var(--acc);background:var(--accsoft);border-radius:var(--r1);padding:1px 6px}
+.sheet .dev .out{width:auto;height:36px;margin:0;padding:0 14px;border-radius:var(--r1);font-size:var(--t3)}
+.sheet button.danger{background:var(--red);color:#fff}
+.offline{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:70;max-width:calc(100% - 24px);
+  display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:var(--rf);background:var(--glass);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t2);color:var(--ink)}
+.offline i{width:8px;height:8px;border-radius:50%;background:var(--amber);flex:none}
+.mpw{position:relative;flex:none;align-self:center}
+.mp{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 10px;border-radius:var(--rf);font-size:var(--t2);color:var(--mute);white-space:nowrap}
+.mp:hover,.mp.open{background:var(--line);color:var(--ink)} .mp svg{width:14px;height:14px;transform:rotate(90deg)}
+.mmenu{position:absolute;right:-44px;bottom:calc(100% + 12px);z-index:20;width:290px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:6px}
+.mmenu .lb{font-size:var(--t2);color:var(--mute);padding:8px 10px 4px}
+.mo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8px 10px;border-radius:var(--r1);color:var(--ink)}
+@media (hover:hover){.mo:hover,.item:hover,.amenu button:hover{background:var(--line)}}   /* 手机上点过的一项会一直“悬停”着发灰，看着像卡住了，只在有鼠标时才有 */
+.mo .tx{flex:1;min-width:0} .mo b{display:block;font-size:var(--t3);font-weight:550} .mo small{display:block;font-size:var(--t1);color:var(--mute);margin-top:1px}
+.mmenu .lb{display:flex;align-items:baseline;justify-content:space-between} .mmenu .mh{color:var(--amber);font-size:var(--t1)}
+
+.mo .ok{width:16px;height:16px;color:var(--acc);visibility:hidden} .mo.on .ok{visibility:visible}
+.seg{display:flex;gap:4px;padding:4px 6px 6px} .seg button{flex:1;height:34px;border-radius:var(--r1);font-size:var(--t2);color:var(--ink);background:var(--bg)}
+.seg button.on{background:var(--accsoft);color:var(--acc);font-weight:600}
+/* 新对话页输入框在屏幕中间，上方放不下整张菜单，改成往下展开 */
+@media (min-width:601px){.newv .mmenu{bottom:auto;top:calc(100% + 10px)}} .mmenu{max-height:calc(100dvh - 140px);overflow:auto}
+@media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(10px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:var(--r3)}}
+.send{width:38px;height:38px;border-radius:50%;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;flex:none}
+.send:disabled{background:var(--line);color:var(--mute)}
+.send .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:4px 4px 6px}
+.thumb{position:relative} .thumb img{height:64px;border-radius:var(--r1);display:block}
+.thumb button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:var(--t2);line-height:22px}
+.cwarn{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px} .cwarn.prog{color:var(--mute);font-variant-numeric:tabular-nums}
+
+/* 空状态、新对话 */
+.blank{margin:auto;text-align:center;color:var(--mute);padding:24px}
+.blank b{display:block;color:var(--ink);font-size:var(--t5);margin-bottom:6px}
+.newv{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;justify-content:center;
+  padding:24px 16px calc(24px + var(--kb,0px));transition:padding-bottom .15s}
+.newv h1{text-align:center;font-size:28px;font-weight:600;margin:0 0 18px}
+.wbar{max-width:760px;width:100%;margin:10px auto 0;display:flex;gap:8px;flex-wrap:wrap;position:relative}
+.pill{max-width:100%}
+.pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pill.on{background:var(--accsoft);border-color:transparent;color:var(--acc)}
+.wmenu{position:fixed;left:0;top:0;z-index:20;width:min(340px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:6px;max-height:min(420px,46vh);overflow:auto}
+.wo{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:9px 10px;border-radius:var(--r1);color:var(--ink)}
+.wo:hover{background:var(--line)} .wo.on{color:var(--acc)}
+.wo svg{width:19px;height:19px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.wo .tx{flex:1;min-width:0} .wo b{display:block;font-size:var(--t3);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wo small{display:block;font-size:var(--t2);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wcustom{margin:6px 4px 2px;padding-top:8px;border-top:1px solid var(--line)} .wcustom input{box-sizing:border-box;width:100%;font:inherit;font-size:var(--t3);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:var(--r1);padding:9px 10px;outline:none} .wcustom input:focus{border-color:var(--acc)}
+.newv .dock{position:static;padding:0}
+
+/* 你说的话下面一行小字：现在怎么样了 */
+.yw{display:flex;flex-direction:column;align-items:flex-end;margin-bottom:-12px}
+.ymeta{align-self:flex-end;margin-top:-18px;display:flex;align-items:center;gap:6px;font-size:var(--t1);color:var(--mute);padding-right:4px;min-height:24px}
+.yw .ymeta{margin-top:2px;min-height:30px} .ymeta .sending{color:var(--faint)}
+.yw .ibs{display:flex;opacity:0;transition:opacity .15s} .yw.show .ibs{opacity:1} @media (hover:hover){.yw:hover .ibs{opacity:1}}
+/* 小图标按钮：复制、回退、分叉 */
+.ibs{display:inline-flex;align-items:center;gap:2px} .ib{position:relative;width:30px;height:30px;border-radius:var(--r1);display:grid;place-items:center;color:var(--mute)}
+.ib svg{width:17px;height:17px;stroke-width:1.7} .ib.done{color:var(--acc)} .ib:active{background:var(--line)}
+@media (hover:hover){.ib:hover{background:var(--line);color:var(--ink)}
+  .ib:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--toast-bg);color:var(--toast-ink);
+    font-size:var(--t1);line-height:1;padding:6px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:5}}
+.note.rw{display:flex;align-items:center;gap:10px;background:var(--accsoft);color:var(--acc);border-radius:var(--rf);padding:6px 6px 6px 14px;text-align:left}
+.note.rw button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:600}
+/* 回复底下：事实一行 + 过程 + ⋯ */
+.cl .acts{align-items:center} .facts{font-size:var(--t2);color:var(--mute);margin-right:4px}
+.pill small{color:var(--mute);font-size:var(--t1);max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl .acts .ibs{margin-left:-6px}
+.cl .imgs{margin:0 0 12px}
+.md details.code{margin:0 0 .9em;border-radius:var(--r2);background:var(--side)} .md details.code pre{margin:0;border-radius:0 0 var(--r2) var(--r2)}
+.md details.code summary{display:flex;gap:10px;align-items:center;padding:10px 14px;cursor:pointer;font:var(--t1)/1.5 ui-monospace,Menlo,monospace;color:var(--mute);list-style:none}
+.md details.code summary::-webkit-details-marker{display:none} .md details.code summary span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.md details.code summary small{flex:none;font-family:-apple-system,"PingFang SC",sans-serif} .md details.code[open] summary small::after{content:" · 收起"}
+.md details.code:not([open]) summary small::after{content:" · 展开"}
+.cl.fold .md{max-height:5.4em}
+/* 在做卡片：一大行说清进度，其余收着 */
+.live .lh .lt{flex:1;min-width:0;font-weight:600;font-size:var(--t4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live .lsub{margin-top:4px;font-size:var(--t2)} .live .lsub .tick{font-weight:500;color:var(--ink)}
+.silence:empty{display:none} .silence{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:var(--t2);color:var(--mute)}
+.silence.stuck{color:var(--amber)} .silence .pill{height:30px;font-size:var(--t2)}
+.live .ptog{margin:10px 0 0} .plan[data-p]{cursor:pointer} .ps.more .an{color:var(--mute)}
+/* 分段进度：一步一格，做完的实色、正在做的呼吸，点一下展开全部步骤 */
+.pbar{display:flex;gap:4px;width:100%;padding:8px 0 2px;margin-top:6px;cursor:pointer} .pbar i{flex:1;height:4px;border-radius:var(--rf);background:var(--line)}
+.pbar i.done{background:var(--acc)} .pbar i.doing{background:var(--acc);animation:breath 1.6s ease-in-out infinite}
+@keyframes breath{0%,100%{opacity:.35}50%{opacity:.9}} @media (prefers-reduced-motion:reduce){.pbar i.doing{animation:none;opacity:.6}}
+.live .partial{cursor:pointer;font-size:var(--t3);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live .partial.open{white-space:normal;color:var(--ink);font-size:var(--t4)} .live .partial .pl{color:var(--faint)}
+.limit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:14px 16px}
+.limit .q{font-weight:600;margin-bottom:10px}
+/* 快捷回答 */
+.quick{align-items:center} .quick button{color:var(--acc)}
+@media (hover:hover){.quick button:hover{border-color:var(--acc)}}
+.hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
+/* 回到这里 */
+.rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
+.rwfile{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:var(--t3)} .rwfile input{margin-top:5px;width:18px;height:18px;accent-color:var(--acc)}
+.rwfile small{display:block;color:var(--mute);font-size:var(--t2)}
+.amenu button.on{background:var(--acc);color:var(--on-acc);justify-content:center;margin-top:4px} .amenu .box #rwno{justify-content:center}
+/* 新对话：发出去后马上进“正在开” */
+.newv{position:relative} .opening{position:absolute;inset:0;z-index:3;background:var(--bg);overflow:auto;padding:28px 20px} .opening .col{width:100%}
+
+@media (min-width:821px){
+  html,body{font-size:var(--t4)} .app{grid-template-columns:320px 1fr}
+  .item .nm{font-size:var(--t4)} .item .st{font-size:var(--t2)} .item{padding:10px 12px}
+  .head{min-height:64px;padding:10px 24px} .head .ti b{font-size:var(--t4)} .head .ti span{font-size:var(--t2)}
+  .col{max-width:740px;gap:28px} .feed{padding:32px 32px calc(160px + var(--kb,0px))}
+  .you{font-size:var(--fs);line-height:1.7;padding:12px 18px} .composer{max-width:740px} .quick{max-width:740px}
+  .composer textarea{font-size:var(--t4)}
+}
+/* iPad：手拿着离得比电脑远，字号整体大一档（见 html.ipad 的 --t1…--t5），正文 18px、一行不超过 720px，按钮也大一点 */
+/* 接了妙控键盘或触控板的 iPad 会被当成“有鼠标”，按屏幕尺寸判断不出来，所以由脚本认出 iPad 后加 ipad 标记 */
+@media (min-width:821px){
+  html.ipad .head{padding-top:calc(16px + env(safe-area-inset-top))} html.ipad .col,html.ipad .composer,html.ipad .quick{max-width:720px}
+  html.ipad .item{min-height:62px} html.ipad .icon-btn{width:44px;height:44px} html.ipad .send{width:42px;height:42px}
+  html.ipad .pill{height:38px} html.ipad .quick button{height:40px}
+}
+@media (max-width:820px){
+  .app{grid-template-columns:1fr} .side{background:var(--bg)}
+  .app.in .side{display:none} .app:not(.in) .main{display:none} .back{display:grid}
+  .app:not(.in) .fab{display:grid} #newBtn{display:none}
+  .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px} .brand img{width:34px;height:34px;border-radius:var(--r1)} .sum{font-size:var(--t3);padding:0 22px 4px}
+  .head{padding-top:calc(10px + env(safe-area-inset-top))}
+  .scroll{padding:0 8px 24px} .quota{padding-right:96px} .um{display:none} .usage{right:10px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:var(--t4)} .item .st{font-size:var(--t2)}
+  .label{font-size:var(--t2);padding:18px 12px 6px}
+  .feed{padding:18px 16px calc(160px + var(--kb,0px))} .you{max-width:86%} .col{gap:20px}
+  .live ol li:nth-last-child(n+4){display:none}
+  .dock{padding:24px 10px calc(10px + env(safe-area-inset-bottom))}
+}
+
+.rewind-dialog .box{max-height:calc(100dvh - 40px);overflow:auto;width:min(400px,100%);padding:24px;border-radius:20px}
+.rewind-dialog h2{font-size:20px;font-weight:600;line-height:1.4;margin:0 0 10px;color:var(--ink)}
+.rewind-dialog .rewind-summary{font-size:15px;line-height:1.65;color:var(--mute);margin:0 0 20px}
+.rewind-option{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:15px;cursor:pointer}
+.rewind-option input{padding:0;width:20px;height:20px;margin:0;accent-color:var(--acc);flex:none}
+.rewind-dialog .rewind-actions{display:flex;gap:10px;margin-top:22px}
+.rewind-dialog .rewind-actions button{display:flex;justify-content:center;align-items:center;flex:1;width:auto;height:44px;min-height:44px;margin:0;padding:10px 14px;font-size:15px;border-radius:10px;background:var(--bg)}
+.rewind-dialog .rewind-actions button.on{background:var(--acc);color:var(--on-acc);font-weight:550}
+.rewind-dialog .rewind-error{font-size:14px;color:var(--red);line-height:1.5;margin-top:14px}
+@media(min-width:601px){.rewind-dialog{align-items:center}}
+@media(max-width:600px){.rewind-dialog .box{padding:22px 20px}}
+
+.quota-summary{display:flex;align-items:center;gap:10px;min-height:44px;width:100%;text-align:left;white-space:nowrap;font-size:var(--t1);border-radius:8px}
+.quota-summary:focus-visible{outline:2px solid var(--acc)}
+.quota-caption{color:var(--mute)} .quota-week{display:flex;align-items:baseline;gap:5px;color:var(--mute)}
+.quota-week b{font-size:var(--t2);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.quota-summary>svg{width:14px;height:14px;color:var(--mute);margin-left:auto}
+.quota-week b.hot,.quota-detail-top b.hot{color:var(--amber)}
+.quota-week b.critical,.quota-detail-top b.critical{color:var(--red)}
+.quota-dialog .box{width:min(400px,100%);padding:22px;max-height:calc(100dvh - 40px);overflow:auto}
+.quota-detail-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:16px}
+.quota-detail-head h2{font-size:20px;font-weight:600;margin:0;line-height:1.4}
+.quota-dialog .quota-close{display:grid;place-items:center;width:32px;height:32px;padding:0;background:var(--bg);border-radius:50%;flex:none}
+.quota-close svg{width:16px;height:16px}
+.quota-detail-group+ .quota-detail-group{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.quota-detail-group h3{font-size:16px;font-weight:600;margin:0 0 14px}
+.quota-detail-row+.quota-detail-row{margin-top:18px}
+.quota-detail-row.hot .qb i{background:var(--amber)} .quota-detail-row.critical .qb i{background:var(--red)}
+.quota-detail-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:14px;color:var(--mute)}
+.quota-detail-top b{font-weight:550;color:var(--ink);font-variant-numeric:tabular-nums}
+.quota-reset{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;margin-top:8px;font-size:13px;line-height:1.5;color:var(--ink)}
+.quota-reset span+span{color:var(--mute)}
+@media(min-width:601px){.quota-dialog{align-items:center}}
+
+.schedule-entry{min-height:44px;gap:10px;color:var(--mute)} .schedule-entry>svg{width:18px;height:18px}
+.schedule-dialog .box{width:min(520px,100%);padding:22px;max-height:calc(100dvh - 48px - env(safe-area-inset-bottom));overflow:auto}
+.schedule-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.schedule-head h2{font-size:20px;line-height:1.4;margin:0;font-weight:600}
+.schedule-dialog .schedule-head>button{width:32px;height:32px;padding:0;display:grid;place-items:center;background:var(--bg);border-radius:50%;flex:none}
+.schedule-head svg{width:18px;height:18px} .schedule-dialog .on{justify-content:center;margin-top:18px}
+.schedule-rows{max-height:60dvh;overflow:auto} .schedule-card{padding:14px 0;border-top:1px solid var(--line)} .schedule-card:first-child{border-top:0;padding-top:0}
+.schedule-card-top{display:flex;align-items:baseline;gap:12px;justify-content:space-between}.schedule-card h3{font-size:16px;font-weight:550;margin:0;overflow-wrap:anywhere}
+.schedule-card-top>span,.schedule-meta{font-size:13px;color:var(--mute);line-height:1.6}.schedule-card-top>span{white-space:nowrap}.schedule-meta{margin-top:5px}
+.schedule-dialog .bad,.schedule-error{color:var(--red)} .schedule-error{font-size:14px;line-height:1.5;margin-top:10px;overflow-wrap:anywhere}
+.schedule-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.schedule-dialog .schedule-tools button{width:auto;min-height:36px;height:auto;padding:6px 9px;font-size:13px;background:var(--bg);border-radius:8px}
+.schedule-empty{text-align:center;padding:28px 12px;color:var(--mute);font-size:15px}
+.schedule-form label{display:block;font-size:14px;color:var(--mute);margin-top:14px}
+.schedule-form input,.schedule-form textarea,.schedule-form select{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;margin:6px 0 0}
+.schedule-form textarea{resize:vertical;line-height:1.5}.schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.schedule-grid>*{min-width:0}
+@media(min-width:601px){.schedule-dialog{align-items:center}}
+</style></head><body>
+<div class="app" id="app">
+  <aside class="side">
+    <div class="brand"><img src="/_x/icon.png" alt=""><b>案头</b><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
+    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><div id="list"></div>
+      <button id="logoutBtn" hidden></button>
+    </div>
+    <div class="quota" id="quota" hidden></div>
+  </aside>
+  <button class="fab" id="fab" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <section class="main" id="main"><div class="blank"><b>案头</b>选一个对话，或开个新的</div></section>
+</div>
+<div class="notice" id="notice"></div>
+<script>
+// iPad（接了妙控键盘也算）：字号、按钮按 iPad 的手持距离放大一档（见样式里的 html.ipad），不再整页缩放
+if (/iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) document.documentElement.classList.add('ipad');
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ICON = {
+  play: '<svg viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+  img: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
+  clip: '<svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7L10.2 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7.6"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>',
+  step: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>',
+  say: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
+  dots: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>',
+};
+let openProc = new Set(), anchor = null;   // 点开/收起时让点的那一行留在原位
+// 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
+const unclamp = new Set();
+// 这件事拆成的几步：做完打勾、正在做的转圈，标题写到第几步
+// 收起时只看正在做的和下一步，做完的并成一行（点一下看全部）
+function planHTML(list, compact) {
+  if (!list.length) return '';
+  const done = list.filter(x => x.status === 'done').length;
+  const row = (x, i) => `<div class="ps ${x.status}">${x.status === 'done' ? '<span class="ok">✓</span>' : x.status === 'doing' ? '<i class="spin"></i>' : `<span class="n">${i + 1}</span>`}<span class="an">${esc(x.text)}</span></div>`;
+  let at = list.findIndex(x => x.status !== 'done'); if (at < 0) at = list.length;
+  const shown = compact && list.length > 3 ? list.map((x, i) => [x, i]).filter(([, i]) => i >= at && i < at + 2) : list.map((x, i) => [x, i]);
+  const rest = compact && list.length > 3 ? list.length - at - shown.length : 0;
+  return `<div class="plan" data-p="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步</div>${shown.map(([x, i]) => row(x, i)).join('')}${rest > 0 ? `<div class="ps more"><span class="n">…</span><span class="an">还有 ${rest} 步</span></div>` : ''}</div>`;
+}
+// 派出去的助手（子代理、后台命令）：一行一个，在跑的转圈、做完打勾
+function agentsHTML(list) {
+  if (!list.length) return '';
+  const run = list.filter(a => a.status === 'running').length;
+  const mark = {running: '<i class="spin"></i>', done: '<span class="ok">✓</span>', failed: '<span class="bad">✕</span>', stopped: '<span class="bad">■</span>'};
+  if (!run) return '';   // 都做完了就不占地方
+  list = list.filter(a => a.status === 'running').slice(-3);
+  return `<div class="agents"><div class="ah">${run} 个助手在跑</div>${list.map(a =>
+    `<div class="ag ${a.status}">${mark[a.status] || ''}<span class="an">${esc(a.name)}</span><span class="am">${a.status === 'running' && a.last ? esc(a.last) + ' · ' : ''}${dur(a.secs)}</span></div>`).join('')}</div>`;
+}
+function procHTML(list, pid, tid) {
+  const ck = t => esc(String(t).slice(0, 80));
+  return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait
+    ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
+    : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
+    : e.k === 'say' ? `<div class="pi say">${ICON.say}<div class="pt md">${md(e.text)}</div></div>`
+    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}</div>`;
+}
+let limitsGpt = [], hasGpt = false;
+let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
+
+// 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
+function notice(s) {
+  const el = $('#notice'), word = {awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你定', error: '出错了', paused: '额度用完了', idle: s.suggest ? '做完了 · 有建议' : '做完了'}[s.status] || '有新进展';
+  el.className = 'notice ' + s.status;
+  el.innerHTML = `<span class="dot"></span><span>${esc(s.name)} · ${word}</span>`;
+  el.onclick = () => { el.classList.remove('on'); openSession(s.num); };
+  requestAnimationFrame(() => el.classList.add('on'));
+  clearTimeout(noticeTimer); noticeTimer = setTimeout(() => el.classList.remove('on'), 5000);
+}
+function watchStatus() {
+  const now = Object.fromEntries(sessions.map(s => [s.num, s.status]));
+  if (prevStatus) for (const s of sessions) {
+    const was = prevStatus[s.num];
+    if ((was === 'running' || was === 'queued') && !['running', 'queued'].includes(s.status)) notice(s);
+  }
+  prevStatus = now;
+  const n = sessions.filter(s => s.status === 'awaiting' || s.status === 'error' || (s.unread && s.num !== sel)).length;
+  if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});   // 主屏幕图标上的小红数字
+  document.title = n ? `(${n}) 案头` : '案头';
+}
+const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+let stick = false, sessions = [], folders = [], recent = [], lastFolder = '', sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
+
+// Mac 连不上（睡着、断网、案头在更新）时反向代理回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
+function setOffline(off) {
+  let el = $('#offline');
+  if (!off) { if (el) el.remove(); return; }
+  if (el) return;
+  el = document.createElement('div'); el.id = 'offline'; el.className = 'offline';
+  el.innerHTML = '<i></i>连不上 Mac：可能睡着、断网，或案头正在更新。连上后自动恢复';
+  document.body.appendChild(el);
+}
+async function api(path, body) {
+  let r;
+  try { r = await fetch('/_x/api/' + path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {}); }
+  catch (e) { setOffline(true); throw e; }
+  if (r.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); throw new Error('login'); }
+  if (r.status === 502 || r.status === 503 || r.status === 504) { setOffline(true); throw new Error('offline'); }
+  if (r.status === 413) throw new Error('big');
+  setOffline(false);
+  return r.json();
+}
+
+// 带附件的发送：fetch 看不到上传进度，改用 XHR，边传边报“已传多少”
+function upload(path, body, onProg) {
+  return new Promise((ok, bad) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/_x/api/' + path);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded, e.total); };
+    x.onerror = () => { setOffline(true); bad(new Error('offline')); };
+    x.onload = () => {
+      if (x.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
+      if ([502, 503, 504].includes(x.status)) { setOffline(true); return bad(new Error('offline')); }
+      if (x.status === 413) return bad(new Error('big'));
+      setOffline(false);
+      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(e); }
+    };
+    x.send(JSON.stringify(body));
+  });
+}
+const sendApi = (body, onProg) => (body.files || []).length || (body.images || []).length ? upload('send', body, onProg) : api('send', body);
+
+function ago(t) {
+  const s = Date.now() / 1000 - t, d = new Date(t * 1000);
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (new Date().toDateString() === d.toDateString()) return d.toTimeString().slice(0, 5);
+  if (s < 2 * 86400) return '昨天';
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ? '正在压缩上下文' : `在做 · 第 ${s.steps} 步`, queued: '排队中',
+  awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你定', error: '出错了', paused: s.detail}[s.status]
+  || (s.suggest ? '有建议 · ' + ago(s.updated) : s.unread ? '做完了 · ' + ago(s.updated) : ago(s.updated)));
+
+function md(src) {
+  // Codex 回复里的出处标记 :codex-file-citation{path="…"} 显示成“（出处：文件名）”
+  src = String(src).replace(/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/g, (m, p) => `（出处：${p.split('/').pop()}）`);
+  const lines = esc(src).split('\n'); const out = [];
+  // 很长的本机路径只显示文件名（按住或悬停看全路径），读着不被一长串目录打断
+  const short = c => /^(~|\/(Users|private|tmp|var|Volumes|opt))\/[^\s]*\/[^\s]*\/[^\s]+$/.test(c) && c.length > 32
+    ? `<code title="${c}">${c.split('/').filter(Boolean).pop()}</code>` : `<code>${c}</code>`;
+  const inline = t => t.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, (m, c) => short(c))
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, (m, t, u) => /^\/(Users|private|tmp|var|Volumes|opt)\//.test(u)
+      ? `<b>${t}</b>` : `<a href="${u}" target="_blank">${t}</a>`);  // Mac 上的本机路径在手机上点不开，只留文字
+  // 按块排：段落、标题、列表、代码块、表格、引用；汇报里“要你做的：”这类开头单独成小标题
+  let para = [], list = null, tbl = [], code = null, quote = [];
+  const endPara = () => { if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; };
+  const endList = () => { if (list) out.push(`<${list.t}>${list.items.map(x => `<li>${inline(x)}</li>`).join('')}</${list.t}>`); list = null; };
+  const endTbl = () => {
+    if (!tbl.length) return;
+    const rows = tbl.filter(r => !/^\|\s*:?-{2,}/.test(r)).map(r => r.replace(/^\||\|$/g, '').split('|'));
+    out.push('<div class="tw"><table>' + rows.map((r, i) => '<tr>' + r.map(c => `<${i ? 'td' : 'th'}>${inline(c.trim())}</${i ? 'td' : 'th'}>`).join('') + '</tr>').join('') + '</table></div>');
+    tbl = [];
+  };
+  const endQuote = () => { if (quote.length) out.push(`<blockquote>${quote.map(inline).join('<br>')}</blockquote>`); quote = []; };
+  const endAll = () => { endPara(); endList(); endTbl(); endQuote(); };
+  // 代码块超过 8 行先收起（第一行当标题），点开再看
+  const pre = c => c.length > 8 ? `<details class="code"><summary><span>${c[0].trim().slice(0, 60) || '代码'}</span><small>${c.length} 行</small></summary><pre>${c.join('\n')}</pre></details>` : `<pre>${c.join('\n')}</pre>`;
+  for (const l of lines) {
+    if (code) { if (/^\s*```/.test(l)) { out.push(pre(code)); code = null; } else code.push(l); continue; }
+    if (/^\s*```/.test(l)) { endAll(); code = []; continue; }
+    if (/^\s*\|.*\|\s*$/.test(l)) { endPara(); endList(); endQuote(); tbl.push(l.trim()); continue; }
+    endTbl();
+    if (!l.trim()) { endPara(); endQuote(); continue; }
+    if (/^\s*-{3,}\s*$/.test(l)) { endAll(); out.push('<hr>'); continue; }
+    const h = l.match(/^#{1,4}\s+(.*)/);
+    if (h) { endAll(); out.push(`<h4>${inline(h[1])}</h4>`); continue; }
+    const q = l.match(/^&gt;\s?(.*)/);
+    if (q) { endPara(); endList(); quote.push(q[1]); continue; }
+    const u = l.match(/^\s*[-*•]\s+(.*)/), o = l.match(/^\s*\d+[.、)]\s+(.*)/);
+    if (u || o) {
+      endPara(); endQuote(); const t = u ? 'ul' : 'ol';
+      if (list && list.t !== t && !/^\s{2,}/.test(l)) endList();
+      if (!list) list = {t, items: []};
+      list.items.push((u || o)[1]); continue;
+    }
+    if (list && /^\s{2,}\S/.test(l)) { list.items[list.items.length - 1] += '<br>' + l.trim(); continue; }
+    const sec = l.match(/^(要你做的|要你定|做了什么|改了哪些|自查结果|截图|结论|原因|下一步)[：:]\s*(.*)$/);
+    if (sec) { endAll(); out.push(`<h5>${sec[1]}</h5>`); if (sec[2]) para.push(sec[2]); continue; }
+    endList(); endQuote(); para.push(l);
+  }
+  if (code) out.push(pre(code));
+  endAll();
+  return out.join('');
+}
+// 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
+function quotaResetLabel(l, now = Date.now()) {
+  if (l.name === '5 小时') return ((l.reset || '').match(/\b\d{1,2}:\d{2}\b/) || [''])[0];
+  if (l.name !== '本周') return l.reset || '';
+  let d = l.reset_at == null ? null : new Date(Number(l.reset_at) * 1000);
+  if (!d || !Number.isFinite(d.getTime())) {
+    const m = (l.reset || '').match(/^(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})$/);
+    if (!m) return '';
+    const year = new Date(now).getFullYear();
+    d = [year - 1, year, year + 1].map(y => new Date(y, +m[1] - 1, +m[2], +m[3], +m[4]))
+      .sort((a, b) => Math.abs(a.getTime() - now) - Math.abs(b.getTime() - now))[0];
+  }
+  const day = d.toDateString() === new Date(now).toDateString() ? '今天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+  return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function qcell(l, hot = 80) {
+  const reset = quotaResetLabel(l);
+  const h = l.pct != null && l.pct >= hot;
+  return `<div class="qm ${h ? 'hot' : ''}" title="${reset ? esc(reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
+    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)} 重置</div>` : ''}</div>`;
+}
+function quotaGroups() {
+  return [['Claude', limits], ...(limitsGpt.length && hasGpt ? [['Codex', limitsGpt]] : [])].filter(([, ls]) => ls.length);
+}
+function quotaReset(l, now = Date.now()) {
+  const at = l.reset_at == null ? NaN : Number(l.reset_at) * 1000;
+  if (!Number.isFinite(at)) return {relative: l.reset ? '重置时间' : '暂未提供重置时间', absolute: quotaResetLabel(l, now)};
+  const mins = Math.ceil((at - now) / 60000);
+  let relative = '等待额度刷新';
+  if (mins > 0) {
+    const days = Math.floor(mins / 1440), hours = Math.floor(mins % 1440 / 60), minutes = mins % 60;
+    relative = (days ? `${days} 天${hours ? ` ${hours} 小时` : ''}` : hours ? `${hours} 小时${minutes ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`) + '后重置';
+  }
+  const d = new Date(at), today = new Date(now), tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const sameDay = x => d.toDateString() === x.toDateString();
+  const day = sameDay(today) ? '今天' : sameDay(tomorrow) ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`;
+  const clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return {relative, absolute: l.name === '5 小时' ? clock : l.name === '本周' ? quotaResetLabel(l, now) : `${day} ${clock}`};
+}
+function renderQuotaDetails() {
+  const el = $('#quotaDetailBody'); if (!el) return;
+  el.innerHTML = quotaGroups().map(([who, ls]) => `<section class="quota-detail-group"><h3>${who}</h3>${ls.map(l => {
+    const when = quotaReset(l);
+    return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
+      <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
+      <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div></div>`;
+  }).join('')}</section>`).join('');
+}
+function openQuotaDetails() {
+  if ($('#quotaDetailBody')) return;
+  const el = sheet(`<div class="quota-detail-head"><h2 id="quotaTitle">额度用量</h2><button class="quota-close" aria-label="关闭">${ICON.close || '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'}</button></div><div id="quotaDetailBody"></div>`);
+  el.classList.add('quota-dialog');
+  const panel = el.querySelector('.box'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', 'quotaTitle');
+  el.querySelector('.quota-close').onclick = () => el.remove();
+  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
+  renderQuotaDetails(); el.querySelector('.quota-close').focus();
+}
+function renderQuota() {
+  const q = $('#quota'), groups = quotaGroups(); q.hidden = !groups.length;
+  q.innerHTML = groups.length ? `<button class="quota-summary" aria-label="本周已用额度，点击查看详情"><span class="quota-caption">周已用</span>${groups.map(([who, ls]) => {
+    const week = ls.find(l => l.name === '本周');
+    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
+  }).join('')}${ICON.chev}</button>` : '';
+  const button = q.querySelector('button'); if (button) button.onclick = openQuotaDetails;
+  renderQuotaDetails();
+}
+
+function renderUsage(u) {
+  const el = $('#usageBox'); if (!el || !u) return;
+  const ctxWarn = u.context != null && u.context >= 70;
+  const ls = u.mkey === 'gpt' ? limitsGpt : limits;
+  const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
+  const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
+  el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
+    + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
+      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
+      <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
+        u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
+        : u.busy ? '做完才能压缩' : '压缩上下文'}</button></div>` : '');
+  $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
+  if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
+    e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
+    const r = await api('compact/' + sel, {}).catch(() => null); b.textContent = r ? '已交给它，进度看对话里' : '没交出去，再点一次';
+    lastKey = ''; loadThread();
+  };
+}
+document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
+
+// 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
+const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
+function renderSide() {
+  if (query) return renderSearch();
+  const row = s => `<button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
+      <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button>`;
+  const now = Date.now() / 1000;
+  const busy = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || (s.unread && s.num !== sel);
+  // 要你定的、在做的、刚做完没看的在最上面；其余按最近 7 天、更早
+  const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued', 'paused'].includes(s.status)],
+    ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel],
+    ['最近', s => !busy(s) && now - s.updated < 7 * 86400], ['更早', s => !busy(s) && now - s.updated >= 7 * 86400]]
+    .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
+  $('#list').innerHTML = groups.map(([t, xs]) => `<div class="label">${t}</div>` + xs.map(row).join('')).join('')
+    || `<div class="note" style="padding:10px">还没有对话</div>`;
+  wireRows();
+  renderSum();
+}
+
+// ---------- 列表：搜索、长按菜单（改名 / 删除） ----------
+let query = '', searchSeq = 0;
+function wireRows() {
+  document.querySelectorAll('#list .item[data-n]').forEach(b => {
+    let timer = 0, longed = false, x0 = 0, y0 = 0;
+    b.onclick = e => {
+      if (longed) { longed = false; return; }
+      const m = e.target.closest('.more'); if (m) { e.stopPropagation(); return rowMenu(+b.dataset.n); }
+      if (b.dataset.del) return restore(+b.dataset.n, true);
+      openSession(+b.dataset.n);
+    };
+    // 手机上长按 0.5 秒出菜单；手指挪动（在滚列表）就不算
+    b.addEventListener('touchstart', e => { longed = false; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      timer = setTimeout(() => { longed = true; navigator.vibrate && navigator.vibrate(10); rowMenu(+b.dataset.n); }, 500); }, {passive: true});
+    b.addEventListener('touchmove', e => { if (Math.hypot(e.touches[0].clientX - x0, e.touches[0].clientY - y0) > 8) clearTimeout(timer); }, {passive: true});
+    b.addEventListener('touchend', () => clearTimeout(timer));
+    b.oncontextmenu = e => { e.preventDefault(); rowMenu(+b.dataset.n); };
+  });
+}
+async function manage(num, action, value) {
+  const r = await api('manage/' + num, {action, value});
+  if (!r.ok) { toast(r.error || '没改成，再试一次'); return false; }
+  await loadSessions(); if (query) renderSearch(); return true;
+}
+function sheet(html) {
+  const el = document.createElement('div'); el.className = 'amenu'; el.innerHTML = `<div class="box">${html}</div>`;
+  el.onclick = e => { if (e.target === el) el.remove(); };
+  document.body.appendChild(el); return el;
+}
+function scheduleDate(ts) {
+  return ts ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Taipei', month:'numeric', day:'numeric', weekday:'short', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).format(new Date(ts * 1000)) : '—';
+}
+function scheduleLocal(ts) {
+  return new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).format(new Date(ts * 1000)).replace(' ', 'T');
+}
+function scheduleModal(html) {
+  const el = sheet(html); el.classList.add('schedule-dialog');
+  const box = el.querySelector('.box'); box.setAttribute('role','dialog'); box.setAttribute('aria-modal','true'); box.setAttribute('aria-label','定时任务');
+  el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
+  return el;
+}
+async function openSchedules() {
+  const el = scheduleModal(`<div class="schedule-head"><h2>定时任务</h2><button id="scheduleClose" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="scheduleRows" class="schedule-rows">正在读取…</div><button class="on" id="scheduleNew">新建定时任务</button>`);
+  el.querySelector('#scheduleClose').onclick = () => el.remove();
+  el.querySelector('#scheduleNew').onclick = () => { el.remove(); scheduleForm(); };
+  el.querySelector('#scheduleClose').focus();
+  const states = {idle:'待执行',dispatching:'正在提交',submitted:'排队中',running:'执行中',completed:'已完成',failed:'执行失败',uncertain:'待确认'};
+  let tasks = [];
+  async function load() {
+    try {
+      const d = await api('schedules'); if (!el.isConnected) return;
+      tasks = d.tasks || [];
+      if (d.error) { el.querySelector('#scheduleRows').textContent = d.error; return; }
+      el.querySelector('#scheduleRows').innerHTML = tasks.length ? tasks.map(t => `<article class="schedule-card"><div class="schedule-card-top"><h3>${esc(t.title)}</h3><span class="${['failed','uncertain'].includes(t.state) ? 'bad' : ''}">${['failed','uncertain'].includes(t.state) ? states[t.state] : !t.enabled && !['submitted','running','dispatching'].includes(t.state) ? (t.kind === 'once' && t.state === 'completed' ? '已完成' : '已暂停') : states[t.state] || t.state}</span></div>
+        <div class="schedule-meta">${t.kind === 'once' ? '单次' : t.kind === 'daily' ? '每天' : '每周' + ['一','二','三','四','五','六','日'][t.weekday]} · ${t.kind === 'once' ? scheduleDate(Date.parse(t.run_at)/1000) : esc(t.time)} · ${esc((modelOpts.find(m => m[0] === t.model) || [, '继承 / 自动'])[1])}</div>
+        ${t.enabled && t.next_at ? `<div class="schedule-meta">下次：${scheduleDate(t.next_at)}</div>` : ''}
+        ${t.error ? `<div class="schedule-error">${esc(t.error)}</div>` : ''}
+        <div class="schedule-tools">${t.target ? `<button data-open="${t.target}">查看对话</button>` : ''}<button data-edit="${t.id}">${t.kind === 'once' && !t.next_at ? '重新安排' : '修改'}</button>${t.kind === 'once' && !t.next_at ? '' : `<button data-action="${t.enabled ? 'pause' : 'resume'}" data-id="${t.id}">${t.enabled ? '暂停' : '恢复'}</button>`}<button class="bad" data-action="delete" data-id="${t.id}">删除</button></div></article>`).join('') : '<div class="schedule-empty">还没有定时任务</div>';
+    } catch (e) { if (el.isConnected) el.querySelector('#scheduleRows').textContent = '暂时读不到任务，请稍后重试'; }
+  }
+  el.querySelector('#scheduleRows').onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.open) { el.remove(); openSession(+b.dataset.open); return; }
+    if (b.dataset.edit) { const t = tasks.find(t => t.id === b.dataset.edit); el.remove(); scheduleForm(t); return; }
+    if (b.dataset.action) {
+      if (b.dataset.action === 'delete' && b.dataset.confirm !== 'yes') { b.dataset.confirm = 'yes'; b.textContent = '再次点击删除'; return; }
+      b.disabled = true;
+      const d = await api('schedules', {action:b.dataset.action,id:b.dataset.id}).catch(() => null);
+      if (!d?.ok) toast(d?.error || '没改成功，请重试');
+      await load();
+    }
+  };
+  await load();
+  const timer = setInterval(() => { if (!el.isConnected) clearInterval(timer); else load(); }, 5000);
+}
+async function scheduleForm(task = {}) {
+  await loadSessions();
+  const el = scheduleModal(`<div class="schedule-head"><h2>${task.id ? '修改定时任务' : '新建定时任务'}</h2><button id="scheduleBack" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button></div>
+    <form class="schedule-form"><label>名称<input name="title" maxlength="80" placeholder="例如：早间要闻" value="${esc(task.title || '')}"></label>
+    <label>要做的事<textarea name="prompt" required maxlength="20000" rows="3" placeholder="写清希望案头完成的任务">${esc(task.prompt || '')}</textarea></label>
+    <div class="schedule-grid"><label>执行频率<select name="kind"><option value="once">单次</option><option value="daily">每天</option><option value="weekly">每周</option></select></label><label id="scheduleWeek">星期<select name="weekday">${['周一','周二','周三','周四','周五','周六','周日'].map((t,i)=>`<option value="${i}">${t}</option>`).join('')}</select></label></div>
+    <label id="scheduleOnce">执行日期与时间<input type="datetime-local" name="run_at"></label><label id="scheduleClock">执行时刻<input type="time" name="time"></label>
+    <div class="schedule-meta">按台北时间执行</div>
+    <label>在哪个对话执行<select name="target"><option value="">新开专用对话</option>${sessions.map(s=>`<option value="${s.num}">#${s.num} ${esc(s.name)}</option>`).join('')}</select></label>
+    <label id="scheduleFolder">工作文件夹<select name="folder"><option value="">独立临时文件夹</option>${folders.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select></label>
+    <div class="schedule-grid"><label>模型<select name="model"><option value="auto">继承 / 自动</option>${modelOpts.map(([k,t])=>`<option value="${k}">${esc(t)}</option>`).join('')}</select></label><label>思考深度<select name="effort">${EFFORT_OPTS.map(([k,t])=>`<option value="${k}">${t}</option>`).join('')}</select></label></div>
+    <div class="schedule-error" id="scheduleError" role="alert" hidden></div><button class="on" type="submit">保存任务</button></form>`);
+  const form = el.querySelector('form'), field = k => form.elements.namedItem(k);
+  field('kind').value = task.kind || 'once'; field('weekday').value = task.weekday ?? 0; field('time').value = task.time || '08:00';
+  field('run_at').value = scheduleLocal(task.kind === 'once' && task.run_at ? Date.parse(task.run_at)/1000 : Date.now()/1000+3600);
+  field('target').value = task.target || ''; field('folder').value = task.folder || ''; field('model').value = task.model || 'auto'; field('effort').value = task.effort || 'medium';
+  const change = () => { el.querySelector('#scheduleOnce').hidden = field('kind').value !== 'once'; el.querySelector('#scheduleClock').hidden = field('kind').value === 'once'; el.querySelector('#scheduleWeek').hidden = field('kind').value !== 'weekly'; el.querySelector('#scheduleFolder').hidden = !!field('target').value; };
+  field('kind').onchange = change; field('target').onchange = change; change();
+  el.querySelector('#scheduleBack').onclick = () => { el.remove(); openSchedules(); };
+  form.onsubmit = async e => {
+    e.preventDefault(); const b = form.querySelector('button[type=submit]'); b.disabled = true;
+    const data = Object.fromEntries(new FormData(form)); data.action = 'save'; if (task.id) data.id = task.id;
+    const d = await api('schedules', data).catch(() => null);
+    if (!d?.ok) { const err = el.querySelector('#scheduleError'); err.hidden = false; err.textContent = d?.error || '没保存成功，请重试'; b.disabled = false; return; }
+    el.remove(); openSchedules();
+  };
+}
+$('#schedulesBtn').onclick = openSchedules;
+
+function rowMenu(num) {
+  const s = sessions.find(x => x.num === num); if (!s) return;
+  const el = sheet(`<div class="t">${esc(s.name)}</div>
+    <button data-a="rename"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>改名</button>
+    <div class="sep"></div><button class="del" data-a="del"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>删除</button>`);
+  el.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const a = b.dataset.a;
+    if (a === 'rename') {
+      el.querySelector('.box').innerHTML = `<div class="t">改名</div><input id="rn" value="${esc(s.name)}" maxlength="40" enterkeyhint="done"><button class="on" id="rok">好</button>`;
+      const inp = el.querySelector('#rn'); inp.focus(); inp.select();
+      const ok = async () => { const v = inp.value.trim(); if (!v) return; el.remove(); manage(num, 'rename', v); };
+      el.querySelector('#rok').onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) ok(); };
+    } else if (a === 'del') {
+      el.remove();
+      if (await manage(num, 'delete')) {
+        if (sel === num) goList();
+        toast(`已删除“${s.name.slice(0, 10)}${s.name.length > 10 ? '…' : ''}”`, '撤销', () => restore(num));
+      }
+    }
+  });
+}
+async function restore(num, open) {
+  if (await manage(num, 'restore') && open) { $('#q').value = ''; setQuery(''); openSession(num); }
+}
+let toastEl = null, toastTimer = 0;
+function toast(text, btn, fn, ms = 5000) {
+  if (toastEl) toastEl.remove(); clearTimeout(toastTimer);
+  toastEl = document.createElement('div'); toastEl.className = 'toast';
+  toastEl.innerHTML = `<span>${esc(text)}</span>${btn ? `<button>${esc(btn)}</button>` : ''}`;
+  if (btn) toastEl.querySelector('button').onclick = () => { toastEl.remove(); toastEl = null; fn(); };
+  document.body.appendChild(toastEl);
+  toastTimer = setTimeout(() => { if (toastEl) { toastEl.remove(); toastEl = null; } }, ms);
+}
+// 搜索：标题、你说过的话、它的回复；删除 30 天内的也搜得到（点一下找回）
+function setQuery(v) {
+  query = v.trim(); $('#find').classList.toggle('has', !!v); renderSide();
+}
+const hl = (t, q) => { const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
+async function renderSearch() {
+  const q = query, seq = ++searchSeq;
+  if (!$('#list').querySelector('.sres')) $('#list').innerHTML = '<div class="note sres" style="padding:10px">搜索中…</div>';
+  let d; try { d = await api('search?q=' + encodeURIComponent(q)); } catch (e) { return; }
+  if (seq !== searchSeq || q !== query) return;
+  const row = (r, del) => `<button class="item" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nm">${hl(r.name, q)}</div>
+    <div class="st"><span class="dot"></span>${engTag(r.engine)}${del ? (r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}</div>
+    ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
+  const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
+  $('#list').innerHTML = `<div class="sres"></div>` + (parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
+    || `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>`);
+  wireRows();
+}
+{ let t = 0; $('#q').oninput = e => { clearTimeout(t); const v = e.target.value; $('#find').classList.toggle('has', !!v); t = setTimeout(() => setQuery(v), 300); }; }
+$('#q').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; setQuery(''); } };
+$('#qclr').onclick = e => { e.preventDefault(); $('#q').value = ''; setQuery(''); $('#q').blur(); };
+
+// 标题下一行：问候 + 几件在做、几件等你，一眼看清现在的情况
+const OWNER = '庄老师';
+function renderSum() {
+  const h = new Date().getHours(), hi = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+  const run = sessions.filter(s => ['running', 'queued', 'paused'].includes(s.status)).length, wait = sessions.filter(s => ['awaiting', 'error'].includes(s.status)).length;
+  const bits = [esc(hi + '，' + OWNER)];
+  if (run) bits.push(`<span class="r">${run} 件在做</span>`);
+  if (wait) bits.push(`<span class="w">${wait} 件等你</span>`);
+  if (!run && !wait) bits.push('都做完了');
+  if ($('#sum')) $('#sum').innerHTML = bits.join(' · ');
+}
+
+async function loadSessions() {
+  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; recent = d.recent || []; lastFolder = d.last_folder || ''; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); }
+  catch (e) { if (e.message !== 'login') console.warn(e); }
+}
+
+function composerHTML(ph) {
+  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
+    <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
+    <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
+    <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
+}
+
+// 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
+let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['gpt', 'GPT']];
+const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
+let mpOpen = false, mpRedraw = null;
+// 模型按钮只写型号和深度（“Opus 5.5 · 高”）；菜单按 Claude / GPT 分组，哪家额度快用完了就在组名旁标出来。
+// 新对话：自动 + 两家都能选。对话里：只能在同一家里换（Claude 开的不能换 GPT，反之亦然），换了从下一句起生效。
+function renderModel(st, onPick, isNew) {
+  const el = $('#mpw'); if (!el) return;
+  mpRedraw = () => renderModel(st, onPick, isNew);
+  const opt = k => (modelOpts.find(m => m[0] === k) || [, ''])[1];
+  const label = k => k === 'auto' ? '自动' : (k === st.model && st.label ? st.label : opt(k) || k || '默认').replace(/^Claude /, '');
+  const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
+  const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
+  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(label(k))}</b></span>${ok}</button>`;
+  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt');
+  if (!isNew && st.model && st.model !== 'gpt' && !claude.includes(st.model)) claude.push(st.model);
+  const gptChat = !isNew && st.model === 'gpt';
+  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
+  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
+  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(label(st.model))} · ${esc(ename)}${ICON.chev}</button>`
+    + (mpOpen ? `<div class="mmenu">${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+  $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
+  el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const was = st.model + st.effort;
+    if (b.dataset.m) { st.model = b.dataset.m; delete st.label; mpOpen = false; } else st.effort = b.dataset.e;
+    onPick(st); renderModel(st, onPick, isNew);
+    if (!isNew && was !== st.model + st.effort) toast(`下一句起用 ${label(st.model)} · ${(EFFORT_OPTS.find(x => x[0] === st.effort) || [, ''])[1]}`);
+  });
+}
+document.addEventListener('click', e => { if (mpOpen && !e.target.closest('.mpw')) { mpOpen = false; mpRedraw && mpRedraw(); } });
+
+function headStatus() {
+  const s = sessions.find(x => x.num === sel), el = $('#hst');
+  if (!s || !el) return;
+  el.className = s.status; el.textContent = s.status === 'idle' ? s.cwd.split('/').filter(Boolean).pop() || s.cwd : statusText(s);
+}
+
+// 历史只留一层：列表 → 某个对话。已经在对话（或新对话页）里再切到别的，就替换当前这一层，返回一次就回到列表
+function navTo(state, hash) {
+  const st = history.state;
+  if (st && (st.s || st.n)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
+}
+function openSession(num, fromPop) {
+  partialText = ''; setTimeout(connectEvents);
+  if (sel && sel !== num) presence(false);
+  sel = num; lastKey = ''; attach = []; attachFiles = []; presence(true);
+  if (!fromPop) navTo({s: num}, '#s' + num);
+  $('#app').classList.add('in');
+  const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
+  $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
+      <div class="ti"><b class="wt"><span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
+    <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
+    ${composerHTML('说点什么…')}`;
+  $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
+  const feed = $('#feed');
+  // 刚点进来：一直贴着最下面（图片、在做卡片后加载撑高也跟着到底），直到你自己往上翻
+  stick = true;
+  const toEnd = () => { if (stick) feed.scrollTop = feed.scrollHeight; };
+  new ResizeObserver(toEnd).observe($('#col'));
+  feed.addEventListener('load', toEnd, true);   // 图片加载完
+  const unstick = () => { stick = false; };
+  feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
+  feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
+  $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
+  wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
+  renderSide(); headStatus(); showCached(num); loadThread();
+}
+
+// 告诉 Mac“我正开着这个对话看”：做完时不再弹通知、不发钉钉（切走、锁屏就不算在看）
+function presence(on) {
+  const body = JSON.stringify({num: sel || 0, visible: !!(on && sel && !document.hidden)});
+  if (!on && navigator.sendBeacon) navigator.sendBeacon('/_x/api/presence', new Blob([body], {type: 'application/json'}));
+  else fetch('/_x/api/presence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: true}).catch(() => {});
+}
+setInterval(() => { if (sel && !document.hidden) presence(true); }, 15000);
+addEventListener('pagehide', () => presence(false));
+function goList() { presence(false); sel = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+// 实时推送：Mac 那边一有变化就推过来（列表 s、这个对话 t、正在写的回复 p），不再每几秒问一次
+let es = null, esNum = -1, esOk = false, lastPoll = 0, partialText = '', partialOpen = false;
+const pushOn = () => 'Notification' in window && Notification.permission === 'granted';
+function connectEvents() {
+  const n = sel || 0;
+  if (es && esNum === n && es.readyState !== 2) return;
+  if (es) es.close();
+  esNum = n; esOk = false;
+  es = new EventSource('/_x/api/events?num=' + n);
+  es.onopen = () => { esOk = true; setOffline(false); };
+  es.onerror = () => { esOk = false; };          // 浏览器会自己重连；期间退回定时问
+  es.addEventListener('s', () => loadSessions());
+  es.addEventListener('t', () => loadThread());
+  es.addEventListener('p', e => { partialText = JSON.parse(e.data).text || ''; showPartial(); });
+}
+function showPartial() {
+  const live = document.querySelector('.live'), feed = $('#feed');
+  let el = document.querySelector('.live .partial');
+  if (!live || !partialText) { if (el) el.remove(); return; }
+  const near = feed && feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  if (!el) { el = document.createElement('div'); el.className = 'partial'; live.appendChild(el); el.onclick = () => { partialOpen = !partialOpen; showPartial(); }; }
+  // 正在写的这段：默认只露最后一句（多半是“我先看看…”这类过程话），点开看全文；写完的回复会整段出现在下面
+  const lastLine = partialText.trim().split('\n').filter(Boolean).pop() || '';
+  el.classList.toggle('open', partialOpen);
+  el.innerHTML = partialOpen ? md(partialText) + '<i class="caret"></i>' : `<span class="pl">正在写：</span>${esc(lastLine.replace(/[*`#>]/g, '').slice(-80))}<i class="caret"></i>`;
+  if (near) feed.scrollTop = feed.scrollHeight;
+}
+
+// 点手机通知进来：打开通知说的那个对话。编号可能在地址里（?s=4），也可能在后台脚本记下的缓存里，或者直接发消息过来
+async function openFromNotice() {
+  let n = +new URLSearchParams(location.search).get('s') || 0;
+  try {
+    const c = await caches.open('anzhuo'), r = await c.match('/_x/__open');
+    if (r) { n = n || +(await r.text()); await c.delete('/_x/__open'); }
+  } catch (e) {}
+  if (!n) return false;
+  history.replaceState(null, '', location.pathname); openSession(n); return true;
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+  if (e.data && e.data.open) { caches.open('anzhuo').then(c => c.delete('/_x/__open')).catch(() => {}); openSession(+e.data.open); }
+});
+
+// 手机通知：只有加到主屏幕后打开（全屏模式）iPhone 才允许；第一次要点一下“开启通知”，之后每次打开悄悄续上订阅
+async function setupPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.register('/_x/sw.js', {scope: '/_x/'});
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const subscribe = async () => {
+    const {key} = await api('push/key');
+    const raw = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice(0, (4 - key.length % 4) % 4)), c => c.charCodeAt(0));
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: raw});
+    await api('push', sub.toJSON());
+  };
+  if (Notification.permission === 'granted') return subscribe().catch(() => {});
+  if (!standalone || Notification.permission === 'denied') return;
+  const b = $('#pushBtn'); b.hidden = false;
+  b.onclick = async () => {
+    b.querySelector('.nm').textContent = '正在开启…';
+    if (await Notification.requestPermission() === 'granted') { await subscribe().catch(() => {}); b.hidden = true; }
+    else b.querySelector('.nm').textContent = '没允许通知，可到 设置 → 通知 → 案头 里打开';
+  };
+}
+setupPush().catch(() => {});
+
+// 主屏幕打开的案头（没有浏览器的返回键）点文件：不跳走，在页面里盖一层看；右上角“完成”回来，左上角“分享 / 存储”交给 WPS、文件 App 等
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a.file');
+  if (!a || !standalone) return;
+  e.preventDefault(); viewFile(a.href, (a.querySelector('.fn') || a).textContent.trim());
+});
+async function viewFile(url, name) {
+  const el = document.createElement('div'); el.className = 'lightbox fv';
+  el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享 / 存储</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
+  document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
+  let u = '';
+  el.querySelector('.x').onclick = () => history.back();
+  new MutationObserver((_, ob) => { if (!el.isConnected) { if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+    const blob = await r.blob(); if (!el.isConnected) return;
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg'}[ext] || blob.type);
+    const file = new File([blob], name, {type});
+    u = URL.createObjectURL(file);
+    const tip = el.querySelector('.tip');
+    const pdf = type === 'application/pdf' && /^\/dl\//.test(new URL(url, location.href).pathname);
+    if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
+    else if (pdf) {
+      // PDF：Mac 那边转成一页页图片，竖着往下滑；点一页放大看（能左右翻页、双指放大）
+      tip.textContent = '正在把 PDF 转成图片…';
+      const d = await (await fetch(new URL(url, location.href).pathname + '/pages')).json().catch(() => ({pages: []}));
+      if (!el.isConnected) return;
+      if (d.pages && d.pages.length) {
+        const box = document.createElement('div'); box.className = 'pages';
+        box.innerHTML = d.pages.map((p, k) => `<img src="${esc(p)}" loading="${k < 2 ? 'eager' : 'lazy'}" data-k="${k}"><div class="pn">${k + 1} / ${d.pages.length}</div>`).join('');
+        box.onclick = e => { const im = e.target.closest('img'); if (im) viewImage(d.pages, +im.dataset.k); };
+        el.querySelector('.tip').replaceWith(box);
+      } else el.querySelector('.tip').outerHTML = `<iframe src="${u}"></iframe>`;
+    }
+    else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
+    else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      const sh = el.querySelector('.sh'); sh.hidden = false;
+      sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
+    } else if (!/^image\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
+  } catch (err) { const t = el.querySelector('.tip'); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
+}
+
+// 看大图：在页面里盖一层（主屏幕 app 里没有浏览器的返回键，不能跳走）。两指捏合放大、双击放大/还原、放大后单指拖动；
+// 没放大时点空白、右上角 ×、返回手势都能关。电脑上滚轮缩放、双击放大。
+function viewImage(list, at = 0) {
+  // list：同一条消息里的几张图；没放大时左右滑切换（电脑上左右方向键、两侧箭头），右上角“2 / 5”
+  if (typeof list === 'string') list = [list];
+  let i = Math.max(0, Math.min(at, list.length - 1));
+  const many = list.length > 1;
+  const el = document.createElement('div'); el.className = 'lightbox';
+  el.innerHTML = `<img src="${esc(list[i])}" draggable="false"><button class="x" aria-label="关闭"><b>×</b>关闭</button>`
+    + (many ? `<span class="cnt"></span><button class="nav prev" aria-label="上一张">‹</button><button class="nav next" aria-label="下一张">›</button>` : '');
+  document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
+  const img = el.querySelector('img');
+  let sc = 1, tx = 0, ty = 0, start = null, lastTap = 0, moved = false, closeTimer = 0, sliding = false;
+  const W = () => innerWidth / 2, H = () => innerHeight / 2;
+  const apply = (anim) => { img.style.transition = anim ? 'transform .22s ease-out' : 'none'; img.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; };
+  const mark = () => { if (!many) return; el.querySelector('.cnt').textContent = `${i + 1} / ${list.length}`;
+    el.querySelector('.prev').hidden = i === 0; el.querySelector('.next').hidden = i === list.length - 1; };
+  mark();
+  // 下一张从这边滑进来：先把当前这张滑出去，换图后从另一边滑回中间
+  const go = d => {
+    if (sliding || i + d < 0 || i + d >= list.length) { tx = ty = 0; sc = 1; return apply(true); }
+    sliding = true; sc = 1; ty = 0; tx = -d * innerWidth; apply(true);
+    setTimeout(() => {
+      i += d; img.src = list[i]; mark();
+      tx = d * innerWidth; apply(false);
+      requestAnimationFrame(() => requestAnimationFrame(() => { tx = 0; apply(true); setTimeout(() => sliding = false, 230); }));
+    }, 200);
+  };
+  [-1, 1].forEach(d => { const b = el.querySelector(d < 0 ? '.prev' : '.next'); if (b) b.onclick = e => { e.stopPropagation(); go(d); }; });
+  const key = e => { if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1); };
+  addEventListener('keydown', key);
+  new MutationObserver((_, ob) => { if (!el.isConnected) { removeEventListener('keydown', key); ob.disconnect(); } }).observe(document.body, {childList: true});
+  const zoomAt = (ns, x, y) => {   // 以屏幕上 (x,y) 为中心缩放到 ns 倍
+    ns = Math.min(6, Math.max(1, ns)); const cx = x - W(), cy = y - H();
+    tx = cx - (cx - tx) * ns / sc; ty = cy - (cy - ty) * ns / sc; sc = ns; if (sc === 1) tx = ty = 0;
+  };
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  el.addEventListener('touchstart', e => {
+    moved = false;
+    if (e.touches.length === 2) start = {d: dist(e.touches), s: sc, x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2, tx, ty};
+    else start = {px: e.touches[0].clientX, py: e.touches[0].clientY, tx, ty, swipe: sc === 1 && many};
+  }, {passive: true});
+  el.addEventListener('touchmove', e => {
+    e.preventDefault(); moved = true; if (!start || sliding) return;
+    if (e.touches.length === 2 && start.d) {
+      start.swipe = false; sc = start.s; tx = start.tx; ty = start.ty; zoomAt(start.s * dist(e.touches) / start.d, start.x, start.y);
+    } else if (e.touches.length === 1 && start.px != null && start.swipe) {
+      // 没放大：图跟着手指左右走（到头了只走一点点，像拉不动）
+      const dx = e.touches[0].clientX - start.px, edge = (dx > 0 && i === 0) || (dx < 0 && i === list.length - 1);
+      tx = edge ? dx / 4 : dx; ty = 0;
+    } else if (e.touches.length === 1 && sc > 1 && start.px != null) {
+      tx = start.tx + e.touches[0].clientX - start.px; ty = start.ty + e.touches[0].clientY - start.py;
+    }
+    apply(false);
+  }, {passive: false});
+  el.addEventListener('touchend', e => {
+    if (e.touches.length) { start = {px: e.touches[0].clientX, py: e.touches[0].clientY, tx, ty}; return; }
+    const st = start; start = null;
+    if (moved) {
+      if (st && st.swipe && sc === 1) { const dx = e.changedTouches[0].clientX - st.px; if (Math.abs(dx) > 60) go(dx < 0 ? 1 : -1); else { tx = 0; apply(true); } }
+      return;
+    }
+    const t = e.changedTouches[0], now = Date.now();
+    if (now - lastTap < 300) { clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, t.clientX, t.clientY); apply(true); lastTap = 0; e.preventDefault(); return; }
+    lastTap = now;
+    if (e.target.closest('.x')) { e.preventDefault(); return history.back(); }
+    if (e.target.closest('.nav')) return;
+    // 点在图片外面（没放大时）：等一下确认不是双击，就关掉
+    if (sc === 1 && e.target !== img) { e.preventDefault(); clearTimeout(closeTimer); closeTimer = setTimeout(() => { if (sc === 1) history.back(); }, 300); }
+  });
+  el.addEventListener('wheel', e => { e.preventDefault(); zoomAt(sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); apply(false); }, {passive: false});
+  el.addEventListener('dblclick', e => { if (e.target.closest('.nav')) return; clearTimeout(closeTimer); zoomAt(sc > 1 ? 1 : 2.5, e.clientX, e.clientY); apply(true); });
+  el.onclick = e => {
+    if (e.target.closest('.x')) return history.back();
+    if (e.target.closest('.nav') || e.target === img || sc > 1) return;
+    clearTimeout(closeTimer); closeTimer = setTimeout(() => { if (sc === 1) history.back(); }, 320);   // 等等看是不是双击
+  };
+}
+document.addEventListener('click', e => {
+  const a = e.target.closest('.imgs a'); if (!a) return;
+  e.preventDefault();
+  const all = [...a.closest('.imgs').querySelectorAll('a')];
+  viewImage(all.map(x => x.getAttribute('href')), all.indexOf(a));
+});
+// 退出登录：退这台设备（这台的手机通知也停），或所有设备都退（手机丢了用）
+// 登录的设备：看有几台登录着，能退出任意一台；这台自己退出时顺手停掉这台的通知
+function ago2(t) { const m = Math.floor((Date.now() / 1000 - t) / 60); return m < 2 ? '刚刚' : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.floor(m / 60)} 小时前` : `${Math.floor(m / 1440)} 天前`; }
+async function logoutHere(all) {
+  let endpoint = '';
+  try { const reg = await navigator.serviceWorker.getRegistration('/_x/'); const sub = reg && await reg.pushManager.getSubscription();
+        if (sub) { endpoint = sub.endpoint; await sub.unsubscribe(); } } catch (err) {}
+  await fetch('/_x/api/logout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({all, endpoint})});
+  clearThreads();   // 学校电脑上退出，记在本机的对话一并清掉
+  location.href = '/_x/login';
+}
+$('#moreBtn').onclick = () => {
+  const el = sheet(`<button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>
+    <button data-a="d"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg>登录的设备 · 退出登录</button>`);
+  el.querySelector('[data-a=h]').onclick = () => { location.href = '/_x/history'; };
+  el.querySelector('[data-a=d]').onclick = () => { el.remove(); $('#logoutBtn').onclick(); };
+};
+$('#logoutBtn').onclick = async () => {
+  const el = document.createElement('div'); el.className = 'sheet';
+  document.body.appendChild(el);
+  const draw = async () => {
+    const {devices} = await api('devices');
+    el.innerHTML = `<div class="box"><b>登录的设备 · ${devices.length} 台</b><p>不认识的设备点“退出”，它就得重新输密码。</p>
+      <div class="devs">${devices.map(d => `<div class="dev"><div class="dn"><b>${esc(d.name)}${d.me ? '<span class="me">这台</span>' : ''}</b>
+        <small>${d.me ? '正在用' : d.seen ? '最近用过：' + ago2(d.seen) : '这个功能上线前登录的，之后还没用过'}${d.ip ? ' · ' + esc(d.ip) : ''}${d.push ? ' · 开着通知' : ''}</small></div>
+        ${d.me ? '' : `<button class="out" data-id="${d.id}">退出</button>`}</div>`).join('')}</div>
+      <button class="danger" data-a="one">退出这台设备</button>${devices.length > 1 ? '<button data-a="all">所有设备都退出（手机丢了时用）</button>' : ''}<button data-a="no">关闭</button></div>`;
+  };
+  await draw();
+  el.onclick = async e => {
+    const t = e.target.closest('button');
+    if (e.target === el || (t && t.dataset.a === 'no')) return el.remove();
+    if (!t) return;
+    if (t.dataset.id) { t.disabled = true; t.textContent = '退出中…'; await api('devices/logout', {id: t.dataset.id}).catch(() => {}); return draw(); }
+    t.textContent = '正在退出…'; await logoutHere(t.dataset.a === 'all');
+  };
+};
+
+addEventListener('popstate', e => { const lb = document.querySelectorAll('.lightbox'); if (lb.length) { lb.forEach(x => x.remove()); e.stopImmediatePropagation(); } });
+
+addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
+
+// 进行中用了多久：按秒走，每秒自己跳（不用等服务器）
+const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`; };
+setInterval(() => { document.querySelectorAll('.tick').forEach(t => { t.textContent = dur(Date.now() / 1000 - +t.dataset.t0); }); tickSilence(); }, 1000);
+// 你发的图：气泡里一排小图，点开看大图
+const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
+function renderThread(d) {
+  const feed = $('#feed'); if (!feed) return;
+  const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
+  const said = {has: t => saidList.some(x => x.startsWith(t.slice(0, 40)))};   // 记录里可能多了“（附件已存到…）”，按开头比
+  d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
+  (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
+  const localImgs = sentImgs;
+  // 服务器那边也报了这条“待发”（插话、排队）时，网页自己先摆的那条就不再重复显示
+  const srvPend = d.items.filter(i => i.who === 'you' && i.pending).map(i => i.text.trim());
+  const inSrv = t => srvPend.some(x => x.startsWith(t.slice(0, 40)) || t.startsWith(x.slice(0, 40)));
+  pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
+  const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
+  d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
+  const replies = d.items.filter(i => i.who === 'claude');
+  const keep = new Set(replies.slice(-2));
+  // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
+  const prevN = replyCount[d.num], fresh = prevN !== undefined && replies.length > prevN && (near || wasLive[d.num]);
+  replyCount[d.num] = replies.length; wasLive[d.num] = !!d.live;
+  const queued = new Set(d.queue || []);
+  const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
+  // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
+  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
+  let h = d.items.map((it, idx) => {
+    if (it.who === 'you') {
+      const isQ = it.pending && queued.has(it.text.slice(0, 80));
+      // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
+      const req = d.live && (d.live.request || '').replace(/…$/, '');
+      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
+      const before = prevEnd(idx);
+      const btns = ib('copy', '复制') + (isQ || (!it.pending && before) ? ib('back', '回退') : '') + (!it.pending && before !== null ? ib('fork', '分叉') : '');
+      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
+        <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
+    }
+    if (it.who === 'note') return it.rewind
+      ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
+    const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : ''].join('');
+    const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
+    const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
+    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    const proc = it.process && it.process.length ? (() => {
+      const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
+      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid, it.tid) : ''}`;
+    })() : '';
+    // 一眼看出这轮动了什么：改了几个文件、跑了几条命令、交了几张图
+    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
+      (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
+    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}</span>`;
+    return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
+      <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
+  }).join('');
+  h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
+    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
+  if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
+  if (d.live) {
+    const L = d.live, first = L.total - L.steps.length + 1;
+    if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div></div>`;
+    else {
+      // 一大行说清：第几步、在做什么、做了多久；有步骤清单按清单算，还能估个大概还要多久
+      const plan = L.plan || [], done = plan.filter(x => x.status === 'done').length, doing = plan.find(x => x.status === 'doing');
+      const t0 = Date.now() / 1000 - (L.elapsed ?? L.minutes * 60);
+      const head = plan.length ? esc((doing || plan.find(x => x.status !== 'done') || plan[plan.length - 1]).text)
+        : L.total ? esc(L.steps[L.steps.length - 1] || '') : L.elapsed < 20 ? '收到了，正在开工' : '在想…';
+      const at = plan.length ? `第 ${Math.min(plan.length, done + 1)}/${plan.length} 步 · ` : L.total ? `第 ${L.total} 步 · ` : '';
+      const popen = openProc.has('plan');
+      const seg = plan.length > 1 ? `<button class="pbar" data-p="plan" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>` : '';
+      const left = plan.length - done, eta = plan.length && done >= 2 && left > 0 ? Math.max(1, Math.round((L.elapsed / done) * left / 60)) : 0;
+      const pop = openProc.has('live');
+      h += `<div class="live"><div class="lh"><i class="spin"></i><span class="lt">${head}</span><button class="stop" id="stop">${ICON.stop}停止</button></div>
+      <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${eta ? ` · 预计还要约 ${eta} 分钟` : ''}${L.injected ? ` · 插话 ${L.injected} 次` : ''}</div>
+      ${seg}${popen && plan.length > 1 ? planHTML(plan) : ''}
+      <div class="silence" data-t0="${Date.now() / 1000 - (L.idle || 0)}"></div>${agentsHTML(L.agents || [])}
+      ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process.slice(-14), 'live') : ''}` : ''}</div>`;
+    }
+  }
+  const restQ = (d.queue || []).filter(q => !shownQ.has(q));
+  if (restQ.length) h += `<div class="queue">接下来：${restQ.map(esc).join('；')}</div>`;
+  if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>
+      <pre>${esc(d.live.confirm.cmd)}</pre><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
+</div>`;
+  if (d.limit) h += `<div class="limit"><div class="q">额度用完了 · ${esc(d.limit.at)} 恢复${d.limit.auto ? '后自动接着做' : ''}</div>
+      <button class="pill" id="autoRes">${d.limit.auto ? '别自动接' : '恢复后自动接着做'}</button></div>`;
+  if (d.decision) h += `<div class="ask">${d.decision.options.map(([k, v]) =>
+      `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
+  setTimeout(showPartial);
+  const pos = {};
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.scrollHeight - x.scrollTop - x.clientHeight < 24}; });
+  $('#col').innerHTML = h;
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid]; if (p && !p.end) x.scrollTop = p.top; else x.scrollTop = x.scrollHeight; });
+  document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {
+    const allow = b.dataset.allow === '1'; b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
+    b.innerHTML = '<i class="spin"></i>' + (allow ? '允许' : '不允许');
+    await api('confirm/' + sel, {allow}).catch(() => {}); lastKey = ''; loadThread();
+  });
+  document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.ptog, .plan[data-p], .pbar').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k);
+    anchor = {sel: `.${b.classList[0]}[data-p="${CSS.escape(k)}"]`, top: b.getBoundingClientRect().top}; stick = false; lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.pt[data-c], .pd[data-c]').forEach(c => c.onclick = () => {
+    const k = c.dataset.c; c.classList.toggle('clamp') ? unclamp.delete(k) : unclamp.add(k); });
+  // 你说的话：有鼠标时悬停出图标，手机上点一下气泡出图标
+  document.querySelectorAll('.yw .you').forEach(b => b.onclick = e => {
+    if (e.target.closest('img, a') || String(getSelection() || '')) return;
+    b.parentElement.classList.toggle('show');
+  });
+  document.querySelectorAll('.ib[data-act]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const y = b.closest('.yw'), c = b.closest('.cl'), act = b.dataset.act;
+    if (y) {
+      const i = +y.dataset.y, text = d.items[i].text.replace(/\n\n（附件已存到[\s\S]*$/, '');
+      if (act === 'copy') copyBtn(b, text);
+      else if (act === 'back') y.dataset.q ? unqueue(d.num) : rewindSheet(d, prevEnd(i), true);
+      else forkAt(d, prevEnd(i) || '', text);
+    } else if (c) {
+      const it = d.items[+c.dataset.i];
+      if (act === 'copy') copyBtn(b, it.text); else forkAt(d, it.end, '');
+    }
+  });
+  document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
+  if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
+  const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
+  const me = sessions.find(x => x.num === d.num) || {};
+  const approve = (lastReply.match(/批准本会话编辑：[^\n`]+/g) || []);
+  const yesNo = /(吗|么|是否|要不要|对不对|行不行|可不可以|好不好|对吧)[？?]\s*$/.test((d.awaiting || '').trim());
+  // 按它最后说的给几个最可能的回答：批准编辑、是 / 不是、好的 / 按推荐、做完顺口的建议、停了或出错了就“继续”
+  const quick = d.live || d.decision || d.limit ? []
+    : approve.length ? [[`批准（${approve.length} 处）`, approve.join('\n')], ['先不改', '先不改']]
+    : d.awaiting_kind === 'suggest' ? [['好，做吧', '好，做吧'], ['不用了', '不用了']]
+    : d.awaiting && yesNo ? [['是', '是'], ['不是', '不是'], ['先不做', '先不做']]
+    : d.awaiting ? [['好的', '好的'], ['就按你推荐的', '就按你推荐的'], ['先不做', '先不做']]
+    : me.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
+  q.hidden = !quick.length;
+  q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') ;
+  q.querySelectorAll('button').forEach(b => {
+    const text = quick[+b.dataset.i][1];
+    let timer = 0, longed = false;
+    const fill = () => { longed = true; const ta = $('#ta'); ta.value = text; ta.oninput(); ta.focus(); };
+    b.addEventListener('touchstart', () => { longed = false; timer = setTimeout(fill, 450); }, {passive: true});
+    b.addEventListener('touchend', () => clearTimeout(timer)); b.addEventListener('touchmove', () => clearTimeout(timer), {passive: true});
+    b.oncontextmenu = e => { e.preventDefault(); fill(); };
+    b.onclick = () => { if (longed) { longed = false; return; } q.hidden = true; quickSend(d.num, text, b.textContent); };
+  });
+  const hint = $('#hint'), fh = d.five_hour, risky = fh && fh.pct >= 90 && d.usage && (d.usage.mkey || 'opus') === 'opus' && !d.live && !d.limit;
+  if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%${fh.reset ? ` · ${fh.reset} 重置` : ''}` : ''; }
+  renderUsage(d.usage);
+  if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
+  $('#ta').placeholder = d.live && d.live.compact ? '说点什么…' : d.live ? '插话…' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
+  if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
+  document.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
+    document.querySelectorAll('.opt').forEach(x => x.disabled = true);
+    b.querySelector('.k').innerHTML = '<i class="spin"></i>';
+    const text = `选 ${b.dataset.k}：${b.dataset.v}`;
+    (pending[d.num] ||= []).push({text, t: Date.now()});
+    await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
+  });
+  tickSilence();   // 先填好“没动静”那行，再定位置
+  const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
+  const an = anchor && document.querySelector('#col ' + anchor.sel);
+  if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
+  else if (fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
+  else if (near) feed.scrollTop = feed.scrollHeight;
+}
+const replyCount = {}, wasLive = {}, sentImgs = new Map();
+
+// 快捷回答：先显示出去，3 秒内能撤回（点错了不至于真发出去）
+function quickSend(num, text, label) {
+  const item = {text, t: Date.now(), quick: true};
+  (pending[num] ||= []).push(item); lastKey = ''; loadThread();
+  const timer = setTimeout(async () => { item.quick = false; lastKey = ''; loadThread();
+    const r = await api('send', {num, text}).catch(() => null); if (r && r.ok) item.acked = true; else { pending[num] = (pending[num] || []).filter(p => p !== item); toast('没发出去，再点一次'); }
+    lastKey = ''; loadThread(); loadSessions(); }, 3000);
+  toast(`发出“${label.length > 12 ? label.slice(0, 12) + '…' : label}”`, '撤回', () => {
+    clearTimeout(timer); pending[num] = (pending[num] || []).filter(p => p !== item); lastKey = ''; loadThread();
+  }, 3000);
+}
+// 撤回还排着没开始的那句：放回输入框
+async function unqueue(num) {
+  const r = await api('unqueue/' + num, {}).catch(() => null);
+  if (!r || !r.ok) return toast((r && r.error) || '没撤回，再试一次');
+  pending[num] = []; const ta = $('#ta'); if (ta) { ta.value = r.text; ta.oninput(); ta.focus(); }
+  toast('已撤回'); lastKey = ''; loadThread();
+}
+// 回到某条回复：之后的收起，下一句从这里接着说；可选把之后改过的文件也退回去
+function rewindSheet(d, to, undoLast) {
+  const k = d.items.findIndex(i => i.who === 'claude' && i.end === to); if (k < 0) return toast('回不去了（在压缩之前）');
+  const n = d.items.slice(k + 1).filter(i => i.who === 'you').length;
+  const el = sheet(`<h2 id="rewindTitle">${undoLast ? '回退到这句之前？' : '回到这条回复？'}</h2>
+    <p class="rewind-summary">${undoLast ? `收起这句${n > 1 ? `及之后 ${n - 1} 轮对话` : ''}，原话放回输入框。` : `收起之后 ${n} 轮对话，从这里继续。`}${d.live ? '正在进行的任务会先停止。' : ''}</p>
+    <label class="rewind-option"><span>同时恢复文件</span><input type="checkbox" id="rwf"></label>
+    <div class="rewind-error" id="rewindError" role="alert" hidden></div>
+    <div class="rewind-actions"><button id="rwno">取消</button><button class="on" id="rwok">确认回退</button></div>`);
+  el.classList.add('rewind-dialog');
+  const panel = el.querySelector('.box'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', 'rewindTitle');
+  const escape = e => { if (e.key === 'Escape' && !el.querySelector('#rwok').disabled) el.remove(); };
+  el.addEventListener('keydown', escape); el.querySelector('#rwno').focus();
+  el.querySelector('#rwno').onclick = () => el.remove();
+  el.querySelector('#rwok').onclick = async () => {
+    const b = el.querySelector('#rwok'); b.disabled = true; el.querySelector('#rwno').disabled = true; el.onclick = e => e.stopPropagation(); b.innerHTML = '<i class="spin"></i>' + (d.live ? '先停下再回去…' : '正在回去…');
+    const r = await api('rewind/' + d.num, {to, files: !!el.querySelector('#rwf')?.checked}).catch(() => null);
+    if (!r || !r.ok) { const err = el.querySelector('#rewindError'); err.hidden = false; err.textContent = (r && r.error) || '没回去，再试一次'; b.disabled = false; el.querySelector('#rwno').disabled = false; b.textContent = '确认回退'; return; }
+    el.remove();
+    pending[d.num] = [];
+    if (undoLast && r.text) { const ta = $('#ta'); if (ta) { ta.value = r.text.replace(/\n\n（附件已存到[\s\S]*$/, ''); ta.oninput(); } }
+    lastKey = ''; loadThread(); loadSessions();
+  };
+}
+// 复制、回退、分叉：和 Claude 一样是一排小图标，悬停出名字
+const IB = {
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
+  fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7M13.5 19H18v-4.5"/></svg>',
+  ok: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'};
+const ib = (a, t) => `<button class="ib" data-act="${a}" data-tip="${t}" aria-label="${t}">${IB[a]}</button>`;
+function copyBtn(b, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    b.innerHTML = IB.ok; b.dataset.tip = '已复制'; b.classList.add('done');
+    setTimeout(() => { b.innerHTML = IB.copy; b.dataset.tip = '复制'; b.classList.remove('done'); }, 1500);
+  }, () => toast('没复制成'));
+}
+async function forkAt(d, to, text) {
+  toast('正在分叉…');
+  const r = await api('fork/' + d.num, {to}).catch(() => null);
+  if (!r || !r.ok) return toast((r && r.error) || '没分成，再试一次');
+  await loadSessions(); openSession(r.num);
+  const ta = $('#ta'); if (ta && text) { ta.value = text; ta.oninput(); ta.focus(); }
+  toast('已分叉');
+}
+// 好一会儿没新动静：3 分钟起轻轻提一句，10 分钟起提醒可能卡住了，给个“问问它”
+function tickSilence() {
+  const el = document.querySelector('.silence'); if (!el) return;
+  const m = Math.floor((Date.now() / 1000 - +el.dataset.t0) / 60);
+  const html = m >= 10 ? `<span>${m} 分钟没动静</span><button class="pill" id="askBtn">问问它</button>`
+    : m >= 3 ? `<span>${m} 分钟没动静</span>` : '';
+  if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; el.className = 'silence' + (m >= 10 ? ' stuck' : ''); el.dataset.t0 = el.dataset.t0;
+    const b = $('#askBtn'); if (b) b.onclick = async () => { b.disabled = true; b.textContent = '问了';
+      await api('send', {num: sel, text: '现在做到哪了？是不是卡住了？卡在哪一步说一下。'}).catch(() => {}); loadThread(); }; }
+}
+
+// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（外网带宽小的时候，整段对话要传一两秒）
+const threadCache = new Map();
+try { for (const [n, v] of JSON.parse(localStorage.getItem('threads') || '[]')) threadCache.set(n, v); } catch (e) {}
+function cacheThread(d) {
+  threadCache.delete(d.num);
+  threadCache.set(d.num, JSON.stringify({...d, live: null, decision: null}));   // 进行中、等你定这些只认新鲜的
+  while (threadCache.size > 8) threadCache.delete(threadCache.keys().next().value);
+  clearTimeout(cacheThread.t);
+  cacheThread.t = setTimeout(saveThreads, 1500);
+}
+function clearThreads() { threadCache.clear(); clearTimeout(cacheThread.t); cacheThread.t = 0; try { localStorage.removeItem('threads'); } catch (e) {} }
+function saveThreads() { try { localStorage.setItem('threads', JSON.stringify([...threadCache])); } catch (e) {} }
+addEventListener('pagehide', () => { if (cacheThread.t) saveThreads(); });
+function showCached(num) {
+  const v = threadCache.get(num);
+  if (v) try { renderThread(JSON.parse(v)); } catch (e) {}
+}
+
+async function loadThread() {
+  if (!sel) return;
+  try {
+    const d = await api('thread/' + sel);
+    if (d.num !== sel) return;
+    cacheThread(d);
+    const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
+    const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
+    if (key !== lastKey && !reading) { lastKey = key; renderThread(d); }
+  } catch (e) { if (e.message !== 'login') console.warn(e); }
+}
+
+function shrink(file) {
+  return new Promise(res => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', .86));
+    };
+    img.src = url;
+  });
+}
+
+function wireComposer(sendFn, onSent, onOpening) {
+  const ta = $('#ta'), btn = $('#send');
+  const sync = () => {
+    // 最高只到“键盘上方看得见的区域”的三成：键盘弹起时 innerHeight 不变，按它算会长到顶栏下面被挡住
+    const vis = window.visualViewport ? visualViewport.height : innerHeight;
+    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
+    btn.disabled = sending || (!ta.value.trim() && !attach.length && !attachFiles.length);
+    $('#thumbs').hidden = !attach.length && !attachFiles.length;
+    $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
+      + attachFiles.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
+    document.querySelectorAll('.thumb button[data-i]').forEach(b => b.onclick = () => { attach.splice(+b.dataset.i, 1); sync(); });
+    document.querySelectorAll('.thumb button[data-f]').forEach(b => b.onclick = () => { attachFiles.splice(+b.dataset.f, 1); sync(); });
+  };
+  const warn = t => { $('#warn').hidden = !t; $('#warn').textContent = t || ''; };
+  const readFile = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  const add = async files => {
+    for (const f of files) {
+      if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
+      else if (f.size > 300 * 1048576) warn(`${f.name} 超过 300MB，传不了`);
+      else if (attachFiles.length >= 10) warn('一次最多传 10 个文件');
+      else if (attachFiles.reduce((n, x) => n + x.size, 0) + f.size > 300 * 1048576) warn('附件合计超过 300MB，请分几次传');
+      else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
+    }
+    sync();
+  };
+  ta.oninput = sync;
+  $('#file').onchange = e => add(e.target.files);
+  ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean); if (fs.length) { e.preventDefault(); add(fs); } };
+  // 截图、照片、文件直接拖进页面任何地方都算附件（iPad 从截图预览、相册、文件 App 拖；电脑从桌面拖）
+  const box = ta.closest('.composer'); let depth = 0;
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  document.ondragenter = e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; box.classList.add('drop'); };
+  document.ondragover = e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
+  document.ondragleave = e => { if (hasFiles(e) && --depth <= 0) { depth = 0; box.classList.remove('drop'); } };
+  document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
+  // 回车发送（iPad 连不连键盘都算、电脑也是），Shift+回车换行；打中文选字时的回车不算。只有手机上回车是换行。
+  const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
+  ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
+  ta.onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
+  };
+  async function go() {
+    const text = ta.value.trim();
+    if ((!text && !attach.length && !attachFiles.length) || sending) return;
+    sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
+    // 一按发送就先显示在对话里（长文字带图上传要几秒），没发出去再撤回
+    const shown = text || (attachFiles.length ? '[附件]' : '[图片]'), num0 = sel;
+    const item = onSent ? onSent(shown, attach.slice()) : null;
+    if (onSent) { lastKey = ''; loadThread(); } else if (onOpening) onOpening(shown, attach.slice());
+    const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); if (onOpening) onOpening(null); lastKey = ''; loadThread(); };
+    try {
+      const mb = n => (n / 1048576).toFixed(1);
+      const r = await sendFn(text, (a, b) => {
+        const done = a >= b, el = $('#warn');
+        el.hidden = false; el.classList.add('prog');
+        el.textContent = done ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
+        const op = document.querySelector('#opening .lsub');
+        if (op) op.textContent = done ? '已送到' : `正在上传 ${mb(a)} / ${mb(b)} MB`;
+      });
+      $('#warn').classList.remove('prog'); warn('');
+      if (r.ok) {
+        if (r.scheduled) { undo(); toast('定时任务已安排 · ' + scheduleDate(r.scheduled.next_at)); }
+        if (item) item.acked = true;
+        ta.value = ''; attach = []; attachFiles = [];
+        if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
+      } else { undo(); warn(r.error || '没发出去，再试一次'); }
+    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 300MB），分几次发' : '没发出去，再试一次'); }
+    sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
+  }
+  btn.onclick = go; sync();
+}
+
+const WHERE_ICON = {
+  folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
+};
+function agoDays(t) {
+  const d = Math.floor((Date.now() / 1000 - t) / 86400);
+  return d < 1 ? '今天动过' : d < 2 ? '昨天动过' : `${d} 天前动过`;
+}
+// 菜单按可见区域定位，避开标题栏和键盘；固定定位避免被新对话的滚动容器裁切。
+function placeWhereMenu() {
+  const menu = document.querySelector('.wmenu'), button = $('#wp');
+  if (!menu || !button) return;
+  const vv = window.visualViewport, main = $('#main').getBoundingClientRect();
+  const head = document.querySelector('#main .head').getBoundingClientRect();
+  const top = Math.max(head.bottom, vv ? vv.offsetTop : 0) + 8;
+  const bottom = Math.min(main.bottom, vv ? vv.offsetTop + vv.height : innerHeight) - 8;
+  const left = Math.max(main.left, vv ? vv.offsetLeft : 0) + 8;
+  const right = Math.min(main.right, vv ? vv.offsetLeft + vv.width : innerWidth) - 8;
+  const anchor = button.getBoundingClientRect();
+  const above = Math.max(0, anchor.top - 6 - top), below = Math.max(0, bottom - anchor.bottom - 6);
+  const down = below >= Math.min(menu.scrollHeight, 420) || below > above;
+  const room = down ? below : above;
+  const width = Math.max(0, Math.min(340, right - left));
+  menu.style.width = width + 'px';
+  menu.style.maxHeight = Math.max(0, Math.min(420, room)) + 'px';
+  menu.style.left = Math.max(left, Math.min(anchor.left, right - width)) + 'px';
+  menu.style.top = (down ? Math.max(top, anchor.bottom + 6) : Math.max(top, anchor.top - 6 - menu.getBoundingClientRect().height)) + 'px';
+}
+addEventListener('resize', placeWhereMenu);
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', placeWhereMenu);
+  visualViewport.addEventListener('scroll', placeWhereMenu);
+}
+
+// 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认是上次用的文件夹，要换才点开
+function openNew(fromPop, preset) {
+  setTimeout(connectEvents);
+  sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
+  const seen = new Set(recent.map(r => r.path));
+  const opts = [...recent.map(r => ({v: r.path, ic: 'folder', t: r.name, d: r.show})),
+    ...folders.map(f => ({v: f, ic: 'folder', t: f, d: '常用文件夹'})).filter(o => !seen.has(o.v)),
+    {v: 'scratch', ic: 'chat', t: '临时文件夹', d: '查资料、问问题，不碰你的文件'}];
+  let pick = preset && opts.some(o => o.v === preset) ? preset : (lastFolder || 'scratch'), menu = false;
+  $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>新对话</b></div></div>
+    <div class="newv"><h1>要做什么？</h1>${composerHTML('说说要做什么')}<div class="wbar" id="wbar"></div></div>`;
+  $('#back').onclick = () => history.state && history.state.n ? history.back() : goList();
+  const draw = () => {
+    const cur = opts.find(o => o.v === pick) || {v: pick, ic: 'folder', t: pick};   // 手输的文件夹不在菜单里
+    $('#wbar').innerHTML = `<button class="pill on" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
+      + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
+          <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}
+          <form class="wcustom" id="wcustom"><input id="wtype" placeholder="其他文件夹：粘贴路径，或写文件夹名里的几个字" autocomplete="off"></form></div>` : '');
+    if (menu) placeWhereMenu();
+    $('#wp').onclick = e => { e.stopPropagation(); menu = !menu; draw(); };
+    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); pick = c.dataset.v; menu = false; draw(); });
+    if ($('#wcustom')) {
+      $('#wcustom').onclick = e => e.stopPropagation();
+      $('#wcustom').onsubmit = e => { e.preventDefault(); const v = $('#wtype').value.trim(); if (v) { pick = v; menu = false; draw(); $('#ta').focus(); } };
+    }
+  };
+  draw();
+  $('.newv').onscroll = placeWhereMenu;
+  $('#main').onclick = e => { if (menu && !e.target.closest('.wmenu')) { menu = false; draw(); } };
+  const ms = {model: 'auto', effort: 'medium'}; let touched = false;
+  renderModel(ms, () => { touched = true; }, true);
+  const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
+  wireComposer((text, onProg) => sendApi({folder: pick, ...extra(), text, images: attach, files: attachFiles}, onProg),
+    null, (text, imgs) => {
+      // 一按发送就进“正在开”：你的话先摆出来，说清楚在等什么、能不能走开（开好了自动进去）
+      const old = $('#opening'); if (old) old.remove(); if (text === null) return;
+      const el = document.createElement('div'); el.id = 'opening'; el.className = 'opening';
+      el.innerHTML = `<div class="col"><div class="you">${youImgs(imgs || [])}${esc(text)}</div>
+        <div class="live"><div class="lh"><i class="spin"></i><span class="lt">正在开新对话</span></div>
+        <div class="lsub">已送到</div></div></div>`;
+      $('.newv').appendChild(el);
+    });
+  if (!matchMedia('(max-width:600px) and (pointer:coarse)').matches) $('#ta').focus();
+}
+$('#newBtn').onclick = () => openNew();
+$('#fab').onclick = () => openNew();
+
+// 屏幕键盘（或妙控键盘的悬浮快捷条）挡住底部时：页面保持满屏，只把输入条往上挪被挡住的那么多；
+// 整页不滚，Safari 为露出输入框滚走的那段拉回来（不然会卡在半截、下面一片空白）
+if (window.visualViewport) {
+  const vv = visualViewport;
+  const fit = () => {
+    if (scrollX || scrollY) scrollTo(0, 0);
+    // 用布局高度（clientHeight）算：iPhone 的 Safari 里 innerHeight 会跟着键盘一起变矮，拿它算会得 0
+    const full = document.documentElement.clientHeight || innerHeight;
+    const kb = Math.max(0, Math.round(full - vv.height - vv.offsetTop));
+    document.documentElement.style.setProperty('--kb', kb + 'px');
+    const t = $('#ta'); if (t && t.oninput) t.oninput();   // 键盘弹起后看得见的区域变小，输入框高度跟着收
+  };
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+  addEventListener('focusout', () => setTimeout(fit, 60));
+}
+
+(async () => {
+  await loadSessions();
+  const m = location.hash.match(/^#s(\d+)/);
+  if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
+  // 实时推送连着时只偶尔兜底刷新；断了（换网络、锁屏回来）退回每几秒问一次
+  connectEvents();
+  setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
+  setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
+  document.addEventListener('visibilitychange', () => { presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
+  // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
+  addEventListener('keydown', e => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'k') { e.preventDefault(); if ($('#app').classList.contains('in') && matchMedia('(max-width:820px)').matches) goList(); $('#q').focus(); $('#q').select(); }
+    else if (k === 'n' || (k === 'o' && e.shiftKey)) { e.preventDefault(); openNew(); }
+    else if (k === 'arrowup' || k === 'arrowdown') {
+      const nums = [...document.querySelectorAll('#list .item[data-n]')].map(b => +b.dataset.n); if (!nums.length) return;
+      e.preventDefault(); const i = nums.indexOf(sel), j = i < 0 ? 0 : Math.max(0, Math.min(nums.length - 1, i + (k === 'arrowup' ? -1 : 1)));
+      if (nums[j] !== sel) openSession(nums[j]);
+    }
+  });
+})();
+</script></body></html>

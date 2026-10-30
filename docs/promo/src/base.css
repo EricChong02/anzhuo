@@ -1,0 +1,20 @@
+:root{--bg:#F5F3EC;--paper:#FBFAF6;--ink:#16171A;--mute:#6A6E75;--faint:#9A9DA3;--line:#E3DFD3;--blue:#2B4A7C;--blue2:#4C73B3;--amber:#B7791F;--navy:#0F1A31;--navy2:#1C2D52;--cream:#F4EFE3}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+body{font-family:"PingFang SC","Hiragino Sans GB","Helvetica Neue",sans-serif;color:var(--ink);background:#fff}
+.serif{font-family:"Songti SC","STSong","Source Han Serif SC",serif;font-weight:900;letter-spacing:.01em}
+.mono{font-family:"SF Mono","Menlo","Consolas",monospace}
+.eyebrow{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--blue);font-weight:600}
+/* 手机外框：宽度由 --w 决定，截图本身比例 1179:1972 */
+.phone{--w:200px;position:relative;width:var(--w);background:linear-gradient(145deg,#2a2d33,#0d0e11);border-radius:calc(var(--w)*.15);padding:calc(var(--w)*.03);
+  box-shadow:0 calc(var(--w)*.12) calc(var(--w)*.28) rgba(16,26,49,.28),0 calc(var(--w)*.02) calc(var(--w)*.05) rgba(16,26,49,.25),inset 0 0 0 1px rgba(255,255,255,.08)}
+.phone img{display:block;width:100%;border-radius:calc(var(--w)*.122)}
+.phone::after{content:"";position:absolute;top:calc(var(--w)*.05);left:50%;width:calc(var(--w)*.26);height:calc(var(--w)*.058);transform:translateX(-50%);background:#0b0c0e;border-radius:99px}
+.win{position:relative;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 30px 60px rgba(16,26,49,.22),0 4px 14px rgba(16,26,49,.12),0 0 0 1px rgba(16,26,49,.08)}
+.win .bar{height:26px;background:linear-gradient(#f3f2ee,#eae8e1);display:flex;align-items:center;gap:6px;padding-left:11px;border-bottom:1px solid #dcd8cc}
+.win .bar i{width:9px;height:9px;border-radius:50%;background:#d2cfc5;display:block}
+.win .bar i:nth-child(1){background:#ee6a5f}.win .bar i:nth-child(2){background:#f5bd4f}.win .bar i:nth-child(3){background:#61c454}
+.win img{display:block;width:100%}
+.chip{display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);background:var(--paper)}
+.code{font-family:"SF Mono","Menlo",monospace;font-size:11.5px;line-height:1.75;background:#10172A;color:#DCE4F5;border-radius:12px;padding:14px 16px;white-space:pre}
+.code .c{color:#7E8CAD}.code .k{color:#F3C06B}

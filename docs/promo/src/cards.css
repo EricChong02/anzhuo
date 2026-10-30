@@ -1,0 +1,15 @@
+.card{position:relative;width:540px;height:810px;overflow:hidden;font-family:"PingFang SC","Hiragino Sans GB",sans-serif;padding:40px 38px}
+.card.dark{background:radial-gradient(130% 90% at 80% 0%,#2a4a8c 0%,#15264f 38%,#0D1730 100%);color:var(--cream)}
+.card.light{background:var(--bg);color:var(--ink)}
+.card .top{display:flex;align-items:center;justify-content:space-between}
+.card .brand{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:700;letter-spacing:.04em}
+.card .brand img{width:30px;height:30px;border-radius:8px}
+.card .brand small{font-weight:500;letter-spacing:.2em;font-size:10px;opacity:.55;margin-left:3px}
+.card .tag{font-size:11px;letter-spacing:.22em;opacity:.55}
+.card h1,.card h2{font-family:"Songti SC","STSong",serif;font-weight:900;letter-spacing:.01em}
+.dark .acc{color:#9DB8F0}.light .acc{color:var(--blue)}
+.lead{font-size:16px;line-height:1.85}
+.dark .lead{color:#C3CDE4}.light .lead{color:#44474d}
+.pg{position:absolute;right:38px;bottom:26px;font-size:11px;letter-spacing:.2em;opacity:.45}
+.foot{position:absolute;left:38px;bottom:26px;font-size:11px;letter-spacing:.06em;opacity:.45}
+.glow{position:absolute;border-radius:50%;filter:blur(60px);pointer-events:none}

@@ -1,0 +1,41 @@
+# 案头配置：复制到 ~/.config/anzhuo/config.toml 再改。完整的每一项说明见 docs/配置参考.md。
+# 钉钉密钥和网页密码都不写在这里，存在 macOS 钥匙串里（见 README 的“安装”）。
+
+# ───────── 入口一：网页（默认开，只听本机端口）─────────
+# 本机用不用改；放到外网后改成你的地址（见 docs/外网访问.md），例如 web_base = "https://anzhuo.example.com"
+# web_base = "http://127.0.0.1:8765"
+# web_port = 8765
+# web_user 不用手写：运行 `anzhuo passwd` 会替你写进来
+
+# ───────── 入口二：钉钉（可选，想在钉钉里也能说话才填）─────────
+# 不填 client_id 就是只用网页。填法见 docs/钉钉接入.md
+# client_id = "钉钉开发者后台“凭证与基础信息”里的 Client ID"
+# 只认这些钉钉 ID 发来的单聊消息；用 `anzhuo whoami` 查自己的
+# allowed_user_ids = []
+
+# ───────── 常用文件夹 ─────────
+# 短名 → 路径。网页“新对话”的菜单、钉钉里的“新开 短名：…”都能用。不写也行：网页里有“最近用过的”和手输路径。
+# [folders]
+# 项目 = "~/Projects/my-app"
+# 笔记 = "~/Documents/notes"
+
+# ───────── 干活的方式（都有默认值，按需取消注释）─────────
+# max_parallel = 3             # 最多同时几个对话在干活，多的排队
+# default_effort = "medium"    # 默认思考深度：low / medium / high / xhigh / max
+# simple_model = "sonnet"      # 简单任务（查资料、整理文件）用的模型
+# dev_model = "opus"           # 开发类任务（文件夹里有 .git / pyproject.toml / package.json）用的模型
+# reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
+# translate_english = true     # 回复里有大段英文时译成中文再给你看（reply_language 不是中文就关掉）
+# extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”
+
+# ───────── 安全与整理（默认都是保守的）─────────
+# auto_review = false          # false：删文件、git push 这类危险命令都等你在网页/手机上点“允许”
+#                              # true：交给另一个 AI 审核员判断，它拿不准或出错才问你
+# review_policy = ""           # 开了 auto_review 后，写明你额外允许审核员放行什么，例如：“推送到 dev 分支可以放行”
+# auto_cleanup = false         # true：每天归档 90 天没动的旧对话记录、清理旧临时文件夹，每月派一次 AI 体检
+# timezone = ""                # 定时任务的时区，如 "Asia/Shanghai"；空 = 这台电脑当前的时区
+
+# ───────── 文件夹查找 ─────────
+# scratch_root = "~/anzhuo-scratch"   # “不指定文件夹”时的临时文件夹放哪
+# search_roots = ["~/Projects", "~/Desktop", "~/Documents", "~/Downloads"]   # “新开 某个词：…”按名字找文件夹的范围
+# skip_names = []              # 按名字找时要跳过的文件夹名（前缀匹配），比如放私密资料的
