@@ -25,7 +25,7 @@ from aiohttp import web
 
 from . import thread, translate
 from .push import Push
-from .sessions import COMPACT
+from .sessions import COMPACT, Session
 from .cards import parse_decision
 from .sessions import NOISE
 from .commands import Cmd
@@ -77,7 +77,7 @@ def display_model(model_id: str) -> str:
     wrapped = re.fullmatch(r"GPT[（(](.*)[）)]", model_id or "")
     mid = wrapped[1] if wrapped else model_id or ""
     if mid in ("Codex", "GPT", "gpt"):
-        return "Codex"  # 没有型号证据时不编版本
+        return "GPT"  # 没有型号证据时不编版本；网页上两家统一叫 Claude / GPT（Codex 是干活的工具，不是模型）
     if mid.startswith("claude-"):
         label = model_name(mid)
         return "Claude " + label if label != mid else mid
@@ -90,7 +90,7 @@ def model_options() -> list[list[str]]:
     from .app import MODELS
     from .codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku")] + [
-        ["gpt", display_model(configured_model()) or "Codex"]]
+        ["gpt", display_model(configured_model()) or "GPT"]]
 
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
@@ -751,7 +751,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 status, detail = "queued", "排队中"
             elif s.limit_until > now:
                 status = "paused"
-                detail = f"额度用完 · {time.strftime('%H:%M', time.localtime(s.limit_until))} 恢复" + ("后自动接着做" if s.auto_resume else "")
+                detail = f"额度用完 · {time.strftime('%H:%M', time.localtime(s.limit_until))} 恢复" + ("后接着做" if s.auto_resume else "")
             elif s.awaiting and s.awaiting_kind == "suggest":
                 status, detail = "idle", f"有建议：{s.awaiting}"
             elif s.awaiting:
@@ -934,7 +934,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         pick = s.model or mid
         # 选择器展示接下来要用的型号；历史轮次仍保留那轮的实际型号。
         selected = mid if s.engine == "codex" else s.model or mid
-        if s.engine == "codex" and display_model(selected) in ("", "Codex"):
+        if s.engine == "codex" and display_model(selected) in ("", "GPT"):
             selected = dict(model_options())["gpt"]
         for item in items:
             if item.get("model"):
@@ -1252,7 +1252,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = Session(num=b.registry.reserve_num(), name=(p.name[:8] + "·分叉"), cwd=p.cwd, add_dirs=list(p.add_dirs),
                     claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
                     worked=p.worked, seen=now, updated=now, fork_from=p.num, forking=bool(to), rewind_at=to,
-                    rewind_note=f"从 #{p.num}「{p.name}」分出来：到这里为止的都带着，接着说就从这里另走一条路，原对话不动；文件没复制，两边改的是同一个文件夹")
+                    rewind_note=f"从 #{p.num}「{p.name}」分叉")
         b.registry.add(s)
         b.record("你（网页）", "分叉", num=s.num)
         return web.json_response({"ok": True, "num": s.num, "name": s.name})
@@ -1293,10 +1293,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         later = [it for it in items[k + 1:] if it["who"] == "you"]
         if not later:
             return web.json_response({"ok": False, "error": "这已经是最新的一条了"})
-        note = f"已回到这里：后面 {len(later)} 轮收起了，接着说就从这里继续"
+        note = f"已回到这里 · 收起 {len(later)} 轮"
         if data.get("files"):
             why = await b.runner.rewind_files(s, later[0]["uuid"])
-            note += "；" + (why or "之后改过的文件也退回去了") + "（提交、推送、上线过的退不回）"
+            note += " · " + (why or "文件已退回")
         s.rewind_at, s.rewind_note = to, note
         kept = items[k]["text"]
         from .app import asks_user, awaiting_kind

@@ -80,7 +80,7 @@
     sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span><button class="xe-ask" title="只问不改：它对照教案说说这一屏想做什么">问问这屏</button></div>
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处，会和这一处一起发：</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
-      <textarea placeholder="哪里要改？比如：标题太小、这句话太长、图挡住了按钮"></textarea>
+      <textarea placeholder="哪里要改？"></textarea>
       <div class="xe-row"><label>加截图<input type="file" accept="image/*" hidden></label><span class="xe-th"></span>
       <button class="xe-cancel">取消</button><button class="xe-later" disabled>先记下</button>
       <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交给做课的对话'}</button></div></div>`;
@@ -105,7 +105,7 @@
           body: JSON.stringify({course: courseUrl, ask: true, items: [cur()]})});
         const d = await r.json(); if (!d.ok) throw new Error(d.error || '');
         sh.querySelector('.xe-box').innerHTML = `<b>问「${esc(d.name)}」了</b>
-          <div class="xe-done">它只说明、不改。可以接着试课，回答在<a href="/_x/#s${d.num}">对话里</a>，好了会通知你。</div>
+          <div class="xe-done"><a href="/_x/#s${d.num}">去看对话</a></div>
           <div class="xe-row"><button class="xe-send">接着试课</button></div>`;
         sh.querySelector('.xe-send').onclick = () => sh.remove();
       } catch (err) { b.disabled = false; b.textContent = '没问出去，再点一次'; }
@@ -130,7 +130,7 @@
         const last = items[items.length - 1];
         save(SENT, {t: Date.now() / 1000, num: d.num, section: last.section, screen: last.screen, where: last.where});
         sh.querySelector('.xe-box').innerHTML = `<b>交给「${esc(d.name)}」了${items.length > 1 ? `（${items.length} 处）` : ''}</b>
-          <div class="xe-done">可以接着试课，也可以切走：改完会通知你，左下角会变成“改好了 · 刷新到这一屏”。<a href="/_x/#s${d.num}">去看对话</a></div>
+          <div class="xe-done"><a href="/_x/#s${d.num}">去看对话</a></div>
           <div class="xe-row"><button class="xe-send">接着试课</button></div>`;
         sh.querySelector('.xe-send').onclick = () => sh.remove();
         poll();

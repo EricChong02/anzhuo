@@ -76,6 +76,8 @@ class Session:
     auto_resume: bool = True
     rewind_at: str = ""  # 你点了“回到这里”：下一句从这条记录接着（之后的收起）；还没说下一句前能撤销
     rewind_note: str = ""  # 回到这里时顺带说明（收起了几条、文件退没退）
+    fork_from: int = 0  # 从哪个对话分叉出来的（编号）
+    forking: bool = False  # 分叉出来还没说第一句：下一句从 rewind_at 那条接着、另起一个 Claude 对话（原对话不动）
     feedback: dict = field(default_factory=dict)  # 最近一次试课反馈在哪一屏：{course, section, screen, where}，回复里的试课链接直接跳回那屏
 
     @property
@@ -271,7 +273,7 @@ class Runner:
             return ""
         except Exception as e:  # noqa: BLE001 - 退不回就告诉你原因，对话照样回到那里
             log.warning("#%s 退回文件失败：%s", s.num, e)
-            return "那几轮的改动没有记录（多半是开启改动记录之前做的），文件没退回"
+            return "文件没退回（没有改动记录）"
         finally:
             try:
                 await client.disconnect()
@@ -526,6 +528,7 @@ class Runner:
             effort=s.effort or self.default_effort or None,
             resume=s.claude_id,
             resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
+            fork_session=bool(s.forking and s.claude_id),   # 分叉：从原对话那条接着，但另起一个对话编号，原对话不受影响
             enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
             setting_sources=["user", "project", "local"],
             permission_mode="bypassPermissions",
@@ -602,6 +605,7 @@ class Runner:
                     if msg.session_id:
                         s.claude_id = msg.session_id
                         s.rewind_at = s.rewind_note = ""   # 已经从那条接着说了，回到这里落定
+                        s.forking = False   # 分叉出来的已经有了自己的对话编号
                     if not msg.is_error and NOISE.match(msg.result or ""):
                         # 上一轮留下的后台任务通知先被答了一句“No response requested.”，你这句还排在后面：接着读，别当成回复
                         after_result, wait_more = True, 60

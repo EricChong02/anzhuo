@@ -80,7 +80,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 /* 额度：一格一个数（5 小时 / 本周），数字在上、细条在下；有 GPT 时 Claude、GPT 各一列 */
 .quota{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;padding:14px 20px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .quota.two{grid-template-columns:1fr 1fr} .qg{display:contents} .quota.two .qg{display:flex;flex-direction:column;gap:10px}
-.qh{font-size:var(--t1);color:var(--faint);font-weight:600;letter-spacing:.04em;margin-bottom:-4px}
+.qh{font-size:var(--t1);color:var(--faint);font-weight:600;letter-spacing:.02em;margin-bottom:-4px}
 .qm{min-width:0} .ql{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t1);color:var(--mute);line-height:1.4}
 .ql b{font-size:var(--t2);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 .qb{height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:5px} .qb i{display:block;height:100%;border-radius:var(--rf);background:var(--acc)}
@@ -244,7 +244,9 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .mmenu .lb{font-size:var(--t2);color:var(--mute);padding:8px 10px 4px}
 .mo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8px 10px;border-radius:var(--r1);color:var(--ink)}
 @media (hover:hover){.mo:hover,.item:hover,.amenu button:hover{background:var(--line)}}   /* 手机上点过的一项会一直“悬停”着发灰，看着像卡住了，只在有鼠标时才有 */
-.mo .tx{flex:1} .mo b{display:block;font-size:var(--t3);font-weight:550}
+.mo .tx{flex:1;min-width:0} .mo b{display:block;font-size:var(--t3);font-weight:550} .mo small{display:block;font-size:var(--t1);color:var(--mute);margin-top:1px}
+.mmenu .lb{display:flex;align-items:baseline;justify-content:space-between} .mmenu .mh{color:var(--amber);font-size:var(--t1)}
+
 .mo .ok{width:16px;height:16px;color:var(--acc);visibility:hidden} .mo.on .ok{visibility:visible}
 .seg{display:flex;gap:4px;padding:4px 6px 6px} .seg button{flex:1;height:34px;border-radius:var(--r1);font-size:var(--t2);color:var(--ink);background:var(--bg)}
 .seg button.on{background:var(--accsoft);color:var(--acc);font-weight:600}
@@ -289,8 +291,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 @media (hover:hover){.ccard .cgo:hover,.ccard .cplay:hover{background:var(--line)}}
 /* 你说的话下面一行小字：现在怎么样了 */
 .ymeta{align-self:flex-end;margin-top:-18px;display:flex;align-items:center;font-size:var(--t1);color:var(--mute);padding-right:4px;min-height:24px}
-.ymeta .sending{color:var(--faint)} .yundo{color:var(--mute);padding:4px 2px 4px 6px;font-size:inherit} .ymeta span+.yundo::before{content:"·";margin-right:6px;color:var(--faint)}
-@media (hover:hover){.yundo:hover{color:var(--acc)}}
+.ymeta .sending{color:var(--faint)} .you[data-y]{cursor:pointer;transition:background .15s}
+@media (hover:hover){.you[data-y]:hover{background:var(--line)}} .you[data-y]:active{background:var(--line)}
 .note.rw{display:flex;align-items:center;gap:10px;background:var(--accsoft);color:var(--acc);border-radius:var(--rf);padding:6px 6px 6px 14px;text-align:left}
 .note.rw button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:600}
 /* 回复底下：事实一行 + 过程 / 试课 + ⋯ */
@@ -312,16 +314,16 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .silence.stuck{color:var(--amber)} .silence .pill{height:30px;font-size:var(--t2)}
 .live .ptog{margin:10px 0 0} .plan[data-p]{cursor:pointer} .ps.more .an{color:var(--mute)}
 /* 分段进度：一步一格，做完的实色、正在做的呼吸，点一下展开全部步骤 */
-.seg{display:flex;gap:4px;width:100%;padding:8px 0 2px;margin-top:6px;cursor:pointer} .seg i{flex:1;height:4px;border-radius:var(--rf);background:var(--line)}
-.seg i.done{background:var(--acc)} .seg i.doing{background:var(--acc);animation:breath 1.6s ease-in-out infinite}
-@keyframes breath{0%,100%{opacity:.35}50%{opacity:.9}} @media (prefers-reduced-motion:reduce){.seg i.doing{animation:none;opacity:.6}}
+.pbar{display:flex;gap:4px;width:100%;padding:8px 0 2px;margin-top:6px;cursor:pointer} .pbar i{flex:1;height:4px;border-radius:var(--rf);background:var(--line)}
+.pbar i.done{background:var(--acc)} .pbar i.doing{background:var(--acc);animation:breath 1.6s ease-in-out infinite}
+@keyframes breath{0%,100%{opacity:.35}50%{opacity:.9}} @media (prefers-reduced-motion:reduce){.pbar i.doing{animation:none;opacity:.6}}
 .live .partial{cursor:pointer;font-size:var(--t3);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .live .partial.open{white-space:normal;color:var(--ink);font-size:var(--t4)} .live .partial .pl{color:var(--faint)}
 .limit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:14px 16px}
-.limit .q{font-weight:600} .limit .tip{color:var(--mute);font-size:var(--t2);margin:2px 0 10px}
+.limit .q{font-weight:600;margin-bottom:10px}
 /* 快捷回答 */
-.quick{align-items:center} .quick button{color:var(--acc)} .qhint{flex:none;font-size:var(--t1);color:var(--faint);padding:0 4px}
-@media (hover:hover){.quick button:hover{border-color:var(--acc)} .qhint{display:none}}
+.quick{align-items:center} .quick button{color:var(--acc)}
+@media (hover:hover){.quick button:hover{border-color:var(--acc)}}
 .hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
 /* 回到这里 */
 .rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
@@ -406,7 +408,7 @@ function planHTML(list, compact) {
   let at = list.findIndex(x => x.status !== 'done'); if (at < 0) at = list.length;
   const shown = compact && list.length > 3 ? list.map((x, i) => [x, i]).filter(([, i]) => i >= at && i < at + 2) : list.map((x, i) => [x, i]);
   const rest = compact && list.length > 3 ? list.length - at - shown.length : 0;
-  return `<div class="plan" data-p="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步${compact && list.length > 3 ? ' · 点开看全部' : ''}</div>${shown.map(([x, i]) => row(x, i)).join('')}${rest > 0 ? `<div class="ps more"><span class="n">…</span><span class="an">还有 ${rest} 步</span></div>` : ''}</div>`;
+  return `<div class="plan" data-p="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步</div>${shown.map(([x, i]) => row(x, i)).join('')}${rest > 0 ? `<div class="ps more"><span class="n">…</span><span class="an">还有 ${rest} 步</span></div>` : ''}</div>`;
 }
 // 派出去的助手（子代理、后台命令）：一行一个，在跑的转圈、做完打勾
 function agentsHTML(list) {
@@ -415,7 +417,7 @@ function agentsHTML(list) {
   const mark = {running: '<i class="spin"></i>', done: '<span class="ok">✓</span>', failed: '<span class="bad">✕</span>', stopped: '<span class="bad">■</span>'};
   if (!run) return '';   // 都做完了就不占地方
   list = list.filter(a => a.status === 'running').slice(-3);
-  return `<div class="agents"><div class="ah">${run} 个助手在跑，主对话会等它们做完再汇总</div>${list.map(a =>
+  return `<div class="agents"><div class="ah">${run} 个助手在跑</div>${list.map(a =>
     `<div class="ag ${a.status}">${mark[a.status] || ''}<span class="an">${esc(a.name)}</span><span class="am">${a.status === 'running' && a.last ? esc(a.last) + ' · ' : ''}${dur(a.secs)}</span></div>`).join('')}</div>`;
 }
 function procHTML(list, pid) {
@@ -567,7 +569,7 @@ function renderQuota() {
   q.hidden = !limits.length && !both;
   const cell = l => qcell(l);
   const group = (who, ls) => `<div class="qg">${who ? `<div class="qh">${who}</div>` : ''}${ls.map(cell).join('')}</div>`;
-  q.innerHTML = both ? group('CLAUDE', limits) + group('Codex', limitsGpt) : group('', limits);
+  q.innerHTML = both ? group('Claude', limits) + group('GPT', limitsGpt) : group('', limits);
   q.classList.toggle('two', !!both);
 }
 
@@ -579,11 +581,10 @@ function renderUsage(u) {
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
     + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
-      <div class="qh">${u.mkey === 'gpt' ? 'Codex' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
-      ${ctxWarn ? '<div class="w">过七成了：到九成多（约 37 万 token）它会自动压缩，换件新事最好开个新对话</div>' : ''}
+      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
-        : u.busy ? '它在干活，做完才能压缩' : '压缩上下文'}</button></div>` : '');
+        : u.busy ? '做完才能压缩' : '压缩上下文'}</button></div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
@@ -736,29 +737,35 @@ function composerHTML(ph) {
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
-let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['gpt', 'Codex']];
+let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['gpt', 'GPT']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
+// 模型按钮只写型号和深度（“Opus 5.5 · 高”）；菜单按 Claude / GPT 分组，哪家额度快用完了就在组名旁标出来。
+// 新对话：自动 + 两家都能选。对话里：只能在同一家里换（Claude 开的不能换 GPT，反之亦然），换了从下一句起生效。
 function renderModel(st, onPick, isNew) {
   const el = $('#mpw'); if (!el) return;
   mpRedraw = () => renderModel(st, onPick, isNew);
-  const mname = st.model === 'auto' ? '自动' : st.label || (modelOpts.find(m => m[0] === st.model) || [, '默认'])[1];
-  const models = isNew ? [['auto', '自动'], ...modelOpts]
-    : st.model === 'gpt' ? [['gpt', mname]] : modelOpts.filter(m => m[0] !== 'gpt');
-  if (!isNew && !models.some(m => m[0] === st.model)) models.push([st.model, mname]);
-  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
+  const opt = k => (modelOpts.find(m => m[0] === k) || [, ''])[1];
+  const label = k => k === 'auto' ? '自动' : (k === st.model && st.label ? st.label : opt(k) || k || '默认').replace(/^Claude /, '');
+  const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
-  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(mname)} · ${esc(ename)}${ICON.chev}</button>`
-    + (mpOpen ? `<div class="mmenu"><div class="lb">模型</div>
-      ${models.map(([k, t]) =>
-        `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${k}"><span class="tx"><b>${esc(k === st.model ? mname : t)}</b></span>${ok}</button>`).join('')}
-      <div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div>
-      </div>` : '');
+  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(label(k))}</b></span>${ok}</button>`;
+  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt');
+  if (!isNew && st.model && st.model !== 'gpt' && !claude.includes(st.model)) claude.push(st.model);
+  const gptChat = !isNew && st.model === 'gpt';
+  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
+  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
+  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(label(st.model))} · ${esc(ename)}${ICON.chev}</button>`
+    + (mpOpen ? `<div class="mmenu">${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
     e.stopPropagation();
+    const was = st.model + st.effort;
     if (b.dataset.m) { st.model = b.dataset.m; delete st.label; mpOpen = false; } else st.effort = b.dataset.e;
     onPick(st); renderModel(st, onPick, isNew);
+    if (!isNew && was !== st.model + st.effort) toast(`下一句起用 ${label(st.model)} · ${(EFFORT_OPTS.find(x => x[0] === st.effort) || [, ''])[1]}`);
   });
 }
 document.addEventListener('click', e => { if (mpOpen && !e.target.closest('.mpw')) { mpOpen = false; mpRedraw && mpRedraw(); } });
@@ -1070,23 +1077,18 @@ function renderThread(d) {
   replyCount[d.num] = replies.length; wasLive[d.num] = !!d.live;
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
-  const canRewind = d.engine !== 'codex';
-  // 能撤回的那句：你最后说的一句（排着没开始的直接拿回来；已经开始或做完的，回到它前面那条回复）
-  const lastYou = d.items.map(i => i.who).lastIndexOf('you');
-  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].who === 'claude') return d.items[j].end || ''; return ''; };
-  const laterYou = k => d.items.slice(k + 1).some(i => i.who === 'you');
+  // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
+  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
       const req = d.live && (d.live.request || '').replace(/…$/, '');
-      const tag = !it.pending ? '' : isQ ? '排队中 · 前面的做完就做，可以切走' : d.live ? (req && it.text.startsWith(req) ? '' : '插话 · 它这一步做完就看到') : '已送到';
-      const undo = idx === lastYou && canRewind && !(d.items[idx + 1] && d.items[idx + 1].rewind) && (isQ || prevEnd(idx))
-        ? `<button class="yundo" data-q="${isQ ? 1 : ''}" data-to="${esc(prevEnd(idx))}">撤回</button>` : '';
-      return `<div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>${tag || undo ? `<div class="ymeta">${tag ? `<span>${tag}</span>` : ''}${undo}</div>` : ''}`;
+      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
+      return `<div class="you ${it.pending ? 'pending' : ''}" data-y="${idx}" data-q="${isQ ? 1 : ''}" title="点一下：复制、回退、分叉">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>${tag ? `<div class="ymeta"><span>${tag}</span></div>` : ''}`;
     }
     if (it.who === 'note') return it.rewind
-      ? `<div class="note rw">${esc(it.text)}<button class="rwundo">撤销</button></div>` : `<div class="note">${esc(it.text)}</div>`;
+      ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => previewPill(n, u, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
@@ -1104,12 +1106,11 @@ function renderThread(d) {
       <div class="acts">${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}${menu}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
-    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到 Mac · 可以切走，做完会通知你' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
+    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
   if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
-    if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div>
-      <div class="lsub">压完它还记得聊过的要点；你这时说的话会排在压缩之后，压完接着做</div></div>`;
+    if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div></div>`;
     else {
       // 一大行说清：第几步、在做什么、做了多久；有步骤清单按清单算，还能估个大概还要多久
       const plan = L.plan || [], done = plan.filter(x => x.status === 'done').length, doing = plan.find(x => x.status === 'doing');
@@ -1118,7 +1119,7 @@ function renderThread(d) {
         : L.total ? esc(L.steps[L.steps.length - 1] || '') : L.elapsed < 20 ? '收到了，正在开工' : '在想…';
       const at = plan.length ? `第 ${Math.min(plan.length, done + 1)}/${plan.length} 步 · ` : L.total ? `第 ${L.total} 步 · ` : '';
       const popen = openProc.has('plan');
-      const seg = plan.length > 1 ? `<button class="seg" data-p="plan" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>` : '';
+      const seg = plan.length > 1 ? `<button class="pbar" data-p="plan" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>` : '';
       const left = plan.length - done, eta = plan.length && done >= 2 && left > 0 ? Math.max(1, Math.round((L.elapsed / done) * left / 60)) : 0;
       const pop = openProc.has('live');
       h += `<div class="live"><div class="lh"><i class="spin"></i><span class="lt">${head}</span><button class="stop" id="stop">${ICON.stop}停止</button></div>
@@ -1132,11 +1133,10 @@ function renderThread(d) {
   if (restQ.length) h += `<div class="queue">接下来：${restQ.map(esc).join('；')}</div>`;
   if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>
       <pre>${esc(d.live.confirm.cmd)}</pre><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
-      <div class="tip">20 分钟不回就当不允许，它会换别的办法或问你</div></div>`;
-  if (d.limit) h += `<div class="limit"><div class="q">额度用完了 · ${esc(d.limit.at)} 恢复</div>
-      <div class="tip">${d.limit.auto ? '恢复后一分钟它自动接着做，不用你管。' : '恢复后不会自动接着做，到时说一声“继续”。'}</div>
+</div>`;
+  if (d.limit) h += `<div class="limit"><div class="q">额度用完了 · ${esc(d.limit.at)} 恢复${d.limit.auto ? '后自动接着做' : ''}</div>
       <button class="pill" id="autoRes">${d.limit.auto ? '别自动接' : '恢复后自动接着做'}</button></div>`;
-  if (d.decision) h += `<div class="ask"><div class="ah">点一个回答，或在下面直接说</div>${d.decision.options.map(([k, v]) =>
+  if (d.decision) h += `<div class="ask">${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   setTimeout(showPartial);
   const pos = {};
@@ -1149,10 +1149,13 @@ function renderThread(d) {
     await api('confirm/' + sel, {allow}).catch(() => {}); lastKey = ''; loadThread();
   });
   document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
-  document.querySelectorAll('.ptog, .plan[data-p], .seg').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k); lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.ptog, .plan[data-p], .pbar').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k); lastKey = ''; renderThread(d); });
   document.querySelectorAll('.pt[data-c], .pd[data-c]').forEach(c => c.onclick = () => {
     const k = c.dataset.c; c.classList.toggle('clamp') ? unclamp.delete(k) : unclamp.add(k); });
-  document.querySelectorAll('.yundo').forEach(b => b.onclick = () => b.dataset.q ? unqueue(d.num) : rewindSheet(d, b.dataset.to, true));
+  document.querySelectorAll('.you[data-y]').forEach(b => b.onclick = e => {
+    if (e.target.closest('img, a') || String(getSelection() || '')) return;   // 点图看大图；在选字就不弹
+    youMenu(d, +b.dataset.y, !!b.dataset.q, prevEnd(+b.dataset.y));
+  });
   document.querySelectorAll('.cmore').forEach(b => b.onclick = e => { e.stopPropagation(); replyMenu(d, +b.dataset.i); });
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; await api('rewind/' + d.num, {cancel: true}).catch(() => {}); lastKey = ''; loadThread(); loadSessions(); });
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
@@ -1168,7 +1171,7 @@ function renderThread(d) {
     : d.awaiting ? [['好的', '好的'], ['就按你推荐的', '就按你推荐的'], ['先不做', '先不做']]
     : me.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
   q.hidden = !quick.length;
-  q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') + (quick.length ? '<span class="qhint">长按改一改再发</span>' : '');
+  q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') ;
   q.querySelectorAll('button').forEach(b => {
     const text = quick[+b.dataset.i][1];
     let timer = 0, longed = false;
@@ -1179,13 +1182,13 @@ function renderThread(d) {
     b.onclick = () => { if (longed) { longed = false; return; } q.hidden = true; quickSend(d.num, text, b.textContent); };
   });
   const hint = $('#hint'), fh = d.five_hour, risky = fh && fh.pct >= 90 && d.usage && (d.usage.mkey || 'opus') === 'opus' && !d.live && !d.limit;
-  if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%，Opus 很快会用完${fh.reset ? `（${fh.reset} 重置）` : ''}；不急的可以换 Sonnet` : ''; }
+  if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%${fh.reset ? ` · ${fh.reset} 重置` : ''}` : ''; }
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
   const lastPrev = last && previewLink(last.previews[0][0], last.previews[0][1], last, d);
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(lastPrev.url)}" target="_blank" title="${esc(lastPrev.title)}">${ICON.play}<span>试课</span></a>` : '';
-  $('#ta').placeholder = d.live && d.live.compact ? '说点什么（压完接着做）' : d.live ? '插话：它手上这步做完就看到' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
+  $('#ta').placeholder = d.live && d.live.compact ? '说点什么…' : d.live ? '插话…' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
   document.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
     document.querySelectorAll('.opt').forEach(x => x.disabled = true);
@@ -1231,16 +1234,16 @@ async function unqueue(num) {
   const r = await api('unqueue/' + num, {}).catch(() => null);
   if (!r || !r.ok) return toast((r && r.error) || '没撤回，再试一次');
   pending[num] = []; const ta = $('#ta'); if (ta) { ta.value = r.text; ta.oninput(); ta.focus(); }
-  toast('撤回了，改好再发'); lastKey = ''; loadThread();
+  toast('已撤回'); lastKey = ''; loadThread();
 }
 // 回到某条回复：之后的收起，下一句从这里接着说；可选把之后改过的文件也退回去
 function rewindSheet(d, to, undoLast) {
-  const k = d.items.findIndex(i => i.who === 'claude' && i.end === to); if (k < 0) return toast('这条回复回不去了（在压缩之前）');
+  const k = d.items.findIndex(i => i.who === 'claude' && i.end === to); if (k < 0) return toast('回不去了（在压缩之前）');
   const n = d.items.slice(k + 1).filter(i => i.who === 'you').length;
-  const el = sheet(`<div class="t">${undoLast ? '撤回你最后说的这句' : '回到这条回复'}</div>
-    <div class="rwbody">${undoLast ? '它会回到上一条回复那里，像这句没说过；这句放回输入框，改好再发。' : `它之后的 ${n} 轮会收起，下一句从这里接着说。`}${d.live ? '<br>手上正在做的会先停下。' : ''}
-    <label class="rwfile"><input type="checkbox" id="rwf"><span>把之后改过的文件也退回去<small>只退案头记下改动的轮次；提交、推送、上线过的退不回</small></span></label></div>
-    <button class="on" id="rwok">${undoLast ? '撤回' : '回到这里'}</button><button id="rwno">取消</button>`);
+  const el = sheet(`<div class="t">${undoLast ? '回退到这句之前' : '回到这条回复'}</div>
+    <div class="rwbody">${undoLast ? `这句${n > 1 ? `和之后 ${n - 1} 轮` : ''}收起，放回输入框` : `之后 ${n} 轮收起`}${d.live ? '，正在做的会停下' : ''}
+    <label class="rwfile"><input type="checkbox" id="rwf"><span>改过的文件也退回</span></label></div>
+    <button class="on" id="rwok">${undoLast ? '回退' : '回到这里'}</button><button id="rwno">取消</button>`);
   el.querySelector('#rwno').onclick = () => el.remove();
   el.querySelector('#rwok').onclick = async () => {
     const b = el.querySelector('#rwok'); b.disabled = true; b.innerHTML = '<i class="spin"></i>' + (d.live ? '先停下再回去…' : '正在回去…');
@@ -1252,23 +1255,46 @@ function rewindSheet(d, to, undoLast) {
     lastKey = ''; loadThread(); loadSessions();
   };
 }
+const SVG_COPY = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+const SVG_BACK = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>';
+const SVG_FORK = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M12 12v5"/></svg>';
+const copyText = t => navigator.clipboard.writeText(t).then(() => toast('复制了'), () => toast('没复制成'));
+// 你说的话：复制；回退（回到这句之前，这句放回输入框改了再发）；分叉（另开一个对话，从这句之前接着，这句填进去）
+function youMenu(d, i, queued, before) {
+  const it = d.items[i], gpt = d.engine === 'codex', text = it.text.replace(/\n\n（附件已存到[\s\S]*$/, '');
+  const back = queued || (!gpt && !it.pending && before), fork = !gpt && !it.pending && before !== null;
+  const el = sheet(`
+    <button data-a="copy">${SVG_COPY}复制</button>
+    ${back ? `<button data-a="back">${SVG_BACK}回退</button>` : ''}
+    ${fork ? `<button data-a="fork">${SVG_FORK}分叉</button>` : ''}
+`);
+  el.querySelector('[data-a=copy]').onclick = () => { copyText(text); el.remove(); };
+  const b = el.querySelector('[data-a=back]'); if (b) b.onclick = () => { el.remove(); queued ? unqueue(d.num) : rewindSheet(d, before, true); };
+  const f = el.querySelector('[data-a=fork]'); if (f) f.onclick = () => { el.remove(); forkAt(d, before || '', text); };
+}
+// 回复：复制；分叉（另开一个对话，带着到这条为止的来龙去脉）
 function replyMenu(d, i) {
-  const it = d.items[i], laterN = d.items.slice(i + 1).filter(x => x.who === 'you').length;
-  const can = d.engine !== 'codex' && it.end && laterN;
-  const el = sheet(`<div class="t">这条回复</div>
-    ${it.model_label ? `<div class="t">${esc(it.model_label)}${it.effort_label ? ` · ${esc(it.effort_label)}` : ''}</div>` : ''}
-    <button data-a="copy"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>复制</button>
-    ${can ? `<button data-a="rw"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>回到这里<span class="v">之后 ${laterN} 轮收起</span></button>` : ''}
-    ${!can && d.engine === 'codex' && laterN ? '<div class="t">GPT 对话还不能回到某条回复</div>' : ''}`);
-  el.querySelector('[data-a=copy]').onclick = () => { navigator.clipboard.writeText(it.text).then(() => toast('复制了'), () => toast('没复制成')); el.remove(); };
-  const rw = el.querySelector('[data-a=rw]'); if (rw) rw.onclick = () => { el.remove(); rewindSheet(d, it.end, false); };
+  const it = d.items[i], can = d.engine !== 'codex' && it.end;
+  const el = sheet(`${it.model_label ? `<div class="t">${esc(it.model_label)}${it.effort_label ? ` · ${esc(it.effort_label)}` : ''}</div>` : ''}
+    <button data-a="copy">${SVG_COPY}复制</button>
+    ${can ? `<button data-a="fork">${SVG_FORK}分叉</button>` : ''}`);
+  el.querySelector('[data-a=copy]').onclick = () => { copyText(it.text); el.remove(); };
+  const f = el.querySelector('[data-a=fork]'); if (f) f.onclick = () => { el.remove(); forkAt(d, it.end, ''); };
+}
+async function forkAt(d, to, text) {
+  toast('正在分叉…');
+  const r = await api('fork/' + d.num, {to}).catch(() => null);
+  if (!r || !r.ok) return toast((r && r.error) || '没分成，再试一次');
+  await loadSessions(); openSession(r.num);
+  const ta = $('#ta'); if (ta && text) { ta.value = text; ta.oninput(); ta.focus(); }
+  toast('已分叉');
 }
 // 好一会儿没新动静：3 分钟起轻轻提一句，10 分钟起提醒可能卡住了，给个“问问它”
 function tickSilence() {
   const el = document.querySelector('.silence'); if (!el) return;
   const m = Math.floor((Date.now() / 1000 - +el.dataset.t0) / 60);
-  const html = m >= 10 ? `<span>${m} 分钟没新动静，可能卡住了</span><button class="pill" id="askBtn">问问它</button>`
-    : m >= 3 ? `<span>${m} 分钟没新动静（可能在跑长命令或想得久）</span>` : '';
+  const html = m >= 10 ? `<span>${m} 分钟没动静</span><button class="pill" id="askBtn">问问它</button>`
+    : m >= 3 ? `<span>${m} 分钟没动静</span>` : '';
   if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; el.className = 'silence' + (m >= 10 ? ' stuck' : ''); el.dataset.t0 = el.dataset.t0;
     const b = $('#askBtn'); if (b) b.onclick = async () => { b.disabled = true; b.textContent = '问了';
       await api('send', {num: sel, text: '现在做到哪了？是不是卡住了？卡在哪一步说一下。'}).catch(() => {}); loadThread(); }; }
@@ -1374,7 +1400,7 @@ function wireComposer(sendFn, onSent, onOpening) {
         el.hidden = false; el.classList.add('prog');
         el.textContent = done ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
         const op = document.querySelector('#opening .lsub');
-        if (op) op.textContent = done ? '传完了，正在开新对话 · 已经送到 Mac，可以切走' : `正在上传 ${mb(a)} / ${mb(b)} MB · 传完前先别切走`;
+        if (op) op.textContent = done ? '已送到' : `正在上传 ${mb(a)} / ${mb(b)} MB`;
       });
       $('#warn').classList.remove('prog'); warn('');
       if (r.ok) {
@@ -1439,7 +1465,7 @@ function openNew(fromPop, preset) {
       const el = document.createElement('div'); el.id = 'opening'; el.className = 'opening';
       el.innerHTML = `<div class="col"><div class="you">${youImgs(imgs || [])}${esc(text)}</div>
         <div class="live"><div class="lh"><i class="spin"></i><span class="lt">正在开新对话</span></div>
-        <div class="lsub">${pick === 'auto' ? '先看看这件事该在哪个文件夹做，几秒钟' : '几秒钟'} · 已经送到 Mac，可以切走，开好会出现在列表里</div></div></div>`;
+        <div class="lsub">已送到</div></div></div>`;
       $('.newv').appendChild(el);
     });
   if (!matchMedia('(max-width:600px) and (pointer:coarse)').matches) $('#ta').focus();

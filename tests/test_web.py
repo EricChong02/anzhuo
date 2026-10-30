@@ -523,6 +523,43 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"
     (tmp_path / "config.toml").write_text("bad = [")
-    assert dict(model_options())["gpt"] == "Codex"
+    assert dict(model_options())["gpt"] == "GPT"
     (tmp_path / "config.toml").unlink()
-    assert dict(model_options())["gpt"] == "Codex"
+    assert dict(model_options())["gpt"] == "GPT"
+
+
+def test_fork(tmp_path, monkeypatch):
+    """分叉：另开一个对话，带着到那条回复为止的记录、从那里另起；原对话不动。从第一句分叉 = 从头另开。"""
+    from types import SimpleNamespace as NS
+    from remote_claude import thread as th
+    from remote_claude.sessions import Session
+
+    p = Session(num=6, name="大数据第二节磨课", cwd=str(tmp_path), claude_id="sid6", model="m", worked=True)
+    sessions = {6: p}
+    nums = iter([9, 10])
+    reg = NS(sessions=sessions, get=sessions.get, visible=lambda: list(sessions.values()), save=lambda: None,
+             reserve_num=lambda: next(nums), add=lambda s: sessions.setdefault(s.num, s))
+    monkeypatch.setattr(th, "full_messages", lambda sid, cwd, times=None: sid)
+    monkeypatch.setattr(th, "history", lambda msgs, limit=300, times=None: [
+        {"who": "you", "text": "一", "uuid": "u1"}, {"who": "claude", "text": "好", "end": "a1"},
+        {"who": "you", "text": "二", "uuid": "u2"}, {"who": "claude", "text": "好", "end": "a2"}])
+
+    async def go():
+        w = Web("http://x", 0, tmp_path, "", "")
+        w.bridge = NS(registry=reg, record=lambda *a, **k: None)
+        w._logged_in = lambda r: True
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            r = await (await c.post("/_x/api/fork/6", json={"to": "a1"})).json()
+            s = sessions[r["num"]]
+            assert (s.claude_id, s.rewind_at, s.forking, s.fork_from, s.cwd, s.model) == ("sid6", "a1", True, 6, p.cwd, "m")
+            assert p.claude_id == "sid6" and not p.rewind_at                       # 原对话不动
+            assert (await (await c.post("/_x/api/rewind/" + str(s.num), json={"cancel": True})).json())["ok"] is False
+            assert (await (await c.post("/_x/api/fork/6", json={"to": "zz"})).json())["ok"] is False
+            r = await (await c.post("/_x/api/fork/6", json={"to": ""})).json()
+            assert sessions[r["num"]].claude_id is None and not sessions[r["num"]].forking
+        finally:
+            await c.close()
+
+    asyncio.run(go())
