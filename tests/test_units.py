@@ -71,7 +71,7 @@ def test_report():
                     context_pct=75, compacted=True)
     title, body = report.build("#3 测试", t, "/w", {"five_hour": (0.85, "10月25日 17:10"), "seven_day": (0.4, None)})
     assert title == "做完了 · 把标题改大" and "#3 · 5 分钟 · 改 2 个文件 · 跑 1 条命令" in body and "a.py" in body
-    assert "要你做的" not in body and "**做了什么**：改了两处" in body and "Opus 5.5 · 深度高" in body
+    assert "要你做的：没有  \n做了什么：改了两处" in body and "Opus 5.5 · 深度高" in body  # 回复原样，不删段不加粗
     assert "| 上下文 | ■■■■□ 75% |" in body and "| 5 小时 | ■■■■□ 85% |" in body and "| 本周 | ■■□□□ 40% |" in body
     assert body.count("**注意**") == 3 and "<font" not in body and "　" not in body
     chat = report.Turn(started=0, ended=10, request="你好", final_text="你好！有什么要帮忙的？")
@@ -106,13 +106,6 @@ def test_is_reply():
         assert _is_reply(t), t
     for t in ["帮我查一下明天厦门天气", "把桌面上的文件按日期列一下", "好的，那顺便把第三课也改了"]:
         assert not _is_reply(t), t
-
-
-def test_empty_sections_hidden():
-    text = "答案是 3。\n要你做的：没有。\n做了什么：\n1. 查了日期\n改了哪些：没有改任何东西，只是查看。\n自查结果：日期取自本机。\n截图：无。"
-    out = report.bold_sections(text)
-    assert "要你做的" not in out and "改了哪些" not in out and "截图" not in out
-    assert "**做了什么**" in out and "1. 查了日期" in out and "**自查结果**：日期取自本机。" in out
 
 
 def test_model_choice(tmp_path):

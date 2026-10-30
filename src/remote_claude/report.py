@@ -1,4 +1,4 @@
-"""把一轮工作的结果排成钉钉消息：标题一行，正文是 Claude 按五段写的回复，再附钉钉桥自己看到的实际改动。"""
+"""把一轮工作的结果排成钉钉消息：标题一行，正文是 Claude 的回复原文（不改写、不删段），再附钉钉桥自己看到的实际改动。"""
 from __future__ import annotations
 
 import os
@@ -40,7 +40,6 @@ class Turn:
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
 
 
-SECTIONS = ("要你定", "要你做的", "做了什么", "改了哪些", "自查结果", "截图")
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
 LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
 
@@ -77,29 +76,6 @@ def push_message(name: str, request: str, final: str, is_error: bool, awaiting: 
 def model_name(model_id: str) -> str:
     m = re.match(r"claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)", model_id or "")
     return f"{m.group(1).capitalize()} {m.group(2)}.{m.group(3)}" if m else (model_id or "")
-
-
-_EMPTY = re.compile(r"(无|没有|暂无|不需要|无需|没|—+|-+)")
-
-
-def bold_sections(text: str) -> str:
-    """“要你做的：…”这类段名加粗、前面空一行；内容只是“没有/无”的段整段去掉。"""
-    out = []
-    for line in text.splitlines():
-        s = line.lstrip("*# ").strip()
-        for name in SECTIONS:
-            if s.startswith(name) and s[len(name):len(name) + 1] in ("：", ":"):
-                rest = s[len(name) + 1:].lstrip("*").strip()
-                if rest and len(rest) <= 16 and _EMPTY.match(rest):
-                    line = None
-                    break
-                if out and out[-1].strip():
-                    out.append("")
-                line = f"**{name}**：{rest}" if rest else f"**{name}**"
-                break
-        if line is not None:
-            out.append(line)
-    return "\n".join(out)
 
 
 def bar(pct: float, n: int = 5) -> str:
@@ -203,7 +179,7 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
     if turn.is_error and turn.error:
         body.append(f"**出错原因**：{turn.error}")
     if turn.final_text:
-        body.append(bold_sections(turn.final_text.strip()))
+        body.append(turn.final_text.strip())
 
     facts = f"#{label.split()[0].lstrip('#')} · {minutes} 分钟"
     if worked:
