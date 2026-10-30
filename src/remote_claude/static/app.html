@@ -150,6 +150,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .live .partial{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:var(--t3);line-height:1.65}
 .caret{display:inline-block;width:7px;height:1.05em;margin-left:2px;vertical-align:-2px;background:var(--acc);border-radius:2px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
+.plist .pfull{align-self:flex-start;font-size:var(--t2);color:var(--acc);text-decoration:none}
 .live .plist{margin:10px 0 0;max-height:46vh;overflow:auto;background:var(--bg)}
 .cl .md table{border-collapse:collapse;font-size:.92em;line-height:1.6}
 .cl .md td,.cl .md th{border-bottom:1px solid var(--line);padding:8px 16px 8px 0;text-align:left;vertical-align:top}
@@ -290,16 +291,22 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .ccard .cplay{flex:none;width:40px;height:40px;border-radius:var(--rf);display:grid;place-items:center;color:var(--acc);margin-right:2px}
 @media (hover:hover){.ccard .cgo:hover,.ccard .cplay:hover{background:var(--line)}}
 /* 你说的话下面一行小字：现在怎么样了 */
-.ymeta{align-self:flex-end;margin-top:-18px;display:flex;align-items:center;font-size:var(--t1);color:var(--mute);padding-right:4px;min-height:24px}
-.ymeta .sending{color:var(--faint)} .you[data-y]{cursor:pointer;transition:background .15s}
-@media (hover:hover){.you[data-y]:hover{background:var(--line)}} .you[data-y]:active{background:var(--line)}
+.yw{display:flex;flex-direction:column;align-items:flex-end;margin-bottom:-12px}
+.ymeta{align-self:flex-end;margin-top:-18px;display:flex;align-items:center;gap:6px;font-size:var(--t1);color:var(--mute);padding-right:4px;min-height:24px}
+.yw .ymeta{margin-top:2px;min-height:30px} .ymeta .sending{color:var(--faint)}
+.yw .ibs{display:flex;opacity:0;transition:opacity .15s} .yw.show .ibs{opacity:1} @media (hover:hover){.yw:hover .ibs{opacity:1}}
+/* 小图标按钮：复制、回退、分叉 */
+.ibs{display:inline-flex;align-items:center;gap:2px} .ib{position:relative;width:30px;height:30px;border-radius:var(--r1);display:grid;place-items:center;color:var(--mute)}
+.ib svg{width:17px;height:17px;stroke-width:1.7} .ib.done{color:var(--acc)} .ib:active{background:var(--line)}
+@media (hover:hover){.ib:hover{background:var(--line);color:var(--ink)}
+  .ib:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--toast-bg);color:var(--toast-ink);
+    font-size:var(--t1);line-height:1;padding:6px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:5}}
 .note.rw{display:flex;align-items:center;gap:10px;background:var(--accsoft);color:var(--acc);border-radius:var(--rf);padding:6px 6px 6px 14px;text-align:left}
 .note.rw button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:600}
 /* 回复底下：事实一行 + 过程 / 试课 + ⋯ */
 .cl .acts{align-items:center} .facts{font-size:var(--t2);color:var(--mute);margin-right:4px}
 .pill small{color:var(--mute);font-size:var(--t1);max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cmore{margin-left:-4px;width:32px;height:32px;border-radius:var(--rf);display:grid;place-items:center;color:var(--mute)}
-@media (hover:hover){.cmore:hover{background:var(--line);color:var(--ink)}}
+.cl .acts .ibs{margin-left:-6px}
 .cl .imgs{margin:0 0 12px}
 .md details.code{margin:0 0 .9em;border-radius:var(--r2);background:var(--side)} .md details.code pre{margin:0;border-radius:0 0 var(--r2) var(--r2)}
 .md details.code summary{display:flex;gap:10px;align-items:center;padding:10px 14px;cursor:pointer;font:var(--t1)/1.5 ui-monospace,Menlo,monospace;color:var(--mute);list-style:none}
@@ -396,7 +403,7 @@ const ICON = {
   say: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
   dots: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>',
 };
-let openProc = new Set();
+let openProc = new Set(), anchor = null;   // 点开/收起时让点的那一行留在原位
 // 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
 const unclamp = new Set();
 // 这件事拆成的几步：做完打勾、正在做的转圈，标题写到第几步
@@ -420,13 +427,13 @@ function agentsHTML(list) {
   return `<div class="agents"><div class="ah">${run} 个助手在跑</div>${list.map(a =>
     `<div class="ag ${a.status}">${mark[a.status] || ''}<span class="an">${esc(a.name)}</span><span class="am">${a.status === 'running' && a.last ? esc(a.last) + ' · ' : ''}${dur(a.secs)}</span></div>`).join('')}</div>`;
 }
-function procHTML(list, pid) {
+function procHTML(list, pid, tid) {
   const ck = t => esc(String(t).slice(0, 80));
   return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait
     ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
     : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
     : e.k === 'say' ? `<div class="pi say">${ICON.say}<div class="pt md">${md(e.text)}</div></div>`
-    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}</div>`;
+    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
 let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
@@ -1085,25 +1092,28 @@ function renderThread(d) {
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
       const req = d.live && (d.live.request || '').replace(/…$/, '');
       const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
-      return `<div class="you ${it.pending ? 'pending' : ''}" data-y="${idx}" data-q="${isQ ? 1 : ''}" title="点一下：复制、回退、分叉">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>${tag ? `<div class="ymeta"><span>${tag}</span></div>` : ''}`;
+      const before = prevEnd(idx), gpt = d.engine === 'codex';
+      const btns = ib('copy', '复制') + (isQ || (!gpt && !it.pending && before) ? ib('back', '回退') : '') + (!gpt && !it.pending && before !== null ? ib('fork', '分叉') : '');
+      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
+        <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
     if (it.who === 'note') return it.rewind
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
-    const acts = [it.tid ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
+    const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.previews || []).map(([n, u]) => previewPill(n, u, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
-      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid) : ''}`;
+      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid, it.tid) : ''}`;
     })() : '';
     // 一眼看出这轮动了什么：改了几个文件、跑了几条命令、交了几张图
-    const facts = [it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
+    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
-    const menu = `<button class="cmore" data-i="${idx}" aria-label="更多">${ICON.dots}</button>`;
+    const btns = `<span class="ibs">${ib('copy', '复制')}${d.engine !== 'codex' && it.end ? ib('fork', '分叉') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
-      <div class="acts">${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}${menu}</div></div>`;
+      <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
     + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
@@ -1149,14 +1159,28 @@ function renderThread(d) {
     await api('confirm/' + sel, {allow}).catch(() => {}); lastKey = ''; loadThread();
   });
   document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
-  document.querySelectorAll('.ptog, .plan[data-p], .pbar').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k); lastKey = ''; renderThread(d); });
+  document.querySelectorAll('.ptog, .plan[data-p], .pbar').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k);
+    anchor = {sel: `.${b.classList[0]}[data-p="${CSS.escape(k)}"]`, top: b.getBoundingClientRect().top}; stick = false; lastKey = ''; renderThread(d); });
   document.querySelectorAll('.pt[data-c], .pd[data-c]').forEach(c => c.onclick = () => {
     const k = c.dataset.c; c.classList.toggle('clamp') ? unclamp.delete(k) : unclamp.add(k); });
-  document.querySelectorAll('.you[data-y]').forEach(b => b.onclick = e => {
-    if (e.target.closest('img, a') || String(getSelection() || '')) return;   // 点图看大图；在选字就不弹
-    youMenu(d, +b.dataset.y, !!b.dataset.q, prevEnd(+b.dataset.y));
+  // 你说的话：有鼠标时悬停出图标，手机上点一下气泡出图标
+  document.querySelectorAll('.yw .you').forEach(b => b.onclick = e => {
+    if (e.target.closest('img, a') || String(getSelection() || '')) return;
+    b.parentElement.classList.toggle('show');
   });
-  document.querySelectorAll('.cmore').forEach(b => b.onclick = e => { e.stopPropagation(); replyMenu(d, +b.dataset.i); });
+  document.querySelectorAll('.ib[data-act]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const y = b.closest('.yw'), c = b.closest('.cl'), act = b.dataset.act;
+    if (y) {
+      const i = +y.dataset.y, text = d.items[i].text.replace(/\n\n（附件已存到[\s\S]*$/, '');
+      if (act === 'copy') copyBtn(b, text);
+      else if (act === 'back') y.dataset.q ? unqueue(d.num) : rewindSheet(d, prevEnd(i), true);
+      else forkAt(d, prevEnd(i) || '', text);
+    } else if (c) {
+      const it = d.items[+c.dataset.i];
+      if (act === 'copy') copyBtn(b, it.text); else forkAt(d, it.end, '');
+    }
+  });
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; await api('rewind/' + d.num, {cancel: true}).catch(() => {}); lastKey = ''; loadThread(); loadSessions(); });
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
@@ -1197,10 +1221,12 @@ function renderThread(d) {
     (pending[d.num] ||= []).push({text, t: Date.now()});
     await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
   });
+  tickSilence();   // 先填好“没动静”那行，再定位置
   const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
-  if (fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
+  const an = anchor && document.querySelector('#col ' + anchor.sel);
+  if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
+  else if (fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
   else if (near) feed.scrollTop = feed.scrollHeight;
-  tickSilence();
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
 
@@ -1255,31 +1281,18 @@ function rewindSheet(d, to, undoLast) {
     lastKey = ''; loadThread(); loadSessions();
   };
 }
-const SVG_COPY = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
-const SVG_BACK = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>';
-const SVG_FORK = '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M12 12v5"/></svg>';
-const copyText = t => navigator.clipboard.writeText(t).then(() => toast('复制了'), () => toast('没复制成'));
-// 你说的话：复制；回退（回到这句之前，这句放回输入框改了再发）；分叉（另开一个对话，从这句之前接着，这句填进去）
-function youMenu(d, i, queued, before) {
-  const it = d.items[i], gpt = d.engine === 'codex', text = it.text.replace(/\n\n（附件已存到[\s\S]*$/, '');
-  const back = queued || (!gpt && !it.pending && before), fork = !gpt && !it.pending && before !== null;
-  const el = sheet(`
-    <button data-a="copy">${SVG_COPY}复制</button>
-    ${back ? `<button data-a="back">${SVG_BACK}回退</button>` : ''}
-    ${fork ? `<button data-a="fork">${SVG_FORK}分叉</button>` : ''}
-`);
-  el.querySelector('[data-a=copy]').onclick = () => { copyText(text); el.remove(); };
-  const b = el.querySelector('[data-a=back]'); if (b) b.onclick = () => { el.remove(); queued ? unqueue(d.num) : rewindSheet(d, before, true); };
-  const f = el.querySelector('[data-a=fork]'); if (f) f.onclick = () => { el.remove(); forkAt(d, before || '', text); };
-}
-// 回复：复制；分叉（另开一个对话，带着到这条为止的来龙去脉）
-function replyMenu(d, i) {
-  const it = d.items[i], can = d.engine !== 'codex' && it.end;
-  const el = sheet(`${it.model_label ? `<div class="t">${esc(it.model_label)}${it.effort_label ? ` · ${esc(it.effort_label)}` : ''}</div>` : ''}
-    <button data-a="copy">${SVG_COPY}复制</button>
-    ${can ? `<button data-a="fork">${SVG_FORK}分叉</button>` : ''}`);
-  el.querySelector('[data-a=copy]').onclick = () => { copyText(it.text); el.remove(); };
-  const f = el.querySelector('[data-a=fork]'); if (f) f.onclick = () => { el.remove(); forkAt(d, it.end, ''); };
+// 复制、回退、分叉：和 Claude 一样是一排小图标，悬停出名字
+const IB = {
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
+  fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7"/></svg>',
+  ok: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'};
+const ib = (a, t) => `<button class="ib" data-act="${a}" data-tip="${t}" aria-label="${t}">${IB[a]}</button>`;
+function copyBtn(b, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    b.innerHTML = IB.ok; b.dataset.tip = '已复制'; b.classList.add('done');
+    setTimeout(() => { b.innerHTML = IB.copy; b.dataset.tip = '复制'; b.classList.remove('done'); }, 1500);
+  }, () => toast('没复制成'));
 }
 async function forkAt(d, to, text) {
   toast('正在分叉…');
