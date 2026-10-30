@@ -272,7 +272,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .pill.on{background:var(--accsoft);border-color:transparent;color:var(--acc)}
-.wmenu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;width:min(340px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:6px;max-height:min(420px,46vh);overflow:auto}
+.wmenu{position:fixed;left:0;top:0;z-index:20;width:min(340px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:6px;max-height:min(420px,46vh);overflow:auto}
 .wo{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:9px 10px;border-radius:var(--r1);color:var(--ink)}
 .wo:hover{background:var(--line)} .wo.on{color:var(--acc)}
 .wo svg{width:19px;height:19px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -1429,6 +1429,32 @@ function agoDays(t) {
   const d = Math.floor((Date.now() / 1000 - t) / 86400);
   return d < 1 ? '今天动过' : d < 2 ? '昨天动过' : `${d} 天前动过`;
 }
+// 菜单按可见区域定位，避开标题栏和键盘；固定定位避免被新对话的滚动容器裁切。
+function placeWhereMenu() {
+  const menu = document.querySelector('.wmenu'), button = $('#wp');
+  if (!menu || !button) return;
+  const vv = window.visualViewport, main = $('#main').getBoundingClientRect();
+  const head = document.querySelector('#main .head').getBoundingClientRect();
+  const top = Math.max(head.bottom, vv ? vv.offsetTop : 0) + 8;
+  const bottom = Math.min(main.bottom, vv ? vv.offsetTop + vv.height : innerHeight) - 8;
+  const left = Math.max(main.left, vv ? vv.offsetLeft : 0) + 8;
+  const right = Math.min(main.right, vv ? vv.offsetLeft + vv.width : innerWidth) - 8;
+  const anchor = button.getBoundingClientRect();
+  const above = Math.max(0, anchor.top - 6 - top), below = Math.max(0, bottom - anchor.bottom - 6);
+  const down = below >= Math.min(menu.scrollHeight, 420) || below > above;
+  const room = down ? below : above;
+  const width = Math.max(0, Math.min(340, right - left));
+  menu.style.width = width + 'px';
+  menu.style.maxHeight = Math.max(0, Math.min(420, room)) + 'px';
+  menu.style.left = Math.max(left, Math.min(anchor.left, right - width)) + 'px';
+  menu.style.top = (down ? Math.max(top, anchor.bottom + 6) : Math.max(top, anchor.top - 6 - menu.getBoundingClientRect().height)) + 'px';
+}
+addEventListener('resize', placeWhereMenu);
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', placeWhereMenu);
+  visualViewport.addEventListener('scroll', placeWhereMenu);
+}
+
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
@@ -1449,11 +1475,13 @@ function openNew(fromPop, preset) {
       + (pick === 'auto' && last ? `<button class="pill" id="wlast">${WHERE_ICON.course}<span>${esc(last.t)}</span></button>` : '')
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
           <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}</div>` : '');
+    if (menu) placeWhereMenu();
     $('#wp').onclick = e => { e.stopPropagation(); menu = !menu; draw(); };
     if ($('#wlast')) $('#wlast').onclick = () => { pick = last.v; draw(); $('#ta').focus(); };
     document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); pick = c.dataset.v; menu = false; draw(); });
   };
   draw();
+  $('.newv').onscroll = placeWhereMenu;
   $('#main').onclick = e => { if (menu && !e.target.closest('.wmenu')) { menu = false; draw(); } };
   const ms = {model: 'auto', effort: 'medium'}; let touched = false;
   renderModel(ms, () => { touched = true; }, true);
