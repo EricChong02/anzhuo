@@ -580,11 +580,11 @@ function md(src) {
   endAll();
   return out.join('');
 }
-// 额度的一格：名字和百分比一行，细条在下；过线（默认八成）变琥珀色，并写上几点重置
+// 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
 function qcell(l, hot = 80) {
   const h = l.pct != null && l.pct >= hot;
   return `<div class="qm ${h ? 'hot' : ''}" title="${l.reset ? esc(l.reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
-    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${h && l.reset ? `<div class="qr">${esc(l.reset)} 重置</div>` : ''}</div>`;
+    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${l.reset ? `<div class="qr">${esc(l.reset)} 重置</div>` : ''}</div>`;
 }
 function renderQuota() {
   // 额度：Claude 一组；用过 GPT 再加一组。过八成的那格变琥珀色，并写上几点重置
