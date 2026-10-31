@@ -58,6 +58,9 @@ class Speech:
         self.jobs: dict[str, asyncio.Task] = {}
         self.readers: dict[str, int] = {}
         self.lock = asyncio.Lock()
+        self.requests_lock = asyncio.Lock()
+        self.listeners: dict[str, tuple[str, float]] = {}
+        self.released: dict[str, float] = {}
         self.proc = None
         self.last_work = 0.0
 
@@ -120,9 +123,69 @@ class Speech:
         if m['state'] in ('queued', 'generating') and key not in self.jobs:
             m.update(state='error', error='上次生成已中断，请重新点朗读', protected_until=0)
             self._save(key, m)
-        return {k: m.get(k) for k in ('key', 'state', 'duration', 'parts', 'error', 'first_seconds', 'generation_seconds')}
+        result = {k: m.get(k) for k in ('key', 'state', 'duration', 'parts', 'error', 'first_seconds', 'generation_seconds')}
+        ahead = 0
+        if m['state'] == 'queued':
+            for other, task in self.jobs.items():
+                if other == key:
+                    break
+                if not task.done():
+                    ahead += 1
+        result['queue_ahead'] = ahead
+        result['wait_seconds'] = max(0, int(time.time() - m.get('created', time.time())))
+        return result
 
-    async def start(self, num: int, text: str) -> dict:
+    def renew(self, key: str, listener: str):
+        if listener in self.listeners and self.listeners[listener][0] == key:
+            self.listeners[listener] = (key, time.time())
+
+    async def _drop_listener(self, listener: str):
+        lease = self.listeners.pop(listener, None)
+        if not lease:
+            return
+        key = lease[0]
+        if any(k == key for k, _ in self.listeners.values()):
+            return
+        task = self.jobs.get(key)
+        if task and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            if self.jobs.get(key) is task:
+                self.jobs.pop(key, None)
+            try:
+                m = self.meta(key)
+            except ValueError:  # 同时删除对话时，缓存可能已被清理。
+                return
+            if m.get('state') in ('queued', 'generating'):
+                m.update(state='error', error='已取消朗读，可重新生成', protected_until=0)
+                self._save(key, m)
+
+    async def release(self, listener: str):
+        async with self.requests_lock:
+            # 关闭可能比开始请求先抵达；短期记住作废的请求，禁止它迟到后复活。
+            self.released[listener] = time.time() + 300
+            await self._drop_listener(listener)
+
+    async def expire_listeners(self):
+        async with self.requests_lock:
+            now = time.time()
+            self.released = {c: until for c, until in self.released.items() if until > now}
+            for client, (key, seen) in list(self.listeners.items()):
+                if now - seen > 120 and not self.readers.get(key):
+                    await self._drop_listener(client)
+
+    async def start(self, num: int, text: str, *, listener: str = '') -> dict:
+        async with self.requests_lock:
+            if listener and self.released.get(listener, 0) > time.time():
+                raise ValueError('这次朗读已关闭')
+            result = await self._start(num, text)
+            if listener:
+                if listener in self.listeners and self.listeners[listener][0] != result['key']:
+                    await self._drop_listener(listener)
+                self.listeners[listener] = (result['key'], time.time())
+            return result
+
+    async def _start(self, num: int, text: str) -> dict:
         text = readable_text(text)
         if not text:
             raise ValueError('这条回复没有可朗读的正文')
@@ -146,11 +209,11 @@ class Speech:
         d = self.directory(key)
         if d.exists():
             shutil.rmtree(d)
-        self._save(key, dict(key=key, num=num, state='queued', accessed=time.time(), protected_until=0,
+        self._save(key, dict(key=key, num=num, state='queued', created=time.time(), accessed=time.time(), protected_until=0,
                              duration=0, parts=0, error='', first_seconds=None, generation_seconds=None))
         task = asyncio.create_task(self._generate(key, chunks(text)))
         self.jobs[key] = task
-        task.add_done_callback(lambda t: self.jobs.pop(key, None))
+        task.add_done_callback(lambda t: self.jobs.pop(key, None) if self.jobs.get(key) is t else None)
         return self.status(key)
 
     async def _worker(self):
@@ -239,11 +302,15 @@ class Speech:
             shutil.rmtree(d, ignore_errors=True)
 
     async def maintenance(self):
+        last_clean = 0.0
         while True:
-            self.cleanup()
+            await self.expire_listeners()
+            if time.time() - last_clean >= 60:
+                self.cleanup()
+                last_clean = time.time()
             if not self.jobs and self.proc and time.time() - self.last_work > 600:
                 await self._kill_worker()  # 不听时释放模型内存
-            await asyncio.sleep(60)
+            await asyncio.sleep(5)
 
     async def close(self):
         for task in list(self.jobs.values()):

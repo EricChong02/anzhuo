@@ -393,6 +393,19 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         await asyncio.gather(task, return_exceptions=True)
         await self.speech.close()
 
+    @staticmethod
+    def _speech_listener(request, tag):
+        if not isinstance(tag, str) or len(tag) > 100:
+            raise web.HTTPBadRequest()
+        return hashlib.sha256((request.cookies.get(COOKIE, '') + ':' + tag).encode()).hexdigest()
+
+    async def _release_speech(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        data = await request.json()
+        await self.speech.release(self._speech_listener(request, data.get('listener', '')))
+        return web.json_response({'ok': True})
+
     async def _api_speech(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
@@ -414,7 +427,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         if not text:
             return web.json_response({"ok": False, "error": "这条回复还未保存，请稍后再点朗读"})
         try:
-            return web.json_response({"ok": True, **await self.speech.start(num, text)})
+            return web.json_response({"ok": True, **await self.speech.start(num, text, listener=self._speech_listener(request, data.get('listener', '')))})
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)})
 
@@ -435,6 +448,9 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
                 raise web.HTTPForbidden()
             data = await request.json()
             self.speech.touch(key, playing=data.get("playing") is True)
+            self.speech.renew(key, self._speech_listener(request, data.get('listener', '')))
+        else:
+            self.speech.renew(key, self._speech_listener(request, request.query.get('listener', '')))
         return web.json_response({"ok": True, **self.speech.status(key)}, headers={"Cache-Control": "no-store"})
 
     async def _audio(self, request: web.Request) -> web.StreamResponse:
@@ -1738,6 +1754,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/manage/{{num:\\d+}}", self._api_manage)
         app.router.add_post(f"{PREFIX}/api/speech/{{num:\\d+}}", self._api_speech)
+        app.router.add_post(f"{PREFIX}/api/speech/release", self._release_speech)
         app.router.add_get(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
         app.router.add_post(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
         app.router.add_get(f"{PREFIX}/audio/{{key}}.mp3", self._audio)

@@ -216,3 +216,87 @@ def test_default_voice_uses_chinese_vivian_streaming():
     assert 'Qwen3-TTS' in MODEL
     assert list(generate_parts(Model(), ['第一句。', '第二句。'])) == ['audio', 'audio']
     assert all(c['speaker'] == 'Vivian' and c['language'] == 'Chinese' and c['stream'] for c in calls)
+
+
+def test_releasing_player_cancels_only_unused_generation_and_unblocks_queue(tmp_path, monkeypatch):
+    async def go():
+        s = Speech(tmp_path, python=Path(__file__))
+        began, second = asyncio.Event(), asyncio.Event()
+        async def generate(key, parts):
+            async with s.lock:
+                m=s.meta(key);m['state']='generating';s._save(key,m)
+                (began if parts==['旧回复。'] else second).set()
+                await asyncio.Event().wait()
+        monkeypatch.setattr(s,'_generate',generate)
+        a=await s.start(1,'旧回复。',listener='player-a')
+        await began.wait()
+        # 另一位听众使用同一份音频时，不得被前一位的关闭操作打断。
+        await s.start(1,'旧回复。',listener='player-b')
+        await s.release('player-a')
+        assert a['key'] in s.jobs
+        b=await s.start(2,'新回复。',listener='player-c')
+        assert s.status(b['key'])['queue_ahead']==1
+        await s.release('player-b')
+        await asyncio.wait_for(second.wait(),1)
+        assert a['key'] not in s.jobs and b['key'] in s.jobs
+        await s.release('player-c')
+        assert not s.jobs
+        await s.close()
+    asyncio.run(go())
+
+
+def test_close_before_start_arrives_does_not_leave_orphan_job(tmp_path):
+    async def go():
+        s=Speech(tmp_path,python=Path(__file__))
+        await s.release('old-request')
+        try:
+            await s.start(1,'这条不应再生成。',listener='old-request')
+            assert False
+        except ValueError:
+            pass
+        assert not s.jobs
+        await s.close()
+    asyncio.run(go())
+
+
+def test_lost_player_expires_but_active_stream_is_retained(tmp_path, monkeypatch):
+    async def go():
+        s=Speech(tmp_path,python=Path(__file__))
+        async def generate(*args): await asyncio.Event().wait()
+        monkeypatch.setattr(s,'_generate',generate)
+        r=await s.start(1,'失联测试。',listener='gone')
+        key=r['key'];s.listeners['gone']=(key,time.time()-121)
+        s.readers[key]=1
+        await s.expire_listeners()
+        assert key in s.jobs
+        s.readers.clear();await s.expire_listeners()
+        assert key not in s.jobs and 'gone' not in s.listeners
+        await s.close()
+    asyncio.run(go())
+
+
+def test_release_api_is_authenticated_origin_checked_and_bound_to_request(tmp_path,monkeypatch):
+    async def go():
+        w=Web('http://x.example',0,tmp_path,'','',user='u',pw_hash=hash_password('p',iters=1000))
+        session=Session(num=1,name='释放测试',cwd=str(tmp_path))
+        w.bridge=NS(registry=NS(get=lambda n:session))
+        tid=w.save_turn('#1 测试',Turn(started=100,ended=120,final_text='正在等待的回复。'),'/tmp','完成')
+        w.speech.python=Path(__file__)
+        async def generate(*args): await asyncio.Event().wait()
+        monkeypatch.setattr(w.speech,'_generate',generate)
+        c=TestClient(TestServer(w.app()));await c.start_server()
+        try:
+            url='/_x/api/speech/release'
+            assert (await c.post(url,json={'listener':'one'})).status==401
+            await c.post('/_x/login',data={'username':'u','password':'p'})
+            w.base='https://x.example'
+            r=await (await c.post('/_x/api/speech/1',json={'tid':tid,'listener':'one'})).json()
+            key=r['key']
+            assert (await c.post(url,json={'listener':'one'},headers={'Origin':'https://bad.example'})).status==403
+            await c.post(url,json={'listener':'other'})
+            assert key in w.speech.jobs
+            assert (await c.post(url,json={'listener':'one'})).status==200
+            assert key not in w.speech.jobs
+            assert w.speech.status(key)['state']=='error'
+        finally: await c.close()
+    asyncio.run(go())
