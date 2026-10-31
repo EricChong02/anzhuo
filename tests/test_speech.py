@@ -206,7 +206,7 @@ def test_kokoro_phoneme_budget_preserves_every_character():
         pass
 
 
-def test_default_voice_uses_chinese_serena_streaming():
+def test_default_voice_uses_chinese_vivian_streaming():
     from remote_claude.speech_worker import MODEL, generate_parts
     calls = []
     class Model:
@@ -215,4 +215,4 @@ def test_default_voice_uses_chinese_serena_streaming():
             yield 'audio'
     assert 'Qwen3-TTS' in MODEL
     assert list(generate_parts(Model(), ['第一句。', '第二句。'])) == ['audio', 'audio']
-    assert all(c['speaker'] == 'Serena' and c['language'] == 'Chinese' and c['stream'] for c in calls)
+    assert all(c['speaker'] == 'Vivian' and c['language'] == 'Chinese' and c['stream'] for c in calls)

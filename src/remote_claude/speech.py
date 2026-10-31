@@ -12,7 +12,7 @@ from pathlib import Path
 MAX_BYTES = 1024 ** 3
 MAX_AUDIO = 128 * 1024 ** 2
 KEEP = 7 * 86400
-VERSION = 'qwen3-tts-06b-8bit-serena-v2'
+VERSION = 'qwen3-tts-06b-8bit-vivian-v1'
 PREFIX = 'ANTOU_TTS '
 
 
