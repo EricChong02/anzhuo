@@ -30,7 +30,7 @@ def kokoro_parts(text, phonemize, limit=480):
 def generate_parts(model, parts):
     if 'Qwen3-TTS' in MODEL:
         for part in parts:
-            yield from model.generate_custom_voice(text=part, speaker='Uncle_Fu', language='Chinese',
+            yield from model.generate_custom_voice(text=part, speaker='Serena', language='Chinese',
                                                   stream=True, streaming_interval=.32, max_tokens=4096,
                                                   temperature=.7)
         return
