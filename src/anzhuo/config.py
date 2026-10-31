@@ -37,7 +37,7 @@ class Config:
     dev_model: str = "opus"  # 开发类工作（文件夹里有 .git / pyproject.toml / package.json）用的模型
     reply_language: str = "简体中文"  # 让每个对话用什么语言回复；写成空字符串 = 不指定
     extra_instructions: str = ""  # 你自己追加给每个对话的固定要求（比如“做完小任务直接提交，不要问”）
-    translate_english: bool = True  # 回复里有大段英文时译成中文再给你看（reply_language 不是中文时请关掉）
+    translate_english: bool = False  # 默认关闭。打开后，回复里有大段英文时译成中文再给你看：有 DeepSeek 密钥就用它，没有就用 Haiku
     # ---- 安全与整理 ----
     auto_review: bool = False  # 危险命令交给 AI 审核员判断；false = 都等你点“允许”（默认）
     review_policy: str = ""  # 你额外授权审核员放行的事（比如“推送到我自己仓库的 dev 分支可以放行”）
@@ -73,7 +73,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         dev_model=raw.get("dev_model", "opus"),
         reply_language=str(raw.get("reply_language", "简体中文")),
         extra_instructions=str(raw.get("extra_instructions", "")),
-        translate_english=bool(raw.get("translate_english", True)),
+        translate_english=bool(raw.get("translate_english", False)),
         auto_review=bool(raw.get("auto_review", False)),
         review_policy=str(raw.get("review_policy", "")),
         auto_cleanup=bool(raw.get("auto_cleanup", False)),

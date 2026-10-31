@@ -16,7 +16,7 @@ DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-flash"  # DeepSeek-V4.1-Flash
 DEEPSEEK_KEYCHAIN = ("anzhuo.deepseek", "api")  # 钥匙串服务名、账户（可选，没有就用 Haiku 翻）
 HAIKU_MODEL = "claude-haiku-5-5"
-enabled = True   # 配置 translate_english = false 时关掉（app.Bridge 启动时设置）
+enabled = False   # 默认关闭；配置 translate_english = true 时打开（app.Bridge 启动时设置）
 HAIKU_EFFORT = "medium"  # 低档时 Haiku 常把英文原样抄回来（实测 6 次只译了 2 次），中档 6 次全译
 
 log = logging.getLogger(__name__)

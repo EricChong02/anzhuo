@@ -271,9 +271,11 @@ def test_files_delivered_and_uploaded(tmp_path):
     asyncio.run(go())
 
 
-def test_process_translation_no_flip(tmp_path):
+def test_process_translation_no_flip(tmp_path, monkeypatch):
     """工作过程里还在译的英文先不给（显示“翻译中…”），译好直接给中文；译不出的给原文、不再反复试。"""
     import hashlib
+    from anzhuo import translate
+    monkeypatch.setattr(translate, "enabled", True)   # 翻译默认关闭，这里测打开时的行为
     w = Web("http://x.example", 0, tmp_path)
     en = "Let me check the file first and then run the tests to see what fails here"
     k = hashlib.sha1(en.encode()).hexdigest()

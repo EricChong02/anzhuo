@@ -25,7 +25,7 @@
 # simple_model = "sonnet"      # 简单任务（查资料、整理文件）用的模型
 # dev_model = "opus"           # 开发类任务（文件夹里有 .git / pyproject.toml / package.json）用的模型
 # reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
-# translate_english = true     # 回复里有大段英文时译成中文再给你看（reply_language 不是中文就关掉）
+# translate_english = false    # 默认关闭。想看中文版的思考过程和英文回复，改成 true：有 DeepSeek 密钥就用它，没有就用 Haiku（会消耗你自己的 Claude 额度）
 # extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”
 
 # ───────── 安全与整理（默认都是保守的）─────────

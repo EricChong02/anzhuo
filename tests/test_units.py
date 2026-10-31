@@ -118,8 +118,10 @@ def test_model_choice(tmp_path):
     assert _looks_like_project(tmp_path / "repo" / "src") and not _looks_like_project(tmp_path)
 
 
-def test_needs_translation():
+def test_needs_translation(monkeypatch):
+    from anzhuo import translate
     from anzhuo.translate import needs_translation
+    monkeypatch.setattr(translate, "enabled", True)   # 翻译默认关闭，这里测打开时的判断
     assert needs_translation("I updated the cover title and checked that it still fits on the lab screen.")
     assert not needs_translation("改好了第二课封面，用 Opus 5.5 跑了 course_gates.py G1，结果 PASS。")
     assert not needs_translation("跑了：\n```\nuv run pytest -q tests/test_units.py --maxfail one two three four\n```")

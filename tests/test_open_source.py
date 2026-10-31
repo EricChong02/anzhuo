@@ -30,6 +30,22 @@ def test_config_defaults(tmp_path):
     assert load_config(p).web_base == "https://a.example.com"
 
 
+def test_translation_is_off_by_default(monkeypatch):
+    """默认不翻译：不会有任何内容被送去 DeepSeek 或 Haiku；打开后才判断英文段落。"""
+    from anzhuo import translate
+    assert load_config(ROOT / "config.example.toml").translate_english is False   # 样例里是注释掉的，读到的就是默认值
+    p = ROOT / "tests" / "_tmp_cfg.toml"
+    p.write_text('client_id = ""\n')
+    try:
+        assert load_config(p).translate_english is False
+    finally:
+        p.unlink()
+    monkeypatch.setattr(translate, "enabled", False)
+    assert translate.needs_translation("This is a long English paragraph that would otherwise be translated.") is False
+    monkeypatch.setattr(translate, "enabled", True)
+    assert translate.needs_translation("This is a long English paragraph that would otherwise be translated.") is True
+
+
 def test_instructions_are_neutral():
     from anzhuo.sessions import build_instructions, codex_instructions
     for text in (build_instructions(), codex_instructions()):
