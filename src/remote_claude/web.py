@@ -913,9 +913,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(num)
         if not s:
             raise web.HTTPNotFound()
-        # GPT 对话的内容来自小E 每轮的记录：记录写好比“做完”晚几秒，把记录份数也算进去，免得缓存住一个空的
+        # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
         lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
-        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))) if s.engine == "codex" else 0,
+        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
                lt.ended if lt else 0)
         cached = self._threads.get(num)
         if cached and cached[0] == key:
@@ -1527,7 +1527,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def _sig_thread(self, num: int) -> str:
         b = self.bridge
         s, t = b.registry.get(num), b.runner.turns.get(num)
-        recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s and s.engine == "codex" else 0
+        recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s else 0
         return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
                            s.limit_until if s else 0, s.auto_resume if s else True])

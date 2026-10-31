@@ -758,3 +758,41 @@ def test_turn_duration_matches_record_identity_not_next_reply():
     assert out[1]["elapsed"] == 2 and "tid" not in out[1]
     for rec in [{"id": "x", "started": 10}, {"id": "x", "started": 10, "ended": 9}]:
         assert "elapsed" not in thread.attach_records([{"who": "claude", "text": "旧记录"}], [rec])[0]
+
+
+def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
+    """先读到最终文字、稍后才归档附件：缓存与实时事件都必须更新。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Session
+    from remote_claude import thread
+
+    async def go():
+        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=120)
+        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
+                      runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
+                                busy=lambda n: False, queued=lambda n: []))
+        monkeypatch.setattr(thread, "full_messages", lambda *a: [])
+        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            before = w._sig_thread(6)
+            data = await (await c.get("/_x/api/thread/6")).json()
+            assert not data["items"][0].get("files")
+            img, pdf = tmp_path / "图.png", tmp_path / "文件.pdf"
+            img.write_bytes(b"\x89PNG")
+            pdf.write_bytes(b"%PDF-1.4")
+            tid = w.save_turn("#6 交付", Turn(started=100, ended=120, final_text="图片和文件已做好",
+                                         images=[str(img)], files=[str(pdf)]), str(tmp_path), "完成")
+            assert s.updated == 120 and w._sig_thread(6) != before
+            data = await (await c.get("/_x/api/thread/6")).json()
+            reply = data["items"][0]
+            assert reply["tid"] == tid and len(reply["images"]) == len(reply["files"]) == 1
+            for url, expected in [(reply["images"][0], img.read_bytes()), (reply["files"][0]["url"], pdf.read_bytes())]:
+                r = await c.get(url)
+                assert r.status == 200 and await r.read() == expected
+        finally:
+            await c.close()
+    asyncio.run(go())

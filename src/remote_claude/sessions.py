@@ -477,7 +477,7 @@ class Runner:
                 else:
                     bad.append(p)
             turn.images.extend(ok)
-            msg = f"已收下 {len(ok)} 张。"
+            msg = f"已登记 {len(ok)} 张图片，本轮结束后会显示在对话中；这不是用户已收到的回执。"
             if bad:
                 msg += f" 没收下：{', '.join(bad)}（不存在、不是图片或超过 6 张）"
             return {"content": [{"type": "text", "text": msg}]}
@@ -495,7 +495,7 @@ class Runner:
                 else:
                     bad.append(p)
             turn.files.extend(ok)
-            msg = f"已收下 {len(ok)} 个文件。"
+            msg = f"已登记 {len(ok)} 个文件，本轮结束后会显示下载入口；这不是用户已收到的回执。"
             if bad:
                 msg += f" 没收下：{', '.join(bad)}（不存在、超过 300MB 或超过 10 个）"
             return {"content": [{"type": "text", "text": msg}]}
