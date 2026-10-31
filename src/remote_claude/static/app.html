@@ -1108,22 +1108,25 @@ async function viewFile(url, name) {
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
   let u = '';
   el.querySelector('.x').onclick = () => history.back();
-  new MutationObserver((_, ob) => { if (!el.isConnected) { if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  new MutationObserver((_, ob) => { if (!el.isConnected) { el.querySelectorAll('audio').forEach(a => { a.pause(); a.removeAttribute('src'); a.load(); }); if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
   try {
     const r = await fetch(url); if (!r.ok) throw new Error(r.status);
     const blob = await r.blob(); if (!el.isConnected) return;
     const ext = (name.split('.').pop() || '').toLowerCase();
-    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg'}[ext] || blob.type);
+    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav'}[ext] || blob.type);
     const file = new File([blob], name, {type});
     u = URL.createObjectURL(file);
     const tip = el.querySelector('.tip');
     if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
+    else if (/^audio\//.test(type)) tip.outerHTML = `<audio controls preload="metadata" src="${u}" style="width:calc(100% - 40px);margin:40px 20px"></audio>`;
     else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
     else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
+    const previewAudio = el.querySelector('audio');
+    if (previewAudio) previewAudio.onplay = () => speechPlayer.pause();
     if (navigator.canShare && navigator.canShare({files: [file]})) {
       const sh = el.querySelector('.sh'); sh.hidden = false;
       sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
-    } else if (!/^image\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
+    } else if (!/^image\/|^audio\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
   } catch (err) { const t = el.querySelector('.tip'); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
 }
 
@@ -1631,7 +1634,7 @@ const speechPlayer = (() => {
     const actions = {play, pause: () => { desired = false; audio.pause(); touch(false); paint(); }, seekbackward: e => seek(audio.currentTime - (e.seekOffset || 15)), seekforward: e => seek(audio.currentTime + (e.seekOffset || 15)), seekto: e => seek(e.seekTime), stop: close};
     for (const [name, handler] of Object.entries(actions)) { try { navigator.mediaSession.setActionHandler(name, handler); } catch (_) {} }
   }
-  return {start, close, deleted: n => { if (num === n) close(); }};
+  return {start, close, pause: () => { desired = false; audio.pause(); touch(false); paint(); }, deleted: n => { if (num === n) close(); }};
 })();
 function copyBtn(b, text) {
   navigator.clipboard.writeText(text).then(() => {

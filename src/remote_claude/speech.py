@@ -12,7 +12,7 @@ from pathlib import Path
 MAX_BYTES = 1024 ** 3
 MAX_AUDIO = 128 * 1024 ** 2
 KEEP = 7 * 86400
-VERSION = 'kokoro-82m-zf_xiaobei-v1'
+VERSION = 'qwen3-tts-06b-8bit-serena-v2'
 PREFIX = 'ANTOU_TTS '
 
 
@@ -31,7 +31,7 @@ def readable_text(text: str) -> str:
     return re.sub(r'\n\s*\n+', '\n', text).strip()
 
 
-def chunks(text: str, size: int = 180) -> list[str]:
+def chunks(text: str, size: int = 80) -> list[str]:
     """第一句先生成；后续按标点合并，控制单次推理长度。"""
     sentences = [s.strip() for s in re.findall(r'[^。！？!?；;\n]+[。！？!?；;\n]*', text) if s.strip()]
     out, buf = [], ''

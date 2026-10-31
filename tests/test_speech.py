@@ -21,7 +21,7 @@ def test_readable_reply_preserves_prose_and_skips_machine_noise():
     assert not readable_text('  \n')
     assert chunks('第一句。第二句！第三句。') == ['第一句。', '第二句！第三句。']
     assert ''.join(chunks('长' * 1000)) == '长' * 1000
-    assert all(len(part) <= 180 for part in chunks('长' * 1000))
+    assert all(len(part) <= 80 for part in chunks('长' * 1000))
 
 
 def cached(s, name, *, num=1, ago=0, state='ready', size=10, protected=0):
@@ -189,3 +189,30 @@ def test_worker_completion_extends_lock_screen_protection_and_failure_is_retryab
         assert r['key']==failed and s.status(failed)['state']=='ready'
         await s.close()
     asyncio.run(go())
+
+
+def test_kokoro_phoneme_budget_preserves_every_character():
+    from remote_claude.speech_worker import kokoro_parts
+    text = '这是长段落，必须完整念完。' * 50
+    parts = kokoro_parts(text, lambda s: s * 6)
+    assert ''.join(parts) == text
+    assert all(len(p) * 6 <= 480 for p in parts)
+    assert all(p for p in parts)
+    # 极端异常必须报错，不能静默截掉内容。
+    try:
+        kokoro_parts('单', lambda s: 'x' * 600)
+        assert False
+    except ValueError:
+        pass
+
+
+def test_default_voice_uses_chinese_serena_streaming():
+    from remote_claude.speech_worker import MODEL, generate_parts
+    calls = []
+    class Model:
+        def generate_custom_voice(self, **kw):
+            calls.append(kw)
+            yield 'audio'
+    assert 'Qwen3-TTS' in MODEL
+    assert list(generate_parts(Model(), ['第一句。', '第二句。'])) == ['audio', 'audio']
+    assert all(c['speaker'] == 'Serena' and c['language'] == 'Chinese' and c['stream'] for c in calls)
