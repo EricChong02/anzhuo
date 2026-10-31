@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import mimetypes
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -691,7 +692,7 @@ NOISE = re.compile(r"^\s*(No response requested\.?)?\s*$", re.I)   # 空结果�
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 # 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
 GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")
-LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+)\)")
+LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+|[A-Za-z]:[\\/][^)\s]+)\)")
 
 
 def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
@@ -894,7 +895,7 @@ _MONTHS = {m: i for i, m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct N
 
 def _cli_path() -> Path:
     import claude_agent_sdk
-    return Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    return Path(claude_agent_sdk.__file__).parent / "_bundled" / ("claude.exe" if os.name == "nt" else "claude")
 
 
 def _reset_cn(text: str) -> str | None:

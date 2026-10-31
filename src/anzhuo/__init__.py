@@ -16,12 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import CONFIG_PATH, DATA_DIR, WEB_KEYCHAIN, load_config, read_secret, read_web_hash
+from .config import CONFIG_PATH, DATA_DIR, load_config, read_secret, read_web_hash
 
 
 def _claude_logged_in() -> str:
     import claude_agent_sdk
-    cli = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    cli = Path(claude_agent_sdk.__file__).parent / "_bundled" / ("claude.exe" if sys.platform.startswith("win") else "claude")
     r = subprocess.run([str(cli), "auth", "status"], capture_output=True, text=True, timeout=30)
     try:
         j = json.loads(r.stdout)
@@ -50,7 +50,7 @@ def check() -> int:
             print(f"网页：{cfg.web_base}（还没设登录账号密码：运行 anzhuo passwd）")
         elif not read_web_hash(cfg.web_user):
             ok = False
-            print(f"网页：{cfg.web_base}（账号 {cfg.web_user} 在钥匙串里没有密码：运行 anzhuo passwd）")
+            print(f"网页：{cfg.web_base}（账号 {cfg.web_user} 的密码指纹没存：运行 anzhuo passwd）")
         else:
             print(f"网页：{cfg.web_base}，登录账号 {cfg.web_user}")
     else:
@@ -77,7 +77,7 @@ def check() -> int:
 
 
 def passwd() -> int:
-    """设置网页登录的账号密码：密码只把 PBKDF2 指纹存进钥匙串，账号写进配置的 web_user。"""
+    """设置网页登录的账号密码：密码只把 PBKDF2 指纹存进钥匙串（非 macOS 存 web_hash.json），账号写进配置的 web_user。"""
     from .web import hash_password
     if sys.stdin.isatty():
         user = input("网页登录账号：").strip()
@@ -90,14 +90,14 @@ def passwd() -> int:
     if not user or not pw:
         print("账号和密码都不能空。")
         return 1
-    subprocess.run(["security", "add-generic-password", "-U", "-s", WEB_KEYCHAIN, "-a", user, "-w", hash_password(pw)],
-                   check=True)
+    from .config import write_web_hash
+    write_web_hash(user, hash_password(pw))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     lines = [ln for ln in (CONFIG_PATH.read_text().splitlines() if CONFIG_PATH.exists() else []) if not ln.startswith("web_user")]
     first_table = next((k for k, ln in enumerate(lines) if ln.startswith("[")), len(lines))
-    lines.insert(first_table, f'web_user = "{user}"  # 网页登录账号；密码指纹在钥匙串 {WEB_KEYCHAIN}')
+    lines.insert(first_table, f'web_user = "{user}"  # 网页登录账号；密码指纹在{"钥匙串" if sys.platform == "darwin" else "web_hash.json"}')
     CONFIG_PATH.write_text("\n".join(lines) + "\n")
-    print("已设置：账号写进配置，密码指纹存进钥匙串。案头重启后生效。")
+    print("已设置：账号写进配置，密码指纹存好。案头重启后生效。")
     return 0
 
 
