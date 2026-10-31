@@ -124,23 +124,44 @@ h2.t{font-size:31px;margin-top:22px}
 .anywhere p{font-size:12px;line-height:1.75;color:#B9C2D8;margin-top:10px;max-width:380px}
 .devs{display:flex;flex-direction:column;gap:7px;align-items:flex-end}
 .devs span{font-size:11.5px;padding:5px 13px;border-radius:99px;border:1px solid rgba(255,255,255,.28);color:#DCE4F5;background:rgba(255,255,255,.06)}
+.cond{margin-top:20px;border-radius:18px;padding:18px 22px 20px;color:var(--cream);background:radial-gradient(120% 160% at 100% 0%,#2b4a8a 0%,#14224a 55%,#0F1A31 100%)}
+.cond .ch{display:flex;align-items:baseline;gap:16px;margin-bottom:12px}
+.cond .ch b{font-size:20px}
+.c3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.c3 div{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 13px}
+.c3 i{font-style:normal;color:#F3C06B;font-size:15px;display:block;margin-bottom:4px}
+.c3 b{display:block;font-size:13.5px}
+.c3 p{margin-top:5px;font-size:11.2px;line-height:1.65;color:#B9C2D8}
+.devs3{display:flex;justify-content:space-between;align-items:flex-end;margin-top:22px;padding:0 6px}
+.d3{display:flex;flex-direction:column;align-items:flex-start}
+.d3 .dev{height:300px;display:flex;align-items:flex-end}
+.d3 .cap{position:static;width:auto;margin-top:12px;font-size:11px;max-width:var(--cw,170px)}
+.d3:nth-child(1) .cap,.d3:nth-child(3) .cap{max-width:150px}.d3:nth-child(2) .cap{max-width:300px}
+.crop{height:150px!important}
+h2.t{font-size:29px!important;margin-top:16px!important}
+.cmp{margin-top:18px!important;padding:14px 22px!important}
+.row+.row{margin-top:12px!important;padding-top:12px!important}
+.vals{margin-top:14px!important}.val{padding:13px 15px!important}.val b{font-size:17px!important}.val p{margin-top:5px!important;font-size:11.5px!important;line-height:1.6!important}.val .n{margin-bottom:5px!important}
+.feats{margin-top:14px!important;gap:8px!important}.feat{padding:9px 11px 9px!important}
+.cond{margin-top:14px!important;padding:14px 20px 16px!important}
 </style></head><body>
 
 <!-- ============ 第 1 页：封面 ============ -->
 <section class="page">
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">开源 · MIT</div></div>
   <h1 class="hero serif">人不在电脑前，<br><em>AI 照样干活。</em></h1>
-  <p class="lede"><b>在任何地方、用任何设备，只要有浏览器</b>，就能可视化地远程指挥家里电脑里的 <b>Claude Code</b> 与 <b>Codex</b>：派活、看进度、点一下批准、收文件。数据留在你自己的电脑上。</p>
+  <p class="lede"><b>家里的 Mac 连着 Claude / GPT 干活，你在任何设备上打开浏览器，就能可视化地指挥它。</b>手机、iPad、任意一台电脑都行——这些设备不需要代理，也不用装任何软件。数据留在你自己的电脑上。</p>
   <div class="hero-phones">
-    <div class="phone" style="--w:226px;left:30px;top:78px;transform:rotate(-5deg);z-index:1"><img src="../../images/m-list.png"></div>
-    <div class="phone" style="--w:276px;left:203px;top:0;z-index:3"><img src="../../images/m-decision.png"></div>
-    <div class="phone" style="--w:226px;left:426px;top:90px;transform:rotate(5deg);z-index:2"><img src="../../images/m-running.png"></div>
+    <div class="win" style="position:absolute;left:0;top:30px;width:430px;z-index:1"><div class="bar"><i></i><i></i><i></i></div><img src="../../images/desk-decision.png"></div>
+    <div class="ipad" style="--w:322px;position:absolute;left:250px;top:238px;z-index:2"><img src="../../images/ipad-running.png"></div>
+    <div class="phone" style="--w:158px;position:absolute;left:512px;top:60px;z-index:3"><img src="../../images/m-decision.png"></div>
+    <div style="position:absolute;left:0;top:486px;font-size:12px;color:var(--mute);letter-spacing:.08em">电脑浏览器 · iPad · iPhone —— 同一个网址，同一套界面</div>
   </div>
   <div class="facts">
     <div class="fact"><b>0</b><span>个对外开放的端口<br>电脑主动连出去</span></div>
-    <div class="fact"><b>任意</b><span>设备、任意地点<br>手机、平板、电脑，有浏览器就行</span></div>
+    <div class="fact"><b>任意</b><span>设备、任意地点<br>手机 · iPad · 任意电脑</span></div>
+    <div class="fact"><b>无需</b><span>代理，不装软件<br>访问设备打开网址即可</span></div>
     <div class="fact"><b>2</b><span>个引擎同一套界面<br>Claude · GPT（Codex）</span></div>
-    <div class="fact"><b>2</b><span>个入口<br>网页（默认）· 钉钉（可选）</span></div>
   </div>
   <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>01 / 04</span></div>
 </section>
@@ -148,9 +169,9 @@ h2.t{font-size:31px;margin-top:22px}
 <!-- ============ 第 2 页：价值 ============ -->
 <section class="page">
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">价值与功能</div></div>
-  <div class="eyebrow" style="margin-top:52px">WHY</div>
+  <div class="eyebrow" style="margin-top:30px">WHY</div>
   <h2 class="t serif">AI 干活很快，<br>卡住它的常常只是一句话。</h2>
-  <p class="sub">一个任务十几分钟，它却可能在第 7 分钟停在“选 A 还是 B？”。人一离开电脑，它就一直等。</p>
+  
   <div class="cmp">
     <div class="row n"><div class="lab no">没有案头</div><div class="tl">
       <div class="st"><b>10:02</b>派活，然后出门</div>
@@ -158,8 +179,8 @@ h2.t{font-size:31px;margin-top:22px}
       <div class="st gap"><b>……</b>干等 7 个多小时</div>
       <div class="st"><b>17:40</b>回到电脑才继续</div></div></div>
     <div class="row y"><div class="lab yes">有案头</div><div class="tl">
-      <div class="st"><b>10:02</b>手机上说一句话</div>
-      <div class="st hot"><b>10:09</b>手机弹出通知“等你定”</div>
+      <div class="st"><b>10:02</b>任何设备上说一句话</div>
+      <div class="st hot"><b>10:09</b>弹出通知“等你定”</div>
       <div class="st"><b>10:10</b>点一下 A</div>
       <div class="st"><b>10:24</b>做完，截图和文件到手</div></div></div>
   </div>
@@ -174,7 +195,7 @@ h2.t{font-size:31px;margin-top:22px}
     <div class="feat"><b><em>03</em>随时插话与停下</b><span>它做的时候你再说话，做完手上这一步就会看到</span></div>
     <div class="feat"><b><em>04</em>“要你定”变按钮</b><span>A / B / C 加推荐，点一下就交回对话</span></div>
     <div class="feat"><b><em>05</em>危险命令先问你</b><span>删文件、git push 等先弹出，点“允许”才继续</span></div>
-    <div class="feat"><b><em>06</em>手机通知</b><span>做完、等你定、出错时弹出；你正看着就不打扰</span></div>
+    <div class="feat"><b><em>06</em>通知提醒</b><span>做完、等你定、出错时弹出；你正看着就不打扰</span></div>
     <div class="feat"><b><em>07</em>文件图片双向传</b><span>你发图发文件，它交截图、PDF，最大 300MB</span></div>
     <div class="feat"><b><em>08</em>回退 · 分叉 · 复制</b><span>回到某句话之前重来，可连文件一起退回</span></div>
     <div class="feat"><b><em>09</em>定时任务</b><span>“每周五下午 3 点汇总周报”，直接说就行</span></div>
@@ -182,8 +203,14 @@ h2.t{font-size:31px;margin-top:22px}
     <div class="feat"><b><em>11</em>Claude + GPT</b><span>Claude Agent SDK 与 Codex，同一套界面</span></div>
     <div class="feat"><b><em>12</em>网页 + 钉钉</b><span>网页开箱即用；钉钉机器人按需接入</span></div>
   </div>
-  <div class="anywhere"><div><div class="eyebrow" style="color:#8FA2CC;margin-bottom:10px">ANYWHERE · ANY DEVICE</div><b class="serif">只要有浏览器，<br>随时随地看见并指挥家里的电脑。</b><p>打开网址、登录，就能看到电脑上正在做的一切，并直接动手。通路由你自备，见最后一页。</p></div>
-    <div class="devs"><span>iPhone</span><span>iPad</span><span>安卓手机</span><span>笔记本</span><span>别人的电脑</span></div></div>
+  <div class="cond">
+    <div class="ch"><span class="eyebrow" style="color:#8FA2CC">THREE CONDITIONS</span><b class="serif">三个条件，之后随处可用。</b></div>
+    <div class="c3">
+      <div><i>①</i><b>家里一台 Mac</b><p>连得上 Claude / GPT。需要代理的话，只配在它身上。</p></div>
+      <div><i>②</i><b>一台自己的服务器</b><p>做中转。案头不提供，作者的服务器也不对外开放。</p></div>
+      <div><i>③</i><b>任何设备 + 浏览器</b><p>手机、iPad、任意电脑，打开网址登录；不用代理、不装软件。</p></div>
+    </div>
+  </div>
   <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>02 / 04</span></div>
 </section>
 
@@ -191,19 +218,19 @@ h2.t{font-size:31px;margin-top:22px}
 <section class="page">
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="pg">用法与页面</div></div>
   <div class="eyebrow" style="margin-top:52px">HOW</div>
-  <h2 class="t serif">三步用起来，<br>之后全在手机上。</h2>
+  <h2 class="t serif">三步用起来，<br>之后随处可用。</h2>
   <div class="steps3">
-    <div><div class="no">1</div><b>在电脑上装好</b><p>需要 Mac、uv 和一个 Claude 账号。几条命令，十分钟，命令见最后一页。</p></div>
-    <div><div class="no">2</div><b>手机上说一句话</b><p>选工作文件夹（上次用的默认选中），写要做的事。它在你的电脑上开工，进度实时可见。</p></div>
+    <div><div class="no">1</div><b>在电脑上装好</b><p>家里的 Mac 装案头（需要 uv 和 Claude 账号），再准备一台自己的服务器做中转。命令见最后一页。</p></div>
+    <div><div class="no">2</div><b>在任何设备上说一句话</b><p>选工作文件夹（上次用的默认选中），写要做的事。它在你的电脑上开工，进度实时可见。</p></div>
     <div><div class="no">3</div><b>需要你时点一下</b><p>选方案、批准危险命令、收文件，都是按钮。做完弹通知，没事就不打扰。</p></div>
   </div>
-  <div class="phones3">
-    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-new.png"></div><div class="cap"><b>派活</b>选文件夹：最近用过的、常用短名、临时文件夹，或手输路径。</div></div>
-    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-running.png"></div><div class="cap"><b>看进度</b>一步一格的进度条，随时插话或停止，点开看完整过程。</div></div>
-    <div class="col3"><div class="phone" style="--w:168px"><img src="../../images/m-decision.png"></div><div class="cap"><b>点一下</b>它列出方案和推荐，选项变成按钮，点了就接着做。</div></div>
+  <div class="devs3">
+    <div class="d3"><div class="dev"><div class="phone" style="--w:132px"><img src="../../images/m-new.png"></div></div><div class="cap"><b>派活 · iPhone</b>选文件夹：最近用过的、常用短名、临时文件夹，或手输路径。</div></div>
+    <div class="d3"><div class="dev"><div class="ipad" style="--w:300px"><img src="../../images/ipad-running.png"></div></div><div class="cap"><b>看进度 · iPad</b>一步一格的进度条，随时插话或停止，点开看完整过程。</div></div>
+    <div class="d3"><div class="dev"><div class="phone" style="--w:132px"><img src="../../images/m-decision.png"></div></div><div class="cap"><b>点一下 · iPhone</b>方案变成按钮，点了就接着做。</div></div>
   </div>
   <div class="crop"><div class="bar"><i></i><i></i><i></i></div><img src="../../images/desk-decision.png"></div>
-  <div class="cap-w"><b>电脑端</b>左边按“需要你 / 在做 / 新完成”分组，右边是对话；同一套界面，手机电脑通用。</div>
+  <div class="cap-w"><b>电脑浏览器</b>左边按“需要你 / 在做 / 新完成”分组，右边是对话；和 iPad、手机是同一套界面。</div>
   <div class="foot"><span>github.com/EricChong02/anzhuo</span><span>03 / 04</span></div>
 </section>
 
@@ -214,13 +241,13 @@ h2.t{font-size:31px;margin-top:22px}
   <h2 class="t serif">电脑不对外开放任何端口，<br>所有数据留在本机。</h2>
   <div class="arch">
     <div class="flow">
-      <div class="node"><small>你</small><b>手机 / 平板 / 浏览器</b><p>可加到主屏幕当 App<br>可选：钉钉</p></div>
+      <div class="node"><small>你的任何设备</small><b>手机 · iPad · 任意电脑</b><p>只要浏览器<br>不需要代理，不装软件</p></div>
       <div class="arrow">→<span>HTTPS</span></div>
-      <div class="node"><small>你自备的通路</small><b>Tailscale · Cloudflare · 自己的服务器 + SSH 隧道</b><p>只转发，不存任何数据</p></div>
+      <div class="node"><small>你自备的服务器</small><b>nginx · HTTPS<br>SSH 反向隧道</b><p>只转发，不存任何数据</p></div>
       <div class="arrow">→<span>只到<br>本机</span></div>
-      <div class="node core"><small>你的电脑 · 案头</small><b>Python 单进程<br>aiohttp + 原生 HTML</b><p>登录、对话、通知、危险命令确认都在这里</p></div>
+      <div class="node core"><small>家里的 Mac · 案头</small><b>Python 单进程<br>aiohttp + 原生 HTML</b><p>登录、对话、通知、危险命令确认都在这里</p></div>
       <div class="arrow">→<span>SDK</span></div>
-      <div class="node"><small>干活的</small><b>Claude Code<br>Codex（GPT）</b><p>官方 SDK 与 CLI</p></div>
+      <div class="node"><small>干活的</small><b>Claude Code<br>Codex（GPT）</b><p>只有这台 Mac 需要连得上 Claude / GPT</p></div>
     </div>
     <div class="store">
       <div><b>对话内容</b> 存在 Claude / Codex 自己的目录，桌面端、命令行、手机能接着聊同一个对话</div>
@@ -228,7 +255,7 @@ h2.t{font-size:31px;margin-top:22px}
       <div><b>案头自己的记录</b> 对话编号表、每轮过程、收发的文件，都在本机数据目录</div>
     </div>
   </div>
-  <div class="own"><b>要自备一条通路。</b>案头不提供任何中转服务，作者自己的服务器也不对外开放使用。想在外面用，请准备你自己的：一台服务器（仓库里有现成的一键脚本），或不需要服务器的 Tailscale / Cloudflare Tunnel。</div>
+  <div class="own"><b>要自备一台服务器。</b>案头不提供中转服务，作者自己的服务器也不对外开放。你的访问设备不需要代理、不装软件，只要家里那台 Mac 连得上 Claude / GPT。（不想买服务器也可用 Tailscale / Cloudflare，各有取舍，见文档。）</div>
   <div class="sec">
     <div><i>DOOR 01</i><b>登录是第一道门</b><p>PBKDF2 密码指纹；同一来源错 5 次锁 15 分钟；写接口校验同源；设备可逐台退出。</p></div>
     <div><i>DOOR 02</i><b>危险命令先问你</b><p>git push、rm、sudo 等先停下，等你点“允许”；可选 AI 审核员，默认关。它是安全带，不是沙箱。</p></div>

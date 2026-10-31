@@ -5,41 +5,38 @@ body{background:#888}
 .card{margin:0 0 20px}
 /* 卡 1 */
 .c1 h1{font-size:50px;line-height:1.2;margin-top:48px}
-.c1 .lead{margin-top:20px;max-width:430px;font-size:15.5px}
-.c1 .p1{position:absolute;left:150px;top:452px;z-index:3}
-.c1 .p2{position:absolute;left:36px;top:540px;z-index:1;transform:rotate(-6deg)}
-.c1 .p3{position:absolute;left:330px;top:556px;z-index:2;transform:rotate(6deg)}
-.c1 .glow{left:120px;top:480px;width:300px;height:300px;background:#4a78d6;opacity:.45}
-.c1 .fade{position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(transparent,rgba(13,23,48,.9));z-index:5}
-.c1 .chips{margin-top:18px;display:flex;gap:7px;flex-wrap:wrap;position:relative;z-index:6}
+.c1 .lead{margin-top:18px;max-width:450px;font-size:15px;line-height:1.8}
+.c1 .glow{left:100px;top:470px;width:340px;height:300px;background:#4a78d6;opacity:.4}
+.c1 .chips{margin-top:16px;display:flex;gap:7px;flex-wrap:wrap;position:relative;z-index:6}
 .c1 .chips span{font-size:12.5px;padding:5px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#E6ECF8}
+.c1 .dv{position:absolute}
 /* 卡 2 */
 .c2 h2{font-size:34px;line-height:1.3;margin-top:42px}
 .c2 .lead{font-size:14.5px;margin-top:12px}
-.panel{margin-top:20px;border-radius:18px;padding:16px 20px 14px;border:1px solid var(--line);background:var(--paper)}
+.panel{margin-top:16px;border-radius:18px;padding:16px 20px 14px;border:1px solid var(--line);background:var(--paper)}
 .panel.yes{background:linear-gradient(160deg,#243f73,#14244a);border-color:transparent;color:var(--cream)}
 .panel h3{font-size:13px;letter-spacing:.14em;font-weight:700;margin-bottom:10px}
 .panel.no h3{color:var(--faint)}.panel.yes h3{color:#9DB8F0}
-.ev{display:flex;gap:14px;padding:6px 0;font-size:14px;line-height:1.5;align-items:baseline}
+.ev{display:flex;gap:14px;padding:4px 0;font-size:14px;line-height:1.5;align-items:baseline}
 .ev time{width:46px;flex:none;font-weight:700;font-variant-numeric:tabular-nums;font-size:13px}
 .panel.no .ev{color:#6A6E75}.panel.no .ev time{color:#9A9DA3}
 .ev.hot time,.ev.hot span{color:var(--amber);font-weight:700}
 .panel.yes .ev.hot time,.panel.yes .ev.hot span{color:#F3C06B}
 .ev.gap span{color:#a9aaae}
-.c2 .big{margin-top:22px;font-size:25px;line-height:1.45}
+.c2 .big{margin-top:18px;font-size:25px;line-height:1.45}
 .c2 .big em{font-style:normal;color:var(--blue)}
-.devline{margin-top:14px;font-size:13px;color:var(--mute);letter-spacing:.04em}
+.devline{margin-top:10px;font-size:13px;color:var(--mute);letter-spacing:.04em}
 /* 卡 3 */
 .c3 h2{font-size:34px;line-height:1.3;margin-top:42px}
-.c3 .lead{font-size:14.5px;margin-top:12px}
-.trip{display:flex;justify-content:space-between;margin-top:26px}
-.col{width:148px}
-.col .n{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;font-weight:700}
-.col .n i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:12px}
-.col p{margin-top:14px;font-size:12px;line-height:1.7;color:var(--mute)}
-.c3 .bar2{position:absolute;left:38px;right:38px;bottom:56px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.c3 .bar2 div{border:1px solid var(--line);background:var(--paper);border-radius:14px;padding:12px 14px;font-size:12.5px;line-height:1.65;color:var(--mute)}
-.c3 .bar2 b{display:block;color:var(--ink);font-size:13.5px;margin-bottom:3px}
+.c3 .lead{font-size:14.5px;margin-top:10px}
+.devrow{display:flex;justify-content:space-between;align-items:flex-end;margin-top:26px;height:240px;padding:0 14px}
+.steps3c{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}
+.steps3c .n{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700}
+.steps3c .n i{font-style:normal;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:12px}
+.steps3c p{margin-top:7px;font-size:12px;line-height:1.7;color:var(--mute)}
+.c3 .bar2{position:absolute;left:38px;right:38px;bottom:50px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.c3 .bar2 div{border:1px solid var(--line);background:var(--paper);border-radius:14px;padding:11px 14px;font-size:12px;line-height:1.65;color:var(--mute)}
+.c3 .bar2 b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}
 /* 卡 4 */
 .c4 h2{font-size:33px;line-height:1.3;margin-top:36px}
 .flow4{margin-top:20px;display:flex;flex-direction:column;gap:0}
@@ -62,12 +59,11 @@ body{background:#888}
   <div class="glow"></div>
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="tag">开源 · MIT</div></div>
   <h1>人不在电脑前，<br><span class="acc">AI 照样干活。</span></h1>
-  <p class="lead">在任何地方、用任何设备，只要有浏览器，就能可视化地指挥家里电脑里的 Claude Code / Codex。</p>
-  <div class="chips"><span>派活</span><span>看进度</span><span>点一下批准</span><span>收文件</span><span>手机通知</span></div>
-  <div class="phone p2" style="--w:190px"><img src="../../images/m-list.png"></div>
-  <div class="phone p3" style="--w:190px"><img src="../../images/m-running.png"></div>
-  <div class="phone p1" style="--w:240px"><img src="../../images/m-decision.png"></div>
-  <div class="fade"></div>
+  <p class="lead">家里的 Mac 连着 Claude / GPT 干活，你在任何设备上打开浏览器，就能可视化地指挥它。</p>
+  <div class="chips"><span>手机</span><span>iPad</span><span>任意电脑</span><span>不需要代理</span><span>不装软件</span></div>
+  <div class="win dv" style="left:26px;top:408px;width:336px;z-index:1"><div class="bar"><i></i><i></i><i></i></div><img src="../../images/desk-decision.png"></div>
+  <div class="ipad dv" style="--w:300px;left:160px;top:540px;z-index:2"><img src="../../images/ipad-running.png"></div>
+  <div class="phone dv" style="--w:132px;left:386px;top:432px;z-index:3"><img src="../../images/m-decision.png"></div>
 </section>
 
 <section class="card light c2" id="c2">
@@ -80,36 +76,41 @@ body{background:#888}
     <div class="ev gap"><time>……</time><span>干等 7 个多小时</span></div>
     <div class="ev"><time>17:40</time><span>回到电脑才继续</span></div></div>
   <div class="panel yes"><h3>有案头</h3>
-    <div class="ev"><time>10:02</time><span>手机上说一句话</span></div>
-    <div class="ev hot"><time>10:09</time><span>手机弹出通知“等你定”</span></div>
+    <div class="ev"><time>10:02</time><span>在任何设备上说一句话</span></div>
+    <div class="ev hot"><time>10:09</time><span>弹出通知“等你定”</span></div>
     <div class="ev"><time>10:10</time><span>点一下 A，它接着做</span></div>
     <div class="ev"><time>10:24</time><span>做完，截图和文件到手</span></div></div>
   <div class="big serif">不再被桌面绑住，<br>AI 的时间<em>不再浪费在等你</em>。</div>
-  <div class="devline">手机 · 平板 · 笔记本 · 别人的电脑，只要有浏览器就行。</div>
+  <div class="devline">手机 · iPad · 任意电脑，打开浏览器就行；<br>不需要代理，也不用装任何软件。</div>
 </section>
 
 <section class="card light c3" id="c3">
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="tag" style="color:var(--faint)">HOW</div></div>
-  <h2>三步，<br>全在手机上完成。</h2>
-  <p class="lead">选文件夹、说一句话，剩下的它自己做。</p>
-  <div class="trip">
-    <div class="col"><div class="n"><i>1</i>派活</div><div class="phone" style="--w:148px"><img src="../../images/m-new.png"></div><p>最近用过的文件夹、常用短名、临时文件夹，或手输路径。</p></div>
-    <div class="col"><div class="n"><i>2</i>看进度</div><div class="phone" style="--w:148px"><img src="../../images/m-running.png"></div><p>一步一格的进度条，随时插话或停止。</p></div>
-    <div class="col"><div class="n"><i>3</i>点一下</div><div class="phone" style="--w:148px"><img src="../../images/m-decision.png"></div><p>方案变按钮，危险命令先问你，点了就继续。</p></div>
+  <h2>三步，<br>在任何设备上完成。</h2>
+  <p class="lead">家里的 Mac 干活，你随处指挥。</p>
+  <div class="devrow">
+    <div class="phone" style="--w:104px"><img src="../../images/m-new.png"></div>
+    <div class="ipad" style="--w:216px"><img src="../../images/ipad-running.png"></div>
+    <div class="phone" style="--w:104px"><img src="../../images/m-decision.png"></div>
   </div>
-  <div class="bar2"><div><b>做完弹手机通知</b>截图、PDF、表格直接发到你手里；你正看着就不打扰。</div><div><b>回退 · 分叉 · 定时任务</b>回到某句话之前重来；“每周五 3 点汇总周报”直接说。</div></div>
+  <div class="steps3c">
+    <div><div class="n"><i>1</i>派活</div><p>选文件夹，写一句话。最近用过的默认选中。</p></div>
+    <div><div class="n"><i>2</i>看进度</div><p>一步一格的进度条，随时插话或停止。</p></div>
+    <div><div class="n"><i>3</i>点一下</div><p>方案变按钮，危险命令先问你。</p></div>
+  </div>
+  <div class="bar2"><div><b>做完弹通知</b>截图、PDF、表格直接发到你手里；你正看着就不打扰。</div><div><b>回退 · 分叉 · 定时任务</b>回到某句话之前重来；“每周五 3 点汇总周报”直接说。</div></div>
 </section>
 
 <section class="card dark c4" id="c4">
   <div class="top"><div class="brand"><img src="logo.png">案头<small>ANZHUO</small></div><div class="tag">UNDER THE HOOD</div></div>
   <h2>电脑不开放任何端口，<br><span class="acc">数据都留在本机。</span></h2>
   <div class="flow4">
-    <div class="nd"><div><small>你</small>手机 · 平板 · 任何带浏览器的设备</div><em>HTTPS</em></div><div class="ar">↓</div>
-    <div class="nd"><div><small>你自备的通路</small>Tailscale · Cloudflare · 自己的服务器</div><em>只转发</em></div><div class="ar">↓</div>
-    <div class="nd core"><div><small>你的电脑 · 案头</small>登录 · 对话 · 通知 · 危险命令确认</div><em>127.0.0.1</em></div><div class="ar">↓</div>
-    <div class="nd"><div><small>干活的</small>Claude Code · Codex（GPT）</div><em>官方 SDK</em></div>
+    <div class="nd"><div><small>你的任何设备 · 不需要代理，不装软件</small>手机 · iPad · 任意电脑，打开浏览器</div><em>HTTPS</em></div><div class="ar">↓</div>
+    <div class="nd"><div><small>你自备的服务器</small>nginx · HTTPS · SSH 反向隧道</div><em>只转发</em></div><div class="ar">↓</div>
+    <div class="nd core"><div><small>家里的 Mac · 案头</small>登录 · 对话 · 通知 · 危险命令确认</div><em>仅本机</em></div><div class="ar">↓</div>
+    <div class="nd"><div><small>干活的 · 只有这台 Mac 需要连得上 AI</small>Claude Code · Codex（GPT）</div><em>官方 SDK</em></div>
   </div>
-  <div class="own4"><b>要自备一条通路。</b>案头不提供中转服务器，作者的服务器也不对外开放；想在外面用，请用你自己的服务器，或免服务器的 Tailscale / Cloudflare。</div>
+  <div class="own4"><b>要自备一台服务器。</b>案头不提供中转服务，作者的服务器也不对外开放；不想买服务器也可用 Tailscale / Cloudflare，各有取舍，见文档。</div>
   <div class="sec4"><div><b>登录是第一道门</b>密码指纹存钥匙串，错 5 次锁 15 分钟</div><div><b>危险命令先问你</b>点“允许”才继续（安全带，非沙箱）</div><div><b>不预先授权</b>提交、推送、部署都会问你</div></div>
   <div class="code4"><span class="c"># 先不连 AI，看一眼界面</span>
 uv sync &amp;&amp; .venv/bin/python scripts/demo.py</div>
