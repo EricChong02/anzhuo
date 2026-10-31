@@ -577,9 +577,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not r or not 0 <= i < len(r.get("files", [])) or not Path(r["files"][i]).is_file():
             raise web.HTTPNotFound()
         name = Path(r["files"][i]).name
+        inline = Path(name).suffix.lower() == ".pdf" and request.query.get("download") != "1"
         return web.FileResponse(r["files"][i], headers={
             "Cache-Control": "private, max-age=3600",
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+            **({"Content-Type": "application/pdf"} if inline else {}),
+            "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}"})
 
     # ---------- PDF 在手机上看：转成一页页图片（iPhone 的网页里直接放 PDF 只显示第一页、还缩不全） ----------
     def _pdf_dir(self, request: web.Request) -> tuple[Path, Path]:

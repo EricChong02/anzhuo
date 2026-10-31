@@ -327,7 +327,13 @@ def test_files_delivered_and_uploaded(tmp_path):
             await c.post("/_x/login", data={"username": "u", "password": "p"})
             r = await c.get(f"/_x/t/{tid}/file/0")
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
-            assert "attachment" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
+            assert "inline" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
+            assert r.headers["Content-Type"] == "application/pdf"
+            r = await c.get(f"/dl/{tid}/0?download=1")
+            assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
+            assert "attachment" in r.headers["Content-Disposition"]
+            r = await c.get(f"/dl/{tid}/0", headers={"Range": "bytes=0-3"})
+            assert r.status == 206 and await r.read() == b"%PDF"
             assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
             r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的案头能返回）
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"

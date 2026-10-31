@@ -159,6 +159,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .note{align-self:center;font-size:var(--t2);color:var(--mute)}
 .imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
+.file-row{display:flex;align-items:center;gap:12px;max-width:520px}.file-row .file{flex:1;min-width:0}.file-download{flex:none;font-size:var(--t2);padding:12px 4px;margin-top:8px}
 .file:hover{border-color:var(--acc)} .file .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .file .fs{color:var(--mute);font-size:var(--t2);flex:none}
 .file svg{color:var(--acc)}
 .chipf{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 10px;border-radius:var(--r1);background:var(--bg);border:1px solid var(--line);font-size:var(--t2);max-width:220px;position:relative}
@@ -1083,6 +1084,8 @@ const standalone = matchMedia('(display-mode: standalone)').matches || navigator
 document.addEventListener('click', e => {
   const a = e.target.closest && e.target.closest('a.file');
   if (!a || !standalone) return;
+  // 原始 PDF 在独立浏览页打开，交给浏览器的完整 PDF 阅读器。
+  if (/\.pdf$/i.test((a.querySelector('.fn') || a).textContent.trim())) return;
   e.preventDefault(); viewFile(a.href, (a.querySelector('.fn') || a).textContent.trim());
 });
 async function viewFile(url, name) {
@@ -1100,20 +1103,7 @@ async function viewFile(url, name) {
     const file = new File([blob], name, {type});
     u = URL.createObjectURL(file);
     const tip = el.querySelector('.tip');
-    const pdf = type === 'application/pdf' && /^\/dl\//.test(new URL(url, location.href).pathname);
     if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
-    else if (pdf) {
-      // PDF：Mac 那边转成一页页图片，竖着往下滑；点一页放大看（能左右翻页、双指放大）
-      tip.textContent = '正在把 PDF 转成图片…';
-      const d = await (await fetch(new URL(url, location.href).pathname + '/pages')).json().catch(() => ({pages: []}));
-      if (!el.isConnected) return;
-      if (d.pages && d.pages.length) {
-        const box = document.createElement('div'); box.className = 'pages';
-        box.innerHTML = d.pages.map((p, k) => `<img src="${esc(p)}" loading="${k < 2 ? 'eager' : 'lazy'}" data-k="${k}"><div class="pn">${k + 1} / ${d.pages.length}</div>`).join('');
-        box.onclick = e => { const im = e.target.closest('img'); if (im) viewImage(d.pages, +im.dataset.k); };
-        el.querySelector('.tip').replaceWith(box);
-      } else el.querySelector('.tip').outerHTML = `<iframe src="${u}"></iframe>`;
-    }
     else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
     else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
     if (navigator.canShare && navigator.canShare({files: [file]})) {
@@ -1294,7 +1284,7 @@ function renderThread(d) {
       ...(it.previews || []).map(([n, u]) => previewPill(n, u, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>${/\.pdf$/i.test(f.name) ? `<a class="file-download" href="${esc(f.url)}?download=1" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a>` : ''}</div>`).join('');
     const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
