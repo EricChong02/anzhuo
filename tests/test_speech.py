@@ -215,7 +215,7 @@ def test_default_voice_uses_chinese_vivian_streaming():
             yield 'audio'
     assert 'Qwen3-TTS' in MODEL
     assert list(generate_parts(Model(), ['第一句。', '第二句。'])) == ['audio', 'audio']
-    assert all(c['speaker'] == 'Vivian' and c['language'] == 'Chinese' and c['stream'] for c in calls)
+    assert all(c['speaker'] == 'Uncle_Fu' and c['language'] == 'Chinese' and c['stream'] for c in calls)
 
 
 def test_releasing_player_cancels_only_unused_generation_and_unblocks_queue(tmp_path, monkeypatch):

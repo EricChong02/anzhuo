@@ -13,7 +13,7 @@ fi
 "$ROOT/.venv-tts/bin/python" - <<'PY'
 from mlx_audio.tts.utils import load_model
 model = load_model('mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit')
-for result in model.generate_custom_voice(text='你好，案头的普通话朗读已准备好。', speaker='Vivian', language='Chinese', stream=True, streaming_interval=.32):
+for result in model.generate_custom_voice(text='你好，案头的普通话朗读已准备好。', speaker='Uncle_Fu', language='Chinese', stream=True, streaming_interval=.32):
     pass
 print('中文预置音色已就绪；日常语音生成使用离线模式。')
 PY
