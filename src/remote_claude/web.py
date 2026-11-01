@@ -1156,14 +1156,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _save_files(self, data: dict) -> list[str]:
         """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
         files = data.get("files") or []
-        limit = 300 * 1024 * 1024
-        total = 0
-        for f in files:
-            encoded = str(f.get("data", "")).partition(",")[2]
-            size = len(encoded) * 3 // 4 - (len(encoded) - len(encoded.rstrip("=")))
-            total += size
-            if size > limit or total > limit:
-                raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=total)
         paths = []
         folder = Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
@@ -1727,7 +1719,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return await handler(request)
 
     def app(self) -> web.Application:
-        app = web.Application(middlewares=[self._guard], client_max_size=450 * 1024 * 1024)
+        app = web.Application(middlewares=[self._guard], client_max_size=0)
         app.cleanup_ctx.append(self._speech_context)
         app.router.add_get(f"{PREFIX}/login", self._login_get)
         app.router.add_post(f"{PREFIX}/login", self._login_post)
