@@ -279,14 +279,17 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .wo .tx{flex:1;min-width:0} .wo b{display:block;font-size:var(--t3);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wo small{display:block;font-size:var(--t2);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wcustom{margin:6px 4px 2px;padding-top:8px;border-top:1px solid var(--line)} .wcustom input{box-sizing:border-box;width:100%;font:inherit;font-size:var(--t3);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:var(--r1);padding:9px 10px;outline:none} .wcustom input:focus{border-color:var(--acc)}
-.bhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px} .bhead .bx{border:none;background:none;color:var(--mute);font-size:17px;cursor:pointer;padding:2px 8px}
-.bpath{font-size:var(--t2);color:var(--mute);margin-bottom:8px;word-break:break-all}
-.blist{max-height:min(46vh,420px);overflow:auto;border:1px solid var(--line);border-radius:var(--r1);margin-bottom:10px}
-.blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;color:var(--ink)} .blist .bo:hover{background:var(--line)}
+.amenu .box.browse{width:min(460px,100%);padding:14px}
+.bhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px} .bhead b{font-size:var(--t4);white-space:nowrap}
+.amenu .browse .bx{width:32px;height:32px;flex:none;padding:0;display:grid;place-items:center;background:var(--bg);border-radius:50%;color:var(--mute);font-size:14px}
+.bpath{font-size:var(--t3);color:var(--ink);margin-bottom:10px;word-break:break-all}
+.blist{max-height:min(48vh,420px);overflow:auto;border:1px solid var(--line);border-radius:var(--r2);margin-bottom:12px;padding:4px}
+.blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:var(--r1);color:var(--ink)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.amenu .browse .bbtns{display:flex;gap:10px}
+.amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
-.bbtns{display:flex;gap:8px;justify-content:space-between}
 .newv .dock{position:static;padding:0}
 
 /* 你说的话下面一行小字：现在怎么样了 */
@@ -1617,6 +1620,7 @@ async function browseSheet(start, done) {
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
     <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+  el.querySelector('.box').classList.add('browse');
   const draw = async () => {
     try {
       const d = await api('browse' + (at ? '?path=' + encodeURIComponent(at) : ''));
