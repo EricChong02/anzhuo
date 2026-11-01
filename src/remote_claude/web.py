@@ -1157,8 +1157,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
         files = data.get("files") or []
         limit = 300 * 1024 * 1024
-        if len(files) > 10:
-            raise web.HTTPBadRequest(text="一次最多传 10 个文件")
         total = 0
         for f in files:
             encoded = str(f.get("data", "")).partition(",")[2]

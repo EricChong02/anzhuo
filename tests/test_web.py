@@ -1,5 +1,6 @@
 """小E 网页：一次性链接登录、过程页、试课预览的放行名单与转发。"""
 import asyncio
+import re
 import time
 from pathlib import Path
 
@@ -342,6 +343,13 @@ def test_files_delivered_and_uploaded(tmp_path):
             assert r["ok"] and "附件已存到" in sent[0] and sent[0].endswith("合同.pdf）")
             saved = sent[0].split("附件已存到：")[1].rstrip("）")
             assert Path(saved).read_bytes() == b"hello" and Path(saved).parent == tmp_path / "inbox" / "web"
+            batch = [{"name": f"photo-{i:02d}.jpg", "data": data} for i in range(18)]
+            response = await c.post("/_x/api/send", json={"num": 7, "text": "全部原件", "files": batch})
+            assert response.status == 200
+            assert (await response.json())["ok"]
+            uploaded_paths = re.findall(r"附件已存到：([^）]+)", sent[-1])
+            assert len(uploaded_paths) == 18
+            assert all(Path(p).read_bytes() == b"hello" for p in uploaded_paths)
         finally:
             await c.close()
 

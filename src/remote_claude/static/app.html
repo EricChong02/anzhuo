@@ -1733,7 +1733,6 @@ function wireComposer(sendFn, onSent, onOpening) {
     for (const f of files) {
       if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
       else if (f.size > 300 * 1048576) warn(`${f.name} 超过 300MB，传不了`);
-      else if (attachFiles.length >= 10) warn('一次最多传 10 个文件');
       else if (attachFiles.reduce((n, x) => n + x.size, 0) + f.size > 300 * 1048576) warn('附件合计超过 300MB，请分几次传');
       else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
     }
