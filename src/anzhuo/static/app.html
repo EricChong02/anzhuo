@@ -287,7 +287,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:var(--r1);color:var(--ink)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.amenu .browse .bbtns{display:flex;gap:10px}
+.bsec{padding:8px 10px 4px;color:var(--mute);font-size:var(--t2)}
 .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
 .newv .dock{position:static;padding:0}
@@ -1613,10 +1613,10 @@ if (window.visualViewport) {
   visualViewport.addEventListener('scroll', placeWhereMenu);
 }
 
-// 文件夹浏览：一层层点进去、可返回上级，选定回填；和粘贴路径 / 搜文件夹名并存
+// 文件夹浏览：一层层点进去；盘的再上一层是“此电脑”（所有盘符，Windows 的盘没有共同的文件系统父级）；和粘贴路径并存
 async function browseSheet(start, done) {
   const looksPath = v => /^([A-Za-z]:[\\/]|\/|~)/.test(v || '');
-  let at = looksPath(start) ? start : '', parent = '';
+  let at = looksPath(start) ? start : '', parent = '', up = '';
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
     <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
@@ -1625,19 +1625,22 @@ async function browseSheet(start, done) {
     try {
       const d = await api('browse' + (at ? '?path=' + encodeURIComponent(at) : ''));
       at = d.raw; parent = d.parent;
+      up = d.parent || (d.drive_root ? '__drives__' : '');
       $('#bpath').textContent = d.show;
-      $('#bup').style.visibility = d.parent ? 'visible' : 'hidden';
-      const items = [...(d.drives || []).map(n => ({n})), ...d.dirs.map(n => ({n}))];
-      $('#blist').innerHTML = items.map(x => `<button class="bo" data-n="${esc(x.n)}">${WHERE_ICON.folder}<span class="tx"><b>${esc(x.n)}</b></span></button>`).join('')
+      $('#bup').style.visibility = up ? 'visible' : 'hidden';
+      $('#bok').style.display = d.drive_level ? 'none' : '';
+      $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}" ${d.absolute ? 'data-abs="1"' : ''}>${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
       document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
-        at = /[\\/]$/.test(at) ? at + b.dataset.n : at + (at.includes('\\') ? '\\' : '/') + b.dataset.n;
+        at = b.dataset.abs ? b.dataset.n
+          : /[\\/]$/.test(at) ? at + b.dataset.n
+          : at + (at.includes('\\') ? '\\' : '/') + b.dataset.n;
         draw();
       });
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
   };
   $('#bx').onclick = () => el.remove();
-  $('#bup').onclick = () => { at = parent; draw(); };
+  $('#bup').onclick = () => { at = up; draw(); };
   $('#bok').onclick = () => { el.remove(); done(at); };
   draw();
 }

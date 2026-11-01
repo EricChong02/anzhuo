@@ -748,20 +748,30 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _api_browse(self, request: web.Request) -> web.Response:
         """文件夹浏览（新对话“在哪做”的“浏览…”用）：只列子目录名，不读任何文件内容。"""
         raw = request.query.get("path", "").strip()
+        if raw == "__drives__":   # “此电脑”层：所有盘符的列表（Windows）；文件系统里没有统一根，这层是虚拟的
+            drives = [f"{d}\\" for d in os.listdrives()] if hasattr(os, "listdrives") else []
+            return web.json_response({"raw": raw, "show": "此电脑", "parent": "",
+                                      "dirs": drives, "absolute": True, "drive_level": True})
         try:
             base = Path(raw).expanduser() if raw else Path.home()
             if not base.is_absolute():
                 base = Path.home() / base
             base = base.resolve()
-            dirs = sorted((e.name for e in base.iterdir() if e.is_dir() and not e.name.startswith(".")),
+            def visible(e):
+                if e.name.startswith("."):
+                    return False
+                try:
+                    return not (getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x2)   # Windows 隐藏属性
+                except OSError:
+                    return False
+            dirs = sorted((e.name for e in base.iterdir() if e.is_dir() and visible(e)),
                           key=str.lower)[:500]
         except OSError:
             return web.json_response({"error": "读不到这个文件夹"}, status=400)
         at_root = base == base.parent
-        drives = [f"{d}\\" for d in os.listdrives()] if at_root and hasattr(os, "listdrives") else []
         return web.json_response({"raw": str(base), "show": display(base),
                                   "parent": "" if at_root else str(base.parent),
-                                  "dirs": dirs, "drives": drives})
+                                  "dirs": dirs, "drive_root": at_root and bool(base.drive)})
 
     async def _api_search(self, request: web.Request) -> web.Response:
         q = request.query.get("q", "").strip()
