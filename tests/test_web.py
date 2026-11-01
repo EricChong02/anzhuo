@@ -802,3 +802,40 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
         finally:
             await c.close()
     asyncio.run(go())
+
+
+def test_all_selected_images_reach_model_in_order(tmp_path):
+    """网页选 18 张必须原样送出，忙碌时插话也不能静默只留前 6 张。"""
+    import base64
+    from types import SimpleNamespace as NS
+    from remote_claude.codex import CodexConn
+
+    async def go():
+        w = Web('http://x.example', 0, tmp_path, '', '', user='u', pw_hash=hash_password('p', iters=1000))
+        received = []
+
+        async def message(cmd, inc, routed=False):
+            received.append(list(inc.local_images))
+
+        runner = NS(turns={})
+        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, _message=message)
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post('/_x/login', data={'username': 'u', 'password': 'p'})
+            payloads = [f'photo-{i}'.encode() for i in range(18)]
+            images = ['data:image/jpeg;base64,' + base64.b64encode(p).decode() for p in payloads]
+            for busy in [False, True]:
+                runner.turns = {7: object()} if busy else {}
+                r = await c.post('/_x/api/send', json={'num': 7, 'text': '检查这些照片', 'images': images})
+                assert r.status == 200
+                assert (await r.json())['injected'] == busy
+                paths = received[-1]
+                assert len(paths) == 18
+                assert len(set(paths)) == 18
+                assert [Path(p).read_bytes() for p in paths] == payloads
+                model_input = CodexConn._input("检查这些照片", [Path(p) for p in paths])
+                assert [p["path"] for p in model_input if p["type"] == "localImage"] == paths
+        finally:
+            await c.close()
+    asyncio.run(go())

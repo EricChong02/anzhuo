@@ -1180,7 +1180,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         paths = []
         folder = Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
-        for i, url in enumerate((data.get("images") or [])[:6]):
+        for i, url in enumerate(data.get("images") or []):
             head, _, b64 = str(url).partition(",")
             ext = "jpg" if "jpeg" in head else "png"
             p = folder / f"{int(time.time() * 1000)}-{i}.{ext}"
