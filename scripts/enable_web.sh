@@ -36,6 +36,13 @@ server {
     }
 }
 NGX
+# enabled 可能是独立副本，不能只修改 available 后就认定已生效。
+for conf in /etc/nginx/sites-available/$HOST_NAME /etc/nginx/sites-enabled/$HOST_NAME; do
+    if [ -f \"\$conf\" ]; then
+        resolved=\$(readlink -f \"\$conf\")
+        sed -i 's/client_max_body_size[[:space:]][^;]*;/client_max_body_size 0;/g' \"\$resolved\"
+    fi
+done
 nginx -t && systemctl reload nginx
 curl -s -o /dev/null -w 'HTTPS 自测：%{http_code}（502 = Mac 那头网页还没开，重启小E 后就好）\n' --resolve $HOST_NAME:443:127.0.0.1 https://$HOST_NAME/_x/ || true"
 sed -i '' 's|^# web_base = "https://xiaoe.ericlab.cn".*$|web_base = "https://xiaoe.ericlab.cn"  # 过程页与试课预览（阿里云 nginx + SSH 反向隧道）|' ~/.config/remote-claude/config.toml
