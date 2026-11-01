@@ -279,6 +279,14 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .wo .tx{flex:1;min-width:0} .wo b{display:block;font-size:var(--t3);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wo small{display:block;font-size:var(--t2);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wcustom{margin:6px 4px 2px;padding-top:8px;border-top:1px solid var(--line)} .wcustom input{box-sizing:border-box;width:100%;font:inherit;font-size:var(--t3);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:var(--r1);padding:9px 10px;outline:none} .wcustom input:focus{border-color:var(--acc)}
+.bhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px} .bhead .bx{border:none;background:none;color:var(--mute);font-size:17px;cursor:pointer;padding:2px 8px}
+.bpath{font-size:var(--t2);color:var(--mute);margin-bottom:8px;word-break:break-all}
+.blist{max-height:min(46vh,420px);overflow:auto;border:1px solid var(--line);border-radius:var(--r1);margin-bottom:10px}
+.blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;color:var(--ink)} .blist .bo:hover{background:var(--line)}
+.blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
+.bbtns{display:flex;gap:8px;justify-content:space-between}
 .newv .dock{position:static;padding:0}
 
 /* 你说的话下面一行小字：现在怎么样了 */
@@ -1602,6 +1610,34 @@ if (window.visualViewport) {
   visualViewport.addEventListener('scroll', placeWhereMenu);
 }
 
+// 文件夹浏览：一层层点进去、可返回上级，选定回填；和粘贴路径 / 搜文件夹名并存
+async function browseSheet(start, done) {
+  const looksPath = v => /^([A-Za-z]:[\\/]|\/|~)/.test(v || '');
+  let at = looksPath(start) ? start : '', parent = '';
+  const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
+    <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
+    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+  const draw = async () => {
+    try {
+      const d = await api('browse' + (at ? '?path=' + encodeURIComponent(at) : ''));
+      at = d.raw; parent = d.parent;
+      $('#bpath').textContent = d.show;
+      $('#bup').style.visibility = d.parent ? 'visible' : 'hidden';
+      const items = [...(d.drives || []).map(n => ({n})), ...d.dirs.map(n => ({n}))];
+      $('#blist').innerHTML = items.map(x => `<button class="bo" data-n="${esc(x.n)}">${WHERE_ICON.folder}<span class="tx"><b>${esc(x.n)}</b></span></button>`).join('')
+        || '<div class="bempty">这里没有子文件夹了</div>';
+      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
+        at = /[\\/]$/.test(at) ? at + b.dataset.n : at + (at.includes('\\') ? '\\' : '/') + b.dataset.n;
+        draw();
+      });
+    } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
+  };
+  $('#bx').onclick = () => el.remove();
+  $('#bup').onclick = () => { at = parent; draw(); };
+  $('#bok').onclick = () => { el.remove(); done(at); };
+  draw();
+}
+
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认是上次用的文件夹，要换才点开
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
@@ -1619,14 +1655,16 @@ function openNew(fromPop, preset) {
     $('#wbar').innerHTML = `<button class="pill on" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
           <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}
+          <button class="wo" id="wbrowse">${WHERE_ICON.folder}<span class="tx"><b>浏览文件夹…</b><small>一层层点进去选</small></span></button>
           <form class="wcustom" id="wcustom"><input id="wtype" placeholder="其他文件夹：粘贴路径，或写文件夹名里的几个字" autocomplete="off"></form></div>` : '');
     if (menu) placeWhereMenu();
     $('#wp').onclick = e => { e.stopPropagation(); menu = !menu; draw(); };
-    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); pick = c.dataset.v; menu = false; draw(); });
+    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); if (c.id === 'wbrowse') return; pick = c.dataset.v; menu = false; draw(); });
     if ($('#wcustom')) {
       $('#wcustom').onclick = e => e.stopPropagation();
       $('#wcustom').onsubmit = e => { e.preventDefault(); const v = $('#wtype').value.trim(); if (v) { pick = v; menu = false; draw(); $('#ta').focus(); } };
     }
+    if ($('#wbrowse')) $('#wbrowse').onclick = e => { e.stopPropagation(); browseSheet(pick, v => { pick = v; menu = false; draw(); $('#ta').focus(); }); };
   };
   draw();
   $('.newv').onscroll = placeWhereMenu;
