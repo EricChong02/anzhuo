@@ -511,7 +511,7 @@ function procHTML(list, pid, tid) {
     : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
-let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
+let limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
 function notice(s) {
@@ -534,7 +534,7 @@ function watchStatus() {
   document.title = n ? `(${n}) 案头` : '案头';
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
-let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
+let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set();
 
 // Mac 连不上（睡着、断网、小E 在更新）时阿里云回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
 function setOffline(off) {
@@ -1007,7 +1007,7 @@ function navTo(state, hash) {
 function openSession(num, fromPop) {
   partialText = ''; setTimeout(connectEvents);
   if (sel && sel !== num) presence(false);
-  sel = num; lastKey = ''; attach = []; attachFiles = []; presence(true);
+  sel = num; lastKey = ''; presence(true);
   if (!fromPop) navTo({s: num}, '#s' + num);
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
@@ -1026,7 +1026,7 @@ function openSession(num, fromPop) {
   feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
   feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
   $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
-  wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
+  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
 
@@ -1712,7 +1712,7 @@ async function loadThread() {
 }
 
 function shrink(file) {
-  return new Promise(res => {
+  return new Promise((res, reject) => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
       const k = Math.min(1, 1600 / Math.max(img.width, img.height));
@@ -1720,76 +1720,120 @@ function shrink(file) {
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
       res(c.toDataURL('image/jpeg', .86));
     };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
     img.src = url;
   });
 }
 
+// 文字草稿持久化；照片和 File 原件保留在本页内存，切换对话不会丢。
+const composerDrafts = new Map();
+let composerView = null;
+function composerDraft(key) {
+  if (!composerDrafts.has(key)) {
+    let text = '';
+    try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
+    composerDrafts.set(key, {text, images: [], files: [], sending: false, reading: 0, error: '', progress: ''});
+  }
+  return composerDrafts.get(key);
+}
+function saveComposerText(key, text) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('composerDrafts') || '{}');
+    if (text) saved[key] = text; else delete saved[key];
+    localStorage.setItem('composerDrafts', JSON.stringify(saved));
+  } catch (_) {}
+}
+function refreshComposer(key) { if (composerView?.key === key) composerView.paint(); }
+
 function wireComposer(sendFn, onSent, onOpening) {
-  const ta = $('#ta'), btn = $('#send');
-  const sync = () => {
-    // 最高只到“键盘上方看得见的区域”的三成：键盘弹起时 innerHeight 不变，按它算会长到顶栏下面被挡住
+  const ta = $('#ta'), btn = $('#send'), thumbs = $('#thumbs'), warning = $('#warn');
+  const key = String(sel ?? 'new'), state = composerDraft(key), num0 = sel;
+  const active = () => ta.isConnected && $('#ta') === ta && String(sel ?? 'new') === key && $('#app').classList.contains('in');
+  const paint = () => {
+    if (!active()) return;
+    if (ta.value !== state.text) ta.value = state.text;
     const vis = window.visualViewport ? visualViewport.height : innerHeight;
     ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
-    btn.disabled = sending || (!ta.value.trim() && !attach.length && !attachFiles.length);
-    $('#thumbs').hidden = !attach.length && !attachFiles.length;
-    $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
-      + attachFiles.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
-    document.querySelectorAll('.thumb button[data-i]').forEach(b => b.onclick = () => { attach.splice(+b.dataset.i, 1); sync(); });
-    document.querySelectorAll('.thumb button[data-f]').forEach(b => b.onclick = () => { attachFiles.splice(+b.dataset.f, 1); sync(); });
+    btn.disabled = state.sending || state.reading > 0 || (!state.text.trim() && !state.images.length && !state.files.length);
+    btn.innerHTML = state.sending ? '<i class="spin"></i>' : ICON.up;
+    warning.hidden = !(state.error || state.progress);
+    warning.textContent = state.error || state.progress;
+    warning.classList.toggle('prog', !!state.progress && !state.error);
+    thumbs.hidden = !state.images.length && !state.files.length;
+    thumbs.innerHTML = state.images.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
+      + state.files.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
+    thumbs.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { state.images.splice(+b.dataset.i, 1); paint(); });
+    thumbs.querySelectorAll('button[data-f]').forEach(b => b.onclick = () => { state.files.splice(+b.dataset.f, 1); paint(); });
   };
-  const warn = t => { $('#warn').hidden = !t; $('#warn').textContent = t || ''; };
+  composerView = {key, paint};
+  const sync = () => { state.text = ta.value; saveComposerText(key, state.text); paint(); };
   const add = async files => {
-    for (const f of files) {
-      if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
-      else attachFiles.push(f);
-    }
-    sync();
+    state.reading++; refreshComposer(key);
+    try {
+      for (const f of [...files]) {
+        if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) state.images.push(await shrink(f));
+        else state.files.push(f);
+      }
+    } catch (_) { state.error = '照片读取失败，请重新选择该照片'; }
+    finally { state.reading--; refreshComposer(key); }
   };
   ta.oninput = sync;
-  $('#file').onchange = e => add(e.target.files);
+  $('#file').onchange = e => { const files = [...e.target.files]; e.target.value = ''; add(files); };
   ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean); if (fs.length) { e.preventDefault(); add(fs); } };
-  // 截图、照片、文件直接拖进页面任何地方都算附件（iPad 从截图预览、相册、文件 App 拖；电脑从桌面拖）
   const box = ta.closest('.composer'); let depth = 0;
   const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
   document.ondragenter = e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; box.classList.add('drop'); };
   document.ondragover = e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
   document.ondragleave = e => { if (hasFiles(e) && --depth <= 0) { depth = 0; box.classList.remove('drop'); } };
-  document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
-  // 回车发送（iPad 连不连键盘都算、电脑也是），Shift+回车换行；打中文选字时的回车不算。只有手机上回车是换行。
+  document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
   const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
   ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
-  ta.onkeydown = e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
-  };
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); } };
   async function go() {
-    const text = ta.value.trim();
-    if ((!text && !attach.length && !attachFiles.length) || sending) return;
-    sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
-    // 一按发送就先显示在对话里（长文字带图上传要几秒），没发出去再撤回
-    const shown = text || (attachFiles.length ? '[附件]' : '[图片]'), num0 = sel;
-    const item = onSent ? onSent(shown, attach.slice()) : null;
-    if (onSent) { lastKey = ''; loadThread(); } else if (onOpening) onOpening(shown, attach.slice());
-    const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); if (onOpening) onOpening(null); lastKey = ''; loadThread(); };
+    const originalText = state.text, text = originalText.trim();
+    if ((!text && !state.images.length && !state.files.length) || state.sending || state.reading) return;
+    const snapshot = {images: state.images.slice(), files: state.files.slice()};
+    state.sending = true; state.error = ''; state.progress = ''; paint();
+    const shown = text || (snapshot.files.length ? '[附件]' : '[图片]');
+    const item = onSent ? onSent(shown, snapshot.images) : null;
+    if (onSent) { lastKey = ''; loadThread(); } else if (onOpening && active()) onOpening(shown, snapshot.images);
+    const undo = () => {
+      if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p !== item);
+      if (onOpening && active()) onOpening(null);
+      lastKey = ''; loadThread();
+    };
     try {
       const mb = n => (n / 1048576).toFixed(1);
       const r = await sendFn(text, (a, b) => {
-        const done = a >= b, el = $('#warn');
-        el.hidden = false; el.classList.add('prog');
-        el.textContent = done ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
-        const op = document.querySelector('#opening .lsub');
-        if (op) op.textContent = done ? '已送到' : `正在上传 ${mb(a)} / ${mb(b)} MB`;
-      });
-      $('#warn').classList.remove('prog'); warn('');
-      if (r.ok) {
+        state.progress = a >= b ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
+        refreshComposer(key);
+        if (active()) { const op = document.querySelector('#opening .lsub'); if (op) op.textContent = a >= b ? '已送到' : state.progress; }
+      }, snapshot);
+      if (!r.ok) { undo(); state.error = r.error || '没发出去，再试一次'; }
+      else {
         if (r.scheduled) { undo(); toast('定时任务已安排 · ' + scheduleDate(r.scheduled.next_at)); }
         if (item) item.acked = true;
-        ta.value = ''; attach = []; attachFiles = [];
-        if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
-      } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次'); }
-    sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
+        // 只清除这次发送的内容；发送中输入的新草稿、另一对话的内容都保留。
+        if (state.text === originalText) state.text = '';
+        state.images = state.images.filter(x => !snapshot.images.includes(x));
+        state.files = state.files.filter(x => !snapshot.files.includes(x));
+        saveComposerText(key, state.text);
+        if (r.num) {
+          state.sending = false; state.progress = ''; refreshComposer(key);
+          await loadSessions();
+          if (active()) openSession(r.num); else toast('新对话已创建', '查看', () => openSession(r.num));
+          return;
+        }
+      }
+    } catch (e) {
+      undo();
+      if (e.message !== 'login') state.error = e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次';
+    } finally {
+      state.sending = false; state.progress = ''; refreshComposer(key);
+      lastKey = ''; loadThread(); loadSessions();
+    }
   }
-  btn.onclick = go; sync();
+  btn.onclick = go; paint();
 }
 
 const WHERE_ICON = {
@@ -1864,7 +1908,7 @@ function openNew(fromPop, preset) {
   const ms = {model: 'auto', effort: 'medium'}; let touched = false;
   renderModel(ms, () => { touched = true; }, true);
   const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
-  wireComposer((text, onProg) => sendApi({...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, images: attach, files: attachFiles}, onProg),
+  wireComposer((text, onProg, attachments) => sendApi({...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, ...attachments}, onProg),
     null, (text, imgs) => {
       // 一按发送就进“正在开”：你的话先摆出来，说清楚在等什么、能不能走开（开好了自动进去）
       const old = $('#opening'); if (old) old.remove(); if (text === null) return;
