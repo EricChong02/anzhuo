@@ -350,6 +350,29 @@ def test_files_delivered_and_uploaded(tmp_path):
             uploaded_paths = re.findall(r"附件已存到：([^）]+)", sent[-1])
             assert len(uploaded_paths) == 18
             assert all(Path(p).read_bytes() == b"hello" for p in uploaded_paths)
+            # 新网页直接传原始文件，不能再把整个 ZIP 转成 base64 JSON。
+            import json
+            from aiohttp import FormData
+            form = FormData()
+            form.add_field("message", json.dumps({"num": 7, "text": "原始文件直传"}))
+            for i in range(18):
+                form.add_field("files", bytes([i]) * 4096, filename=f"{i:02d}.zip", content_type="application/zip")
+            response = await c.post("/_x/api/send", data=form)
+            assert response.status == 200
+            assert (await response.json())["ok"]
+            paths = re.findall(r"附件已存到：([^）]+)", sent[-1])
+            assert len(paths) == 18
+            assert [Path(p).read_bytes() for p in paths] == [bytes([i]) * 4096 for i in range(18)]
+            assert all(Path(p).name.endswith(f"{i:02d}.zip") for i, p in enumerate(paths))
+            before = set((tmp_path / "inbox" / "web").iterdir())
+            calls = len(sent)
+            form = FormData()
+            form.add_field("message", json.dumps({"num": 7, "text": "坏请求"}))
+            form.add_field("files", b"partial", filename="partial.zip")
+            form.add_field("unexpected", "bad")
+            response = await c.post("/_x/api/send", data=form)
+            assert response.status == 400 and len(sent) == calls
+            assert set((tmp_path / "inbox" / "web").iterdir()) == before
         finally:
             await c.close()
 

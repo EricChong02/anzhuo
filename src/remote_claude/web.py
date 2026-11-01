@@ -1195,17 +1195,53 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except (ValueError, TypeError) as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
 
+    async def _read_send(self, request: web.Request) -> tuple[dict, list[str]]:
+        """普通附件流式落盘；保留旧网页的 JSON 上传兼容。"""
+        if not request.content_type.startswith("multipart/"):
+            return await request.json(), []
+        reader = await request.multipart()
+        data, saved = None, []
+        folder = self.store_path.parent / "inbox" / "web"
+        try:
+            async for part in reader:
+                if part.name == "message" and data is None and not saved:
+                    raw = bytearray()
+                    while chunk := await part.read_chunk(1024 * 1024):
+                        raw.extend(chunk)
+                    data = json.loads(raw)
+                    if not isinstance(data, dict) or data.get("files"):
+                        raise web.HTTPBadRequest(text="上传信息格式不正确")
+                elif part.name == "files" and data is not None and part.filename:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    name = Path(part.filename).name.replace("/", "_")[:120] or "file"
+                    path = folder / f"{int(time.time() * 1000)}-{secrets.token_hex(6)}-{name}"
+                    saved.append(str(path))
+                    with path.open("wb") as f:
+                        while chunk := await part.read_chunk(1024 * 1024):
+                            f.write(chunk)
+                else:
+                    raise web.HTTPBadRequest(text="上传内容格式不正确")
+            if data is None:
+                raise web.HTTPBadRequest(text="缺少消息内容")
+            return data, saved
+        except BaseException as exc:
+            for raw in saved:
+                Path(raw).unlink(missing_ok=True)
+            if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError)):
+                raise web.HTTPBadRequest(text="上传信息格式不正确") from None
+            raise
+
     async def _api_send(self, request: web.Request) -> web.Response:
         """在某个对话里说话（它正在做就是插话）；没给 num 就是新开一个对话。"""
         if not self._same_origin(request):
             raise web.HTTPForbidden()
-        data = await request.json()
+        data, streamed_files = await self._read_send(request)
         text = str(data.get("text") or "").strip()
         from .schedules import parse_request
         try:
             plan = parse_request(text)
             if plan:
-                if data.get("images") or data.get("files"):
+                if data.get("images") or data.get("files") or streamed_files:
                     raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
                 from .app import inline_overrides, MODELS
                 m, e = inline_overrides(text)
@@ -1218,7 +1254,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
         images = await self._save_images(data)
-        uploaded = await self._save_files(data)
+        uploaded = streamed_files + await self._save_files(data)
         if uploaded:
             text = (text + "\n\n" if text else "") + "\n".join(f"（附件已存到：{p}）" for p in uploaded)
         if not text and not images:

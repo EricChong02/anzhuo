@@ -561,17 +561,27 @@ function upload(path, body, onProg) {
   return new Promise((ok, bad) => {
     const x = new XMLHttpRequest();
     x.open('POST', '/_x/api/' + path);
-    x.setRequestHeader('Content-Type', 'application/json');
+    const rawFiles = (body.files || []).some(f => f instanceof File);
+    if (!rawFiles) x.setRequestHeader('Content-Type', 'application/json');
     x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded, e.total); };
-    x.onerror = () => { setOffline(true); bad(new Error('offline')); };
+    x.onerror = () => { setOffline(true); bad(new Error('上传连接中断，附件已保留，请保持页面打开后重试')); };
+    x.onabort = () => bad(new Error('上传已中止，附件已保留'));
+    x.ontimeout = () => bad(new Error('上传超时，附件已保留，请重试'));
     x.onload = () => {
       if (x.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
       if ([502, 503, 504].includes(x.status)) { setOffline(true); return bad(new Error('offline')); }
       if (x.status === 413) return bad(new Error('big'));
       setOffline(false);
-      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(e); }
+      if (x.status >= 400) return bad(new Error(`服务器接收失败（${x.status}），附件已保留`));
+      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(new Error('服务器返回异常，附件已保留，请重试')); }
     };
-    x.send(JSON.stringify(body));
+    if (rawFiles) {
+      const form = new FormData();
+      const {files, ...message} = body;
+      form.append('message', JSON.stringify(message));
+      for (const f of files) form.append('files', f, f.name);
+      x.send(form);
+    } else x.send(JSON.stringify(body));
   });
 }
 const sendApi = (body, onProg) => (body.files || []).length || (body.images || []).length ? upload('send', body, onProg) : api('send', body);
@@ -1728,11 +1738,10 @@ function wireComposer(sendFn, onSent, onOpening) {
     document.querySelectorAll('.thumb button[data-f]').forEach(b => b.onclick = () => { attachFiles.splice(+b.dataset.f, 1); sync(); });
   };
   const warn = t => { $('#warn').hidden = !t; $('#warn').textContent = t || ''; };
-  const readFile = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
   const add = async files => {
     for (const f of files) {
       if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
-      else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
+      else attachFiles.push(f);
     }
     sync();
   };
@@ -1777,7 +1786,7 @@ function wireComposer(sendFn, onSent, onOpening) {
         ta.value = ''; attach = []; attachFiles = [];
         if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
       } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : '没发出去，再试一次'); }
+    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次'); }
     sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
   }
   btn.onclick = go; sync();
