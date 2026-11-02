@@ -111,15 +111,18 @@ def read_web_hash(user: str) -> str:
     非 macOS（Windows / Linux）读配置目录旁的 web_hash.json；都没有就返回空（网页谁也进不去）。"""
     if not user:
         return ""
+    if os.environ.get("ANZHUO_WEB_HASH"):
+        return os.environ["ANZHUO_WEB_HASH"]
     if sys.platform == "darwin":
         r = subprocess.run(["security", "find-generic-password", "-s", WEB_KEYCHAIN, "-a", user, "-w"],
                            capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip()
     try:
-        return json.loads(_web_hash_path().read_text(encoding="utf-8")).get(user, "")
+        store = json.loads(_web_hash_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""
+    return store.get(user, "") if isinstance(store, dict) else ""
 
 
 def write_web_hash(user: str, pw_hash: str) -> None:
@@ -134,5 +137,11 @@ def write_web_hash(user: str, pw_hash: str) -> None:
         store = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         store = {}
+    if not isinstance(store, dict):
+        store = {}
     store[user] = pw_hash
-    path.write_text(json.dumps(store), encoding="utf-8")
+    # 指纹虽不是明文，也只给自己读（Windows 上 chmod 只管只读位，靠用户目录本身的权限）
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(store))
+    os.chmod(path, 0o600)

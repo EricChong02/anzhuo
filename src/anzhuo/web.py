@@ -1561,7 +1561,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
         # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的案头，点范围外的链接会弹出带“完成”的浏览页，
         # 看完能回来；范围内的链接直接在案头窗口里打开文件，没有返回键（10-27 遇到）
-        app.router.add_get(f"{PREFIX}/api/search", self._api_search)
         app.router.add_get(f"{PREFIX}/api/browse", self._api_browse)
         app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
         app.router.add_get("/dl/{tid}/{i:\\d+}/pages", self._pdf_pages)
