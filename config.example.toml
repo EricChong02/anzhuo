@@ -1,5 +1,5 @@
 # 案头配置：复制到 ~/.config/anzhuo/config.toml 再改。完整的每一项说明见 docs/配置参考.md。
-# 钉钉密钥和网页密码都不写在这里，存在 macOS 钥匙串里（见 README 的“安装”）。
+# 钉钉密钥和网页密码都不写在这里：macOS 存钥匙串；Windows 下网页密码指纹存本目录旁的 web_hash.json（钉钉密钥暂只支持 macOS）。
 
 # ───────── 入口一：网页（默认开，只听本机端口）─────────
 # 本机用不用改；放到外网后改成你的地址（见 docs/外网访问.md），例如 web_base = "https://anzhuo.example.com"

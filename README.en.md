@@ -45,7 +45,7 @@ Nothing is opened on your computer's firewall: the web server only listens on `1
 
 ## Quick start
 
-Requirements: macOS (the only platform tested — it uses Keychain and launchd), [uv](https://docs.astral.sh/uv/) (installs Python 3.13+), a Claude account.
+Requirements: macOS (the platform it was built and tested on — Keychain, launchd) or Windows (adapted in this repo — see below), [uv](https://docs.astral.sh/uv/) (installs Python 3.13+), a Claude account.
 
 ```bash
 git clone https://github.com/EricChong02/anzhuo.git && cd anzhuo
@@ -62,6 +62,8 @@ scripts/claude_login.sh                 # log the bundled Claude Code in once
 .venv/bin/anzhuo run                    # then open http://127.0.0.1:8765
 scripts/install_launchd.sh              # optional: start at login, restart on crash
 ```
+
+**Windows**: same steps, different spelling — `uv sync`, copy the config to `%USERPROFILE%\.config\anzhuo\`, log in with `.venv\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe auth login`, then use `anzhuo.cmd passwd / check / run` (it enables UTF-8 mode; the web password hash goes to `web_hash.json`). DingTalk and web-push secrets are Keychain-only, so those two entry points need macOS.
 
 ## What you need: three conditions
 

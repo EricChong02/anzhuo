@@ -75,7 +75,7 @@ uv sync                              # 需要 uv 和 Python 3.13+，见下面“
 
 ## 安装（真的接上你的 Claude）
 
-**需要**：一台 Mac（目前只在 macOS 上验证）、[uv](https://docs.astral.sh/uv/)（会自动装好 Python 3.13+）、一个 Claude 订阅或 API 账号。想用 GPT 的话还要装 ChatGPT 桌面版并登录。
+**需要**：一台 Mac（作者开发验证的平台）或一台 Windows 电脑（本仓库已做 Windows 适配，见下）、[uv](https://docs.astral.sh/uv/)（会自动装好 Python 3.13+）、一个 Claude 订阅或 API 账号。想用 GPT 的话还要装 ChatGPT 桌面版并登录（该功能只在 macOS 验证过）。
 
 ```bash
 git clone https://github.com/EricChong02/anzhuo.git && cd anzhuo
@@ -87,6 +87,20 @@ scripts/claude_login.sh                                    # 3. 给案头用的 
 .venv/bin/anzhuo check                                     # 5. 自检：配置、密码、Claude 登录是否都好了
 .venv/bin/anzhuo run                                       # 6. 运行，然后浏览器打开 http://127.0.0.1:8765
 ```
+
+**Windows**：写法不同，其余一样——
+
+```bat
+uv sync                                                     & rem 1. 装依赖
+mkdir "%USERPROFILE%\.config\anzhuo"
+copy config.example.toml "%USERPROFILE%\.config\anzhuo\config.toml"    & rem 2. 放好配置（默认就能用）
+.venv\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe auth login   & rem 3. 给案头的 Claude Code 登录一次（浏览器授权）
+anzhuo.cmd passwd                                           & rem 4. 网页账号密码（指纹存 web_hash.json）
+anzhuo.cmd check                                            & rem 5. 自检
+anzhuo.cmd run                                              & rem 6. 运行，浏览器打开 http://127.0.0.1:8765
+```
+
+`anzhuo.cmd` 会先设好 UTF-8 模式再启动（Windows 默认 GBK 编码，中文界面会乱码）。开机自启用任务计划程序跑 `anzhuo.cmd run`，见 [安装与首次运行](docs/安装与首次运行.md)。
 
 确认能用之后，让它开机自启、崩了自动重启：
 
@@ -137,7 +151,7 @@ scripts/install_launchd.sh
 
 ## 现状与边界
 
-- **平台**：目前只在 macOS 上用过（钥匙串、launchd、`caffeinate` 都是 macOS 的东西）。Linux / Windows 没有验证，欢迎贡献适配。
+- **平台**：macOS 是作者开发、验证的平台（钥匙串、launchd、`caffeinate` 都是 macOS 的东西）。本仓库在 macOS 之外做了 **Windows 适配**（网页密码指纹存 `web_hash.json`、`anzhuo.cmd` 启动器、自带 tzdata 时区库）；钉钉密钥和手机推送私钥仍只存 macOS 钥匙串，所以**钉钉入口和手机通知目前要 macOS**。Linux 未验证，欢迎贡献。
 - **界面语言**：界面和提示是中文。
 - **个人使用**：设计成“你自己在自己的电脑上用”。不要把它做成多人共用的服务——那样可能违反 Claude / ChatGPT 订阅条款，使用前请自己看一遍最新条款。
 - **与官方的关系**：案头是第三方个人项目，和 Anthropic、OpenAI、钉钉没有关系；它调用的是官方的 Claude Agent SDK 和 Codex。

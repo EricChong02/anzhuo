@@ -1,8 +1,11 @@
-"""配置与密钥：配置文件在 ~/.config/anzhuo/config.toml，钉钉应用密钥和网页密码指纹只存在 macOS 钥匙串。"""
+"""配置与密钥：配置文件在 ~/.config/anzhuo/config.toml，钉钉应用密钥存 macOS 钥匙串；
+网页密码指纹 macOS 存钥匙串（Windows / Linux 存配置目录旁的 web_hash.json）。"""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +25,7 @@ class Config:
     allowed_user_ids: list[str] = field(default_factory=list)  # 只认这些钉钉 ID 发来的单聊消息
     web_base: str = ""  # 网页的访问地址（http://127.0.0.1:8765，或你放在反向代理后面的外网地址）；空 = 不开网页
     web_port: int = 8765  # 网页只听本机这个端口
-    web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串（anzhuo passwd）
+    web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串，非 macOS 存 web_hash.json（anzhuo passwd）
     watch_host: str = ""  # 可选：外网服务器的 ssh 别名，那边每分钟查案头在不在线，掉线发手机通知（scripts/server_watch.py）
     dingtalk_quiet: bool = True  # 钉钉只发结果（做完/等你定/出错、回答）；开工、收到、插话、工作台这些过程只在网页里看
     # ---- 文件夹 ----
@@ -98,12 +101,38 @@ def read_secret(client_id: str) -> str:
 WEB_KEYCHAIN = "anzhuo.web"
 
 
+def _web_hash_path() -> Path:
+    """非 macOS 没有钥匙串：密码指纹存配置目录旁的 web_hash.json。"""
+    return CONFIG_PATH.parent / "web_hash.json"
+
+
 def read_web_hash(user: str) -> str:
-    """网页登录密码的指纹（PBKDF2）：先看环境变量 ANZHUO_WEB_HASH（演示、测试用），再读钥匙串；都没有就返回空（网页谁也进不去）。"""
+    """网页登录密码的指纹（PBKDF2）：先看环境变量 ANZHUO_WEB_HASH（演示、测试用），再读钥匙串；
+    非 macOS（Windows / Linux）读配置目录旁的 web_hash.json；都没有就返回空（网页谁也进不去）。"""
     if not user:
         return ""
-    if os.environ.get("ANZHUO_WEB_HASH"):
-        return os.environ["ANZHUO_WEB_HASH"]
-    r = subprocess.run(["security", "find-generic-password", "-s", WEB_KEYCHAIN, "-a", user, "-w"],
-                       capture_output=True, text=True)
-    return r.stdout.strip()
+    if sys.platform == "darwin":
+        r = subprocess.run(["security", "find-generic-password", "-s", WEB_KEYCHAIN, "-a", user, "-w"],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    try:
+        return json.loads(_web_hash_path().read_text(encoding="utf-8")).get(user, "")
+    except (OSError, ValueError):
+        return ""
+
+
+def write_web_hash(user: str, pw_hash: str) -> None:
+    """把网页登录密码的指纹存起来：macOS 存钥匙串，其它平台存 web_hash.json。"""
+    if sys.platform == "darwin":
+        subprocess.run(["security", "add-generic-password", "-U", "-s", WEB_KEYCHAIN, "-a", user, "-w", pw_hash],
+                       check=True)
+        return
+    path = _web_hash_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        store = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        store = {}
+    store[user] = pw_hash
+    path.write_text(json.dumps(store), encoding="utf-8")

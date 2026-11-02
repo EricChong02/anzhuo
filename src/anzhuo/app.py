@@ -959,7 +959,10 @@ class Bridge:
         if self.web.enabled:
             await self.web.start()
         # 插着电时别让 Mac 睡着（案头退出就自动失效）；合盖或用电池时照常睡
-        subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+        try:  # 插着电时别让 Mac 睡着（案头退出就自动失效）；Windows / Linux 没有 caffeinate，跳过
+            subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+        except FileNotFoundError:
+            pass
         if self.cfg.auto_cleanup:
             asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())

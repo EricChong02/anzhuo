@@ -9,6 +9,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import os
 import shutil
 import html
 import json
@@ -862,6 +863,34 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._search_cache[s.num] = (key, items)
         return items
 
+    async def _api_browse(self, request: web.Request) -> web.Response:
+        """文件夹浏览（新对话“在哪做”的“浏览…”用）：只列子目录名，不读任何文件内容。"""
+        raw = request.query.get("path", "").strip()
+        if raw == "__drives__":   # “此电脑”层：所有盘符的列表（Windows）；文件系统里没有统一根，这层是虚拟的
+            drives = [f"{d}\\" for d in os.listdrives()] if hasattr(os, "listdrives") else []
+            return web.json_response({"raw": raw, "show": "此电脑", "parent": "",
+                                      "dirs": drives, "absolute": True, "drive_level": True})
+        try:
+            base = Path(raw).expanduser() if raw else Path.home()
+            if not base.is_absolute():
+                base = Path.home() / base
+            base = base.resolve()
+            def visible(e):
+                if e.name.startswith("."):
+                    return False
+                try:
+                    return not (getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x2)   # Windows 隐藏属性
+                except OSError:
+                    return False
+            dirs = sorted((e.name for e in base.iterdir() if e.is_dir() and visible(e)),
+                          key=str.lower)[:500]
+        except OSError:
+            return web.json_response({"error": "读不到这个文件夹"}, status=400)
+        at_root = base == base.parent
+        return web.json_response({"raw": str(base), "show": display(base),
+                                  "parent": "" if at_root else str(base.parent),
+                                  "dirs": dirs, "drive_root": at_root and bool(base.drive)})
+
     async def _api_search(self, request: web.Request) -> web.Response:
         q = request.query.get("q", "").strip()
         b = self.bridge
@@ -1532,6 +1561,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
         # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的案头，点范围外的链接会弹出带“完成”的浏览页，
         # 看完能回来；范围内的链接直接在案头窗口里打开文件，没有返回键（10-27 遇到）
+        app.router.add_get(f"{PREFIX}/api/search", self._api_search)
+        app.router.add_get(f"{PREFIX}/api/browse", self._api_browse)
         app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
         app.router.add_get("/dl/{tid}/{i:\\d+}/pages", self._pdf_pages)
         app.router.add_get("/dl/{tid}/{i:\\d+}/p/{name}", self._pdf_page)
