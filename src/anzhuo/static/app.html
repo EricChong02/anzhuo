@@ -158,6 +158,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .note{align-self:center;font-size:var(--t2);color:var(--mute)}
 .imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
+.file-row{display:flex;align-items:center;gap:12px;max-width:520px}.file-row .file{flex:1;min-width:0}.file-download{flex:none;font-size:var(--t2);padding:12px 4px;margin-top:8px}
 .file:hover{border-color:var(--acc)} .file .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .file .fs{color:var(--mute);font-size:var(--t2);flex:none}
 .file svg{color:var(--acc)}
 .chipf{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 10px;border-radius:var(--r1);background:var(--bg);border:1px solid var(--line);font-size:var(--t2);max-width:220px;position:relative}
@@ -185,6 +186,19 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .opt .k{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accsoft);color:var(--acc);font-weight:600;font-size:var(--t2);flex:none}
 .opt .v{flex:1} .opt .tag{font-size:var(--t2);color:var(--acc)}
 .opt:disabled{opacity:.5}
+
+/* 朗读仅在点开后出现，作为主区的一行，不遮住输入条。 */
+.speech-player{flex:none;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 14px;color:var(--ink)}
+.speech-player[hidden],.speech-player [hidden]{display:none!important}
+.sp-main{display:flex;align-items:center;gap:4px;max-width:760px;margin:auto}
+.sp-main button,.sp-download{display:grid;place-items:center;min-width:36px;height:40px;border-radius:var(--r1);flex:none}
+.sp-main button:hover,.sp-download:hover{background:var(--accsoft)}
+.sp-main button:disabled{opacity:.35;cursor:default}.sp-main button:focus-visible,.sp-download:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.sp-play{color:var(--acc)}.sp-title{flex:1;min-width:0;line-height:1.4;padding:0 5px}.sp-title b{font-size:var(--t2);font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sp-title span{font-size:var(--t1);color:var(--mute)}
+.sp-speed{font-size:var(--t2);font-variant-numeric:tabular-nums}.sp-close{font-size:22px;color:var(--mute)}
+.sp-progress{display:flex;align-items:center;gap:10px;max-width:740px;margin:0 auto;font-size:var(--t1);color:var(--mute);font-variant-numeric:tabular-nums}
+.sp-progress input{flex:1;min-width:0;accent-color:var(--acc);height:24px;margin:0}.sp-total{min-width:40px;text-align:right}
+@media(max-width:400px){.speech-player{padding-left:8px;padding-right:8px}.sp-main{gap:0}.sp-main button,.sp-download{min-width:32px}.sp-title{padding:0 3px}}
 
 /* 输入条 */
 .dock{position:absolute;left:0;right:0;bottom:var(--kb,0px);padding:28px 16px calc(14px + env(safe-area-inset-bottom));pointer-events:none;transition:bottom .15s;
@@ -215,6 +229,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .fv .pages{flex:1;min-height:0;width:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 0 calc(24px + env(safe-area-inset-bottom))}
 .fv .pages img{display:block;width:100%;height:auto;background:#fff} .fv .pn{color:#999;font-size:var(--t1);text-align:center;padding:6px 0 14px}
 .fv .tip{color:#ddd;font-size:var(--t3);line-height:1.7;padding:40px 28px;text-align:center}
+.fv .tip .bar{height:6px;margin:14px auto 0;max-width:260px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden} .fv .tip .bar i{display:block;height:100%;background:#fff;transition:width .2s}
+.fv video{width:100%;max-height:calc(100% - 160px);background:#000}
 .fv .sh{position:fixed;top:calc(12px + env(safe-area-inset-top));left:14px;height:44px;padding:0 16px;border-radius:var(--rf);background:rgba(255,255,255,.16);color:#fff;font-size:var(--t3)}
 .fv .nm{position:fixed;top:calc(24px + env(safe-area-inset-top));left:0;right:0;text-align:center;color:#aaa;font-size:var(--t2);padding:0 150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
 .lightbox .x b{font-size:26px;line-height:1;font-weight:400}
@@ -409,6 +425,12 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .schedule-form input,.schedule-form textarea,.schedule-form select{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:16px;margin:6px 0 0}
 .schedule-form textarea{resize:vertical;line-height:1.5}.schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.schedule-grid>*{min-width:0}
 @media(min-width:601px){.schedule-dialog{align-items:center}}
+
+.process-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;margin-bottom:8px}
+.process-summary .ptog{flex:1;min-width:0;margin:0;text-align:left}
+.process-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.process-time{flex:none;font-size:var(--t2);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.process-summary.time-only{justify-content:flex-end}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
@@ -478,7 +500,7 @@ function procHTML(list, pid, tid) {
     : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
-let attachFiles = [], limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
+let limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
 function notice(s) {
@@ -501,7 +523,7 @@ function watchStatus() {
   document.title = n ? `(${n}) 案头` : '案头';
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
-let stick = false, sessions = [], folders = [], recent = [], lastFolder = '', sel = null, lastKey = '', attach = [], sending = false, pending = {}, opened = new Set();
+let stick = false, sessions = [], folders = [], recent = [], lastFolder = '', sel = null, lastKey = '', pending = {}, opened = new Set();
 
 // Mac 连不上（睡着、断网、案头在更新）时反向代理回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
 function setOffline(off) {
@@ -528,17 +550,27 @@ function upload(path, body, onProg) {
   return new Promise((ok, bad) => {
     const x = new XMLHttpRequest();
     x.open('POST', '/_x/api/' + path);
-    x.setRequestHeader('Content-Type', 'application/json');
+    const rawFiles = (body.files || []).some(f => f instanceof File);
+    if (!rawFiles) x.setRequestHeader('Content-Type', 'application/json');
     x.upload.onprogress = e => { if (e.lengthComputable) onProg(e.loaded, e.total); };
-    x.onerror = () => { setOffline(true); bad(new Error('offline')); };
+    x.onerror = () => { setOffline(true); bad(new Error('上传连接中断，附件已保留，请保持页面打开后重试')); };
+    x.onabort = () => bad(new Error('上传已中止，附件已保留'));
+    x.ontimeout = () => bad(new Error('上传超时，附件已保留，请重试'));
     x.onload = () => {
       if (x.status === 401) { clearThreads(); location.href = '/_x/login?next=' + encodeURIComponent('/_x/' + location.hash); return bad(new Error('login')); }
       if ([502, 503, 504].includes(x.status)) { setOffline(true); return bad(new Error('offline')); }
       if (x.status === 413) return bad(new Error('big'));
       setOffline(false);
-      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(e); }
+      if (x.status >= 400) return bad(new Error(`服务器接收失败（${x.status}），附件已保留`));
+      try { ok(JSON.parse(x.responseText)); } catch (e) { bad(new Error('服务器返回异常，附件已保留，请重试')); }
     };
-    x.send(JSON.stringify(body));
+    if (rawFiles) {
+      const form = new FormData();
+      const {files, ...message} = body;
+      form.append('message', JSON.stringify(message));
+      for (const f of files) form.append('files', f, f.name);
+      x.send(form);
+    } else x.send(JSON.stringify(body));
   });
 }
 const sendApi = (body, onProg) => (body.files || []).length || (body.images || []).length ? upload('send', body, onProg) : api('send', body);
@@ -832,6 +864,7 @@ function rowMenu(num) {
     } else if (a === 'del') {
       el.remove();
       if (await manage(num, 'delete')) {
+        speechPlayer.deleted(num);
         if (sel === num) goList();
         toast(`已删除“${s.name.slice(0, 10)}${s.name.length > 10 ? '…' : ''}”`, '撤销', () => restore(num));
       }
@@ -944,7 +977,7 @@ function navTo(state, hash) {
 function openSession(num, fromPop) {
   partialText = ''; setTimeout(connectEvents);
   if (sel && sel !== num) presence(false);
-  sel = num; lastKey = ''; attach = []; attachFiles = []; presence(true);
+  sel = num; lastKey = ''; presence(true);
   if (!fromPop) navTo({s: num}, '#s' + num);
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
@@ -963,7 +996,7 @@ function openSession(num, fromPop) {
   feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
   feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
   $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
-  wireComposer((text, onProg) => sendApi({num, text, images: attach, files: attachFiles}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
+  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
 
@@ -1045,44 +1078,73 @@ const standalone = matchMedia('(display-mode: standalone)').matches || navigator
 document.addEventListener('click', e => {
   const a = e.target.closest && e.target.closest('a.file');
   if (!a || !standalone) return;
+  // 原始 PDF 在独立浏览页打开，交给浏览器的完整 PDF 阅读器。
+  if (/\.pdf$/i.test((a.querySelector('.fn') || a).textContent.trim())) return;
   e.preventDefault(); viewFile(a.href, (a.querySelector('.fn') || a).textContent.trim());
 });
+// 取文件时报进度：大文件（几十 MB 的视频）经隧道要下好一阵，不能只显示一句“正在取文件…”
+async function fetchFile(url, onp, signal) {
+  const r = await fetch(url, {signal}); if (!r.ok) throw new Error(r.status);
+  const total = +r.headers.get('content-length') || 0, type = r.headers.get('content-type') || '';
+  if (!r.body || !r.body.getReader) return r.blob();
+  const rd = r.body.getReader(), parts = []; let got = 0;
+  for (;;) { const {done, value} = await rd.read(); if (done) break; parts.push(value); got += value.length; onp(got, total); }
+  return new Blob(parts, {type});
+}
+const progressHTML = (got, total) => total
+  ? `正在取文件… ${size(got)} / ${size(total)}（${Math.floor(got * 100 / total)}%）<div class="bar"><i style="width:${(got * 100 / total).toFixed(1)}%"></i></div>`
+  : `正在取文件… 已取 ${size(got)}`;
 async function viewFile(url, name) {
   const el = document.createElement('div'); el.className = 'lightbox fv';
   el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享 / 存储</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
   let u = '';
+  const ac = new AbortController();
   el.querySelector('.x').onclick = () => history.back();
-  new MutationObserver((_, ob) => { if (!el.isConnected) { if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  new MutationObserver((_, ob) => { if (!el.isConnected) { ac.abort(); el.querySelectorAll('audio,video').forEach(a => { a.pause(); a.removeAttribute('src'); a.load(); }); if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  const sh = el.querySelector('.sh'), tipOf = () => el.querySelector('.tip');
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const pull = async () => {
+    const blob = await fetchFile(url, (g, t) => { const tp = tipOf(); if (tp) tp.innerHTML = progressHTML(g, t); }, ac.signal);
+    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'}[ext] || blob.type);
+    return new File([blob], name, {type});
+  };
+  // 视频：不先整个下完，直接边下边播（服务端支持 Range）；要存到手机再点“存到手机”下载，下载时有进度
+  if (/^(mp4|m4v|mov|webm)$/.test(ext)) {
+    tipOf().outerHTML = `<video controls playsinline preload="metadata" src="${esc(url)}#t=0.1"></video><div class="tip">点 ▶ 边下边播，不用等整个下完。<br>要存到手机，点左上角“存到手机”。</div>`;
+    const v = el.querySelector('video');
+    v.onplay = () => speechPlayer.pause();
+    v.onerror = () => { const tp = tipOf(); if (tp) tp.textContent = '这个视频在这里放不了。点左上角“存到手机”，下完用相册或文件 App 打开。'; };
+    sh.textContent = '存到手机'; sh.hidden = false;
+    sh.onclick = async () => {
+      sh.onclick = null; sh.textContent = '下载中…';
+      try {
+        const file = await pull(); if (!el.isConnected) return;
+        // iPhone 的分享面板要“刚点过”才肯弹出，下完要再点一下
+        sh.textContent = '点这里存';
+        tipOf().textContent = '下完了。点左上角“点这里存”，选“存储视频”或“存到文件”。';
+        sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
+        if (!(navigator.canShare && navigator.canShare({files: [file]}))) { sh.hidden = true; tipOf().textContent = '下完了，但这台设备不支持从这里存，回电脑上取吧。'; }
+      } catch (err) { if (!el.isConnected) return; sh.textContent = '存到手机'; sh.onclick = null; tipOf().textContent = '没下完，点“完成”回去再试一次。'; }
+    };
+    return;
+  }
   try {
-    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
-    const blob = await r.blob(); if (!el.isConnected) return;
-    const ext = (name.split('.').pop() || '').toLowerCase();
-    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg'}[ext] || blob.type);
-    const file = new File([blob], name, {type});
+    const file = await pull(); if (!el.isConnected) return;
+    const type = file.type;
     u = URL.createObjectURL(file);
-    const tip = el.querySelector('.tip');
-    const pdf = type === 'application/pdf' && /^\/dl\//.test(new URL(url, location.href).pathname);
+    const tip = tipOf();
     if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
-    else if (pdf) {
-      // PDF：Mac 那边转成一页页图片，竖着往下滑；点一页放大看（能左右翻页、双指放大）
-      tip.textContent = '正在把 PDF 转成图片…';
-      const d = await (await fetch(new URL(url, location.href).pathname + '/pages')).json().catch(() => ({pages: []}));
-      if (!el.isConnected) return;
-      if (d.pages && d.pages.length) {
-        const box = document.createElement('div'); box.className = 'pages';
-        box.innerHTML = d.pages.map((p, k) => `<img src="${esc(p)}" loading="${k < 2 ? 'eager' : 'lazy'}" data-k="${k}"><div class="pn">${k + 1} / ${d.pages.length}</div>`).join('');
-        box.onclick = e => { const im = e.target.closest('img'); if (im) viewImage(d.pages, +im.dataset.k); };
-        el.querySelector('.tip').replaceWith(box);
-      } else el.querySelector('.tip').outerHTML = `<iframe src="${u}"></iframe>`;
-    }
+    else if (/^audio\//.test(type)) tip.outerHTML = `<audio controls preload="metadata" src="${u}" style="width:calc(100% - 40px);margin:40px 20px"></audio>`;
     else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
     else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
+    const previewAudio = el.querySelector('audio');
+    if (previewAudio) previewAudio.onplay = () => speechPlayer.pause();
     if (navigator.canShare && navigator.canShare({files: [file]})) {
-      const sh = el.querySelector('.sh'); sh.hidden = false;
+      sh.hidden = false;
       sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
-    } else if (!/^image\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
-  } catch (err) { const t = el.querySelector('.tip'); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
+    } else if (!/^image\/|^audio\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
+  } catch (err) { const t = tipOf(); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
 }
 
 // 看大图：在页面里盖一层（主屏幕 app 里没有浏览器的返回键，不能跳走）。两指捏合放大、双击放大/还原、放大后单指拖动；
@@ -1255,15 +1317,16 @@ function renderThread(d) {
     const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : ''].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<a class="file" href="${esc(f.url)}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>`).join('');
+    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>${/\.pdf$/i.test(f.name) ? `<a class="file-download" href="${esc(f.url)}?download=1" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a>` : ''}</div>`).join('');
+    const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
-      return `<button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</button>${op ? procHTML(it.process, pid, it.tid) : ''}`;
-    })() : '';
-    // 一眼看出这轮动了什么：改了几个文件、跑了几条命令、交了几张图
-    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', it.ncmds ? `跑 ${it.ncmds} 条命令` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
+      return `<div class="process-summary"><button class="ptog ${op ? 'open' : ''}" data-p="${pid}">${ICON.chev}<span class="process-title">工作过程 · ${it.steps} 步${thinks ? ' · 含思考' : ''}</span></button>${elapsed}</div>${op ? procHTML(it.process, pid, it.tid) : ''}`;
+    })() : elapsed ? `<div class="process-summary time-only">${elapsed}</div>` : '';
+    // 回复底部只保留模型与交付信息；耗时放在工作过程右侧
+    const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
-    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}</span>`;
+    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
@@ -1330,7 +1393,7 @@ function renderThread(d) {
       else forkAt(d, prevEnd(i) || '', text);
     } else if (c) {
       const it = d.items[+c.dataset.i];
-      if (act === 'copy') copyBtn(b, it.text); else forkAt(d, it.end, '');
+      if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start(d, it); else forkAt(d, it.end, '');
     }
   });
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
@@ -1426,8 +1489,162 @@ const IB = {
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
   fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7M13.5 19H18v-4.5"/></svg>',
+  listen: '<svg viewBox="0 0 24 24"><path d="m11 5-6 4H2v6h3l6 4zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></svg>',
   ok: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'};
 const ib = (a, t) => `<button class="ib" data-act="${a}" data-tip="${t}" aria-label="${t}">${IB[a]}</button>`;
+// 同一个音频元素跨对话保留；流式播放无需锁屏后用 JS 接下一段。
+const speechPlayer = (() => {
+  const audio = new Audio(); audio.preload = 'none';
+  const bar = document.createElement('section'); bar.className = 'speech-player'; bar.hidden = true;
+  bar.setAttribute('aria-label', '回复朗读');
+  bar.innerHTML = `<div class="sp-main"><button class="sp-play" aria-label="播放"></button><button class="sp-back" aria-label="后退15秒"><svg viewBox="0 0 24 24"><path d="M4 9a8 8 0 1 1 0 6M4 4v5h5"/><text x="8" y="16" stroke="none" fill="currentColor" font-size="9">15</text></svg></button><div class="sp-title"><b></b><span role="status" aria-live="polite"></span></div><button class="sp-next" aria-label="前进15秒"><svg viewBox="0 0 24 24"><path d="M20 9a8 8 0 1 0 0 6M20 4v5h-5"/><text x="7" y="16" stroke="none" fill="currentColor" font-size="9">15</text></svg></button><button class="sp-speed" aria-label="播放速度">1×</button><a class="sp-download" target="_blank" rel="noopener" aria-label="下载音频">${ICON.down}</a><button class="sp-close" aria-label="关闭朗读">×</button></div><div class="sp-progress"><span class="sp-pos">0:00</span><input type="range" min="0" max="1" step="0.1" value="0" aria-label="播放进度"><span class="sp-total">生成中</span></div>`;
+  const q = s => bar.querySelector(s), slider = q('input');
+  const pauseIcon = '<svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="3"/></svg>';
+  let listener = '', waiting = '', mediaVersion = 0, buffering = false;
+  let source = null, key = '', ref = '', num = 0, ready = false, attached = false, mode = '', desired = false, loading = false;
+  let restoreAt = 0, total = 0, token = 0, poll = null, error = '', failed = false, lastSave = 0, lastTouch = 0, dragging = false;
+  const timecode = t => { t = Math.max(0, Math.floor(t || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  function mount() {
+    if (bar.hidden) return;
+    const mobileList = matchMedia('(max-width:820px)').matches && !$('#app').classList.contains('in');
+    const host = mobileList ? document.querySelector('.side') : $('#main');
+    const head = host?.querySelector(mobileList ? '.brand' : '.head');
+    const before = head ? head.nextSibling : host?.firstChild;
+    if (host && (bar.parentNode !== host || before !== bar)) host.insertBefore(bar, before);
+  }
+  function positions() {
+    try { return JSON.parse(localStorage.getItem('speechPositions') || '{}'); } catch (_) { return {}; }
+  }
+  function save(force = false) {
+    if (!key || !attached || audio.readyState < 1 || (!force && Date.now() - lastSave < 3000)) return;
+    lastSave = Date.now();
+    const p = positions(); p[key] = {at: audio.ended ? 0 : audio.currentTime || 0, touched: Date.now()};
+    const list = Object.entries(p).filter(([,v]) => Date.now() - v.touched < 7 * 86400000).sort((a,b) => b[1].touched-a[1].touched).slice(0,50);
+    try { localStorage.setItem('speechPositions', JSON.stringify(Object.fromEntries(list))); } catch (_) {}
+  }
+  function touch(playing) {
+    if (!key) return;
+    lastTouch = Date.now(); api('audio/' + key, {playing, listener}).catch(() => {});
+  }
+  function paint() {
+    const active = attached && !audio.paused && !audio.ended && !buffering;
+    q('.sp-play').innerHTML = desired && (loading || buffering) ? '<i class="spin"></i>' : active ? pauseIcon : ICON.play;
+    q('.sp-play').setAttribute('aria-label', active || desired && (loading || buffering) ? '暂停' : '播放');
+    q('.sp-title span').textContent = error || (!desired ? (audio.ended ? '已播完' : '已暂停') : waiting || (buffering ? '正在缓冲…' : !attached ? '点播放开始' : audio.paused ? '已暂停' : !ready ? '播放中 · 正在生成' : ''));
+    q('.sp-pos').textContent = timecode(attached ? audio.currentTime : restoreAt);
+    q('.sp-total').textContent = ready ? timecode(total) : waiting.startsWith('排队中') ? '排队中' : waiting.startsWith('正在准备') ? '准备中' : '生成中';
+    slider.disabled = !ready;
+    slider.max = Math.max(total, 1);
+    if (!dragging) slider.value = Math.min(total || 0, audio.currentTime || 0);
+    q('.sp-back').disabled = q('.sp-next').disabled = !ready;
+    q('.sp-download').hidden = !ready;
+    if (ready) q('.sp-download').href = '/_x/audio/' + key + '.mp3?download=1';
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = active ? 'playing' : 'paused';
+      if (ready && total > 0 && Number.isFinite(audio.currentTime)) {
+        try { navigator.mediaSession.setPositionState({duration: total, playbackRate: audio.playbackRate, position: Math.min(total, audio.currentTime)}); } catch (_) {}
+      }
+    }
+  }
+  async function play() {
+    const version = mediaVersion; desired = true; error = '';
+    try { await audio.play(); } catch (_) { if (version === mediaVersion) { desired = false; error = '点播放开始收听'; } }
+    if (version === mediaVersion) paint();
+  }
+  function attach(full, at = 0) {
+    const wasPlaying = desired; ++mediaVersion; buffering = true;
+    attached = false; mode = full ? 'full' : 'stream';
+    audio.src = '/_x/audio/' + key + '.mp3' + (full ? '?complete=1' : '?stream=1');
+    audio.onloadedmetadata = () => {
+      attached = true;
+      if (full && at > 0) audio.currentTime = Math.min(at, Math.max(0, total - .1));
+      paint();
+    };
+    audio.load(); attached = true;
+    if (wasPlaying) play(); else paint();
+  }
+  async function refresh(myToken) {
+    if (myToken !== token || !key) return;
+    try {
+      const d = await api('audio/' + key + '?listener=' + encodeURIComponent(listener));
+      if (myToken !== token) return;
+      if (!d.ok) { failed = true; error = '音频已清理，请点播放重新生成'; desired = false; loading = false; audio.pause(); paint(); return; }
+      if (d.state === 'error') { failed = true; loading = false; error = d.error || '生成失败，请关闭后重新点朗读'; desired = false; audio.pause(); paint(); return; }
+      total = d.duration || 0; ready = d.state === 'ready'; loading = !d.parts && !ready;
+      waiting = d.state === 'queued' ? (d.queue_ahead ? `排队中，前面还有 ${d.queue_ahead} 段` : '正在准备语音…') : loading ? `正在生成，已等 ${d.wait_seconds || 0} 秒` : '';
+      if (!attached && (d.parts || ready) && (!restoreAt || ready)) {
+        attach(ready, ready ? restoreAt : 0);
+      } else if (ready && mode === 'stream' && document.visibilityState === 'visible') {
+        attach(true, audio.currentTime || 0);
+      }
+      paint();
+    } catch (e) { if (myToken !== token) return; error = e.message === 'offline' ? '连接中…' : e.message; paint(); }
+    if (myToken === token && !ready) poll = setTimeout(() => refresh(myToken), 1000);
+  }
+  function release(id) {
+    if (id) fetch('/_x/api/speech/release', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({listener: id}), keepalive: true}).catch(() => {});
+  }
+  function close() {
+    const oldListener = listener; ++mediaVersion; buffering = false;
+    ++token; clearTimeout(poll); save(true); desired = false; attached = false; audio.onloadedmetadata = null; audio.pause(); touch(false);
+    audio.removeAttribute('src'); audio.load(); attached = false; key = ''; ref = ''; source = null; listener = ''; waiting = ''; bar.hidden = true; bar.remove();
+    release(oldListener);
+    if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; }
+  }
+  async function start(d, it) {
+    const nextRef = d.num + ':' + (it.tid || it.end);
+    if (ref === nextRef && key) { toggle(); return; }
+    close(); const myToken = ++token, myListener = crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random();
+    listener = myListener; waiting = '正在准备语音…';
+    source = {d, it}; num = d.num; ref = nextRef; ready = false; total = 0; loading = true; desired = true; error = ''; failed = false; restoreAt = 0;
+    q('.sp-title b').textContent = d.name || '案头朗读'; bar.hidden = false; mount(); paint();
+    // 用户点击时先激活同一媒体元素，后续生成完成仍使用它；若系统拒绝自动续播，提供明确的播放按钮。
+    audio.src = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+    audio.play().catch(() => {});
+    try {
+      const r = await api('speech/' + d.num, {tid: it.tid || '', end: it.end || '', listener: myListener});
+      if (myToken !== token) { release(myListener); return; }
+      if (!r.ok) throw new Error(r.error || '没有生成成功，请重试');
+      key = r.key; restoreAt = positions()[key]?.at || 0;
+      if ('mediaSession' in navigator && typeof MediaMetadata !== 'undefined') navigator.mediaSession.metadata = new MediaMetadata({title: d.name || '案头朗读', artist: '案头'});
+      touch(true); await refresh(myToken);
+    } catch (e) { if (myToken === token) { failed = true; loading = false; desired = false; error = e.message; paint(); } }
+  }
+  function toggle() {
+    if (failed && source) { const prev = source; close(); start(prev.d, prev.it); return; }
+    if (!attached) { desired = !desired; paint(); return; }
+    if (!audio.paused || loading && desired) { desired = false; audio.pause(); } else { desired = true; if (audio.error) attach(ready, audio.currentTime || restoreAt); else play(); }
+    touch(desired); paint();
+  }
+  function seek(to) { if (ready && attached) { audio.currentTime = Math.max(0, Math.min(total, to)); save(true); paint(); } }
+  q('.sp-play').onclick = toggle;
+  q('.sp-back').onclick = () => seek(audio.currentTime - 15);
+  q('.sp-next').onclick = () => seek(audio.currentTime + 15);
+  q('.sp-close').onclick = close;
+  q('.sp-speed').onclick = () => {
+    const rates = [1, 1.25, 1.5, 1.75, 2, .75]; audio.playbackRate = rates[(rates.indexOf(audio.playbackRate) + 1) % rates.length];
+    q('.sp-speed').textContent = audio.playbackRate + '×'; paint();
+  };
+  slider.oninput = () => { dragging = true; q('.sp-pos').textContent = timecode(+slider.value); };
+  slider.onchange = () => { seek(+slider.value); dragging = false; paint(); };
+  slider.onblur = () => { dragging = false; paint(); };
+  audio.ontimeupdate = () => { if (!attached) return; save(); if (!audio.paused && Date.now() - lastTouch > 30000) touch(true); paint(); };
+  audio.onwaiting = () => { if (attached) { buffering = true; paint(); } };
+  audio.onplaying = () => { if (attached) { buffering = false; error = ''; paint(); } };
+  audio.onplay = () => { if (attached) { desired = true; paint(); } };
+  audio.onpause = () => { if (attached) { save(true); paint(); } };
+  audio.onended = () => { if (attached) { desired = false; save(true); touch(false); paint(); } };
+  audio.onerror = () => { if (attached) { desired = false; error = '播放中断，点播放重试'; paint(); } };
+  addEventListener('pagehide', () => { save(true); release(listener); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && key) { clearTimeout(poll); refresh(token); } });
+  new MutationObserver(mount).observe($('#app'), {childList: true, subtree: true, attributes: true, attributeFilter: ['class']});
+  addEventListener('resize', mount);
+  if ('mediaSession' in navigator) {
+    const actions = {play, pause: () => { desired = false; audio.pause(); touch(false); paint(); }, seekbackward: e => seek(audio.currentTime - (e.seekOffset || 15)), seekforward: e => seek(audio.currentTime + (e.seekOffset || 15)), seekto: e => seek(e.seekTime), stop: close};
+    for (const [name, handler] of Object.entries(actions)) { try { navigator.mediaSession.setActionHandler(name, handler); } catch (_) {} }
+  }
+  return {start, close, pause: () => { desired = false; audio.pause(); touch(false); paint(); }, deleted: n => { if (num === n) close(); }};
+})();
 function copyBtn(b, text) {
   navigator.clipboard.writeText(text).then(() => {
     b.innerHTML = IB.ok; b.dataset.tip = '已复制'; b.classList.add('done');
@@ -1484,7 +1701,7 @@ async function loadThread() {
 }
 
 function shrink(file) {
-  return new Promise(res => {
+  return new Promise((res, reject) => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
       const k = Math.min(1, 1600 / Math.max(img.width, img.height));
@@ -1492,80 +1709,120 @@ function shrink(file) {
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
       res(c.toDataURL('image/jpeg', .86));
     };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
     img.src = url;
   });
 }
 
+// 文字草稿持久化；照片和 File 原件保留在本页内存，切换对话不会丢。
+const composerDrafts = new Map();
+let composerView = null;
+function composerDraft(key) {
+  if (!composerDrafts.has(key)) {
+    let text = '';
+    try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
+    composerDrafts.set(key, {text, images: [], files: [], sending: false, reading: 0, error: '', progress: ''});
+  }
+  return composerDrafts.get(key);
+}
+function saveComposerText(key, text) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('composerDrafts') || '{}');
+    if (text) saved[key] = text; else delete saved[key];
+    localStorage.setItem('composerDrafts', JSON.stringify(saved));
+  } catch (_) {}
+}
+function refreshComposer(key) { if (composerView?.key === key) composerView.paint(); }
+
 function wireComposer(sendFn, onSent, onOpening) {
-  const ta = $('#ta'), btn = $('#send');
-  const sync = () => {
-    // 最高只到“键盘上方看得见的区域”的三成：键盘弹起时 innerHeight 不变，按它算会长到顶栏下面被挡住
+  const ta = $('#ta'), btn = $('#send'), thumbs = $('#thumbs'), warning = $('#warn');
+  const key = String(sel ?? 'new'), state = composerDraft(key), num0 = sel;
+  const active = () => ta.isConnected && $('#ta') === ta && String(sel ?? 'new') === key && $('#app').classList.contains('in');
+  const paint = () => {
+    if (!active()) return;
+    if (ta.value !== state.text) ta.value = state.text;
     const vis = window.visualViewport ? visualViewport.height : innerHeight;
     ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
-    btn.disabled = sending || (!ta.value.trim() && !attach.length && !attachFiles.length);
-    $('#thumbs').hidden = !attach.length && !attachFiles.length;
-    $('#thumbs').innerHTML = attach.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
-      + attachFiles.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
-    document.querySelectorAll('.thumb button[data-i]').forEach(b => b.onclick = () => { attach.splice(+b.dataset.i, 1); sync(); });
-    document.querySelectorAll('.thumb button[data-f]').forEach(b => b.onclick = () => { attachFiles.splice(+b.dataset.f, 1); sync(); });
+    btn.disabled = state.sending || state.reading > 0 || (!state.text.trim() && !state.images.length && !state.files.length);
+    btn.innerHTML = state.sending ? '<i class="spin"></i>' : ICON.up;
+    warning.hidden = !(state.error || state.progress);
+    warning.textContent = state.error || state.progress;
+    warning.classList.toggle('prog', !!state.progress && !state.error);
+    thumbs.hidden = !state.images.length && !state.files.length;
+    thumbs.innerHTML = state.images.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
+      + state.files.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
+    thumbs.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { state.images.splice(+b.dataset.i, 1); paint(); });
+    thumbs.querySelectorAll('button[data-f]').forEach(b => b.onclick = () => { state.files.splice(+b.dataset.f, 1); paint(); });
   };
-  const warn = t => { $('#warn').hidden = !t; $('#warn').textContent = t || ''; };
-  const readFile = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  composerView = {key, paint};
+  const sync = () => { state.text = ta.value; saveComposerText(key, state.text); paint(); };
   const add = async files => {
-    for (const f of files) {
-      if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) attach.push(await shrink(f));
-      else if (f.size > 300 * 1048576) warn(`${f.name} 超过 300MB，传不了`);
-      else if (attachFiles.length >= 10) warn('一次最多传 10 个文件');
-      else if (attachFiles.reduce((n, x) => n + x.size, 0) + f.size > 300 * 1048576) warn('附件合计超过 300MB，请分几次传');
-      else attachFiles.push({name: f.name, size: f.size, data: await readFile(f)});
-    }
-    sync();
+    state.reading++; refreshComposer(key);
+    try {
+      for (const f of [...files]) {
+        if (/^image\/(png|jpe?g|gif|webp|heic|heif)$/.test(f.type)) state.images.push(await shrink(f));
+        else state.files.push(f);
+      }
+    } catch (_) { state.error = '照片读取失败，请重新选择该照片'; }
+    finally { state.reading--; refreshComposer(key); }
   };
   ta.oninput = sync;
-  $('#file').onchange = e => add(e.target.files);
+  $('#file').onchange = e => { const files = [...e.target.files]; e.target.value = ''; add(files); };
   ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean); if (fs.length) { e.preventDefault(); add(fs); } };
-  // 截图、照片、文件直接拖进页面任何地方都算附件（iPad 从截图预览、相册、文件 App 拖；电脑从桌面拖）
   const box = ta.closest('.composer'); let depth = 0;
   const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
   document.ondragenter = e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; box.classList.add('drop'); };
   document.ondragover = e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
   document.ondragleave = e => { if (hasFiles(e) && --depth <= 0) { depth = 0; box.classList.remove('drop'); } };
-  document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
-  // 回车发送（iPad 连不连键盘都算、电脑也是），Shift+回车换行；打中文选字时的回车不算。只有手机上回车是换行。
+  document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
   const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
   ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
-  ta.onkeydown = e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
-  };
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); } };
   async function go() {
-    const text = ta.value.trim();
-    if ((!text && !attach.length && !attachFiles.length) || sending) return;
-    sending = true; warn(''); btn.disabled = true; btn.innerHTML = '<i class="spin"></i>';
-    // 一按发送就先显示在对话里（长文字带图上传要几秒），没发出去再撤回
-    const shown = text || (attachFiles.length ? '[附件]' : '[图片]'), num0 = sel;
-    const item = onSent ? onSent(shown, attach.slice()) : null;
-    if (onSent) { lastKey = ''; loadThread(); } else if (onOpening) onOpening(shown, attach.slice());
-    const undo = () => { if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p.text !== shown); if (onOpening) onOpening(null); lastKey = ''; loadThread(); };
+    const originalText = state.text, text = originalText.trim();
+    if ((!text && !state.images.length && !state.files.length) || state.sending || state.reading) return;
+    const snapshot = {images: state.images.slice(), files: state.files.slice()};
+    state.sending = true; state.error = ''; state.progress = ''; paint();
+    const shown = text || (snapshot.files.length ? '[附件]' : '[图片]');
+    const item = onSent ? onSent(shown, snapshot.images) : null;
+    if (onSent) { lastKey = ''; loadThread(); } else if (onOpening && active()) onOpening(shown, snapshot.images);
+    const undo = () => {
+      if (num0 && pending[num0]) pending[num0] = pending[num0].filter(p => p !== item);
+      if (onOpening && active()) onOpening(null);
+      lastKey = ''; loadThread();
+    };
     try {
       const mb = n => (n / 1048576).toFixed(1);
       const r = await sendFn(text, (a, b) => {
-        const done = a >= b, el = $('#warn');
-        el.hidden = false; el.classList.add('prog');
-        el.textContent = done ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
-        const op = document.querySelector('#opening .lsub');
-        if (op) op.textContent = done ? '已送到' : `正在上传 ${mb(a)} / ${mb(b)} MB`;
-      });
-      $('#warn').classList.remove('prog'); warn('');
-      if (r.ok) {
+        state.progress = a >= b ? '传完了，正在交给案头…' : `正在上传 ${mb(a)} / ${mb(b)} MB · ${Math.floor(a / b * 100)}%`;
+        refreshComposer(key);
+        if (active()) { const op = document.querySelector('#opening .lsub'); if (op) op.textContent = a >= b ? '已送到' : state.progress; }
+      }, snapshot);
+      if (!r.ok) { undo(); state.error = r.error || '没发出去，再试一次'; }
+      else {
         if (r.scheduled) { undo(); toast('定时任务已安排 · ' + scheduleDate(r.scheduled.next_at)); }
         if (item) item.acked = true;
-        ta.value = ''; attach = []; attachFiles = [];
-        if (r.num) { sending = false; await loadSessions(); openSession(r.num); return; }
-      } else { undo(); warn(r.error || '没发出去，再试一次'); }
-    } catch (e) { $('#warn').classList.remove('prog'); undo(); if (e.message !== 'login') warn(e.message === 'big' ? '附件加起来太大（超过 300MB），分几次发' : '没发出去，再试一次'); }
-    sending = false; btn.innerHTML = ICON.up; sync(); lastKey = ''; loadThread(); loadSessions();
+        // 只清除这次发送的内容；发送中输入的新草稿、另一对话的内容都保留。
+        if (state.text === originalText) state.text = '';
+        state.images = state.images.filter(x => !snapshot.images.includes(x));
+        state.files = state.files.filter(x => !snapshot.files.includes(x));
+        saveComposerText(key, state.text);
+        if (r.num) {
+          state.sending = false; state.progress = ''; refreshComposer(key);
+          await loadSessions();
+          if (active()) openSession(r.num); else toast('新对话已创建', '查看', () => openSession(r.num));
+          return;
+        }
+      }
+    } catch (e) {
+      undo();
+      if (e.message !== 'login') state.error = e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次';
+    } finally {
+      state.sending = false; state.progress = ''; refreshComposer(key);
+      lastKey = ''; loadThread(); loadSessions();
+    }
   }
-  btn.onclick = go; sync();
+  btn.onclick = go; paint();
 }
 
 const WHERE_ICON = {
@@ -1634,7 +1891,7 @@ function openNew(fromPop, preset) {
   const ms = {model: 'auto', effort: 'medium'}; let touched = false;
   renderModel(ms, () => { touched = true; }, true);
   const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
-  wireComposer((text, onProg) => sendApi({folder: pick, ...extra(), text, images: attach, files: attachFiles}, onProg),
+  wireComposer((text, onProg, attachments) => sendApi({folder: pick, ...extra(), text, ...attachments}, onProg),
     null, (text, imgs) => {
       // 一按发送就进“正在开”：你的话先摆出来，说清楚在等什么、能不能走开（开好了自动进去）
       const old = $('#opening'); if (old) old.remove(); if (text === null) return;

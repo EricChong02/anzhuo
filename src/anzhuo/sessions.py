@@ -20,6 +20,7 @@ from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage,
 
 from . import guard
 from .folders import blocked, display
+from .image_delegate import ImageDelegator
 from .cards import step_label
 from .report import Turn, brief
 
@@ -30,7 +31,8 @@ CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收�
 
 # 案头给每个对话追加的固定要求。这几条是案头与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
 # 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
-RULES = """做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
+RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
+做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
@@ -173,6 +175,8 @@ class Runner:
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.clients: dict[int, ClaudeSDKClient] = {}
+        self.image_delegate = ImageDelegator(registry.path.parent / 'image_jobs') if registry else None
+        self.image_tasks: dict[int, set[asyncio.Task]] = {}
         self.codex_live: dict = {}  # 正在跑的 Codex 连接（插话、停下用）
         self.limits_gpt: dict[str, tuple[float, str | None]] = {}  # ChatGPT 会员的 Codex 额度（同上格式）
         self._gpt_usage_at = 0.0
@@ -361,6 +365,11 @@ class Runner:
         client = self.clients.get(num)
         if num in self.turns:
             self.turns[num].interrupted = True
+        image_tasks = list(self.image_tasks.get(num, ()))
+        for task in image_tasks:
+            task.cancel()
+        if image_tasks:
+            await asyncio.gather(*image_tasks, return_exceptions=True)
         if conn := self.codex_live.get(num):
             try:
                 await conn.interrupt()
@@ -370,7 +379,7 @@ class Runner:
         if client:
             await client.interrupt()
             return True
-        return False
+        return bool(image_tasks)
 
     async def _worker(self, num: int) -> None:
         q = self.queues[num]
@@ -405,6 +414,11 @@ class Runner:
                     if "initialize" in turn.error:
                         turn.error = "Claude 一分钟内没启动起来（常见原因：Mac 在等权限弹窗，或网络不通）。原始信息：" + turn.error
                 finally:
+                    image_tasks = list(self.image_tasks.get(s.num, ()))
+                    for task in image_tasks:
+                        task.cancel()
+                    if image_tasks:
+                        await asyncio.gather(*image_tasks, return_exceptions=True)
                     turn.ended = time.time()
                     self.last[num] = turn
                     self.turns.pop(num, None)
@@ -470,7 +484,62 @@ class Runner:
         except Exception:  # noqa: BLE001 - 查不到额度不影响报告
             log.debug("查额度失败", exc_info=True)
 
-    def _image_tool(self, turn: Turn):
+    async def _generate_images(self, s: Session, turn: Turn, args: dict) -> dict:
+        if self.image_delegate is None:
+            self.image_delegate = ImageDelegator(self.registry.path.parent / 'image_jobs')
+
+        def progress(job_id, state, text):
+            key = 'image:' + job_id
+            if key not in turn.agents:
+                turn.steps.append('委派 Codex 生图')
+                turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': '委派 Codex 生图', 'detail': job_id})
+            turn.last_at = time.time()
+            agent = turn.agents.setdefault(key, {'name': 'Codex 生图', 'kind': 'agent', 't0': time.time(), 't1': 0})
+            if agent.get('last') and agent['last'] != text and state in ('queued', 'running'):
+                turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
+            agent.update(status='running' if state in ('queued', 'running') else 'stopped' if state in ('cancelled', 'timeout') else state, last=text)
+            if state not in ('queued', 'running'):
+                agent['t1'] = time.time()
+                turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
+
+        async def approve(method, params):
+            if method in ('item/commandExecution/requestApproval', 'execCommandApproval'):
+                cmd = params.get('command') or ''
+                cmd = ' '.join(cmd) if isinstance(cmd, list) else str(cmd)
+                ok = not turn.interrupted
+                if ok and (what := guard.danger(cmd)):
+                    ok = await self.decide(s, turn, what, cmd)
+                return {'decision': ('approved' if ok else 'denied') if method == 'execCommandApproval' else ('accept' if ok else 'decline')}
+            if method in ('item/fileChange/requestApproval', 'applyPatchApproval'):
+                return {'decision': ('approved' if not turn.interrupted else 'denied') if method == 'applyPatchApproval' else ('accept' if not turn.interrupted else 'decline')}
+            return None
+
+        task = asyncio.create_task(self.image_delegate.run(prompt=args.get('prompt', ''), references=args.get('reference_images') or [],
+                cwd=s.cwd, output_dir=args.get('output_dir') or '', add_dirs=s.add_dirs, parent_num=s.num, progress=progress, approve=approve))
+        tasks = self.image_tasks.setdefault(s.num, set())
+        tasks.add(task)
+        try:
+            result = await task
+            if turn.interrupted:
+                return {'state': 'cancelled', 'images': [], 'error': '原任务已停止，未登记附件'}
+            if result['state'] == 'completed':
+                for p in result['images']:
+                    if p not in turn.images:
+                        turn.images.append(p)
+                    if p not in turn.changed_files:
+                        turn.changed_files.append(p)
+                result['message'] = '真实图片已保存并登记到本轮附件，原对话完成后显示；需要检查画面请用 Read 查看图片。此回执不代表用户已收到。'
+            return result
+        except asyncio.CancelledError:
+            if turn.interrupted:
+                return {'state': 'cancelled', 'images': [], 'error': '原任务已停止，Codex 委派连接已关闭'}
+            raise
+        finally:
+            tasks.discard(task)
+            if not tasks:
+                self.image_tasks.pop(s.num, None)
+
+    def _image_tool(self, turn: Turn, session: Session | None = None):
         @tool("send_images", "把截图或图片交给用户看。paths 是本机图片的绝对路径（png/jpg），最多 6 张，按想让用户看的顺序排。",
               {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
                "required": ["paths"]})
@@ -483,7 +552,7 @@ class Runner:
                 else:
                     bad.append(p)
             turn.images.extend(ok)
-            msg = f"已收下 {len(ok)} 张。"
+            msg = f"已登记 {len(ok)} 张图片，本轮结束后会显示在对话中；这不是用户已收到的回执。"
             if bad:
                 msg += f" 没收下：{', '.join(bad)}（不存在、不是图片或超过 6 张）"
             return {"content": [{"type": "text", "text": msg}]}
@@ -501,7 +570,7 @@ class Runner:
                 else:
                     bad.append(p)
             turn.files.extend(ok)
-            msg = f"已收下 {len(ok)} 个文件。"
+            msg = f"已登记 {len(ok)} 个文件，本轮结束后会显示下载入口；这不是用户已收到的回执。"
             if bad:
                 msg += f" 没收下：{', '.join(bad)}（不存在、超过 300MB 或超过 10 个）"
             return {"content": [{"type": "text", "text": msg}]}
@@ -518,7 +587,19 @@ class Runner:
                 f"每做完一步就马上再调一次 update_plan，把它标 done、下一步标 doing（还剩：{'、'.join(left)}）。" if left else "全部做完了。")
             return {"content": [{"type": "text", "text": tip}]}
 
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan])
+        @tool("generate_images", "委派 Codex 使用内置生图工具生成或编辑图片，等待真实文件结果并自动登记为本轮图片附件。仅用于图片任务，不能代替一般代码任务；参考图传绝对路径，输出目录应在当前工作目录或附加目录内。成功后用 Read 检查图片再继续。",
+              {"type": "object", "properties": {"prompt": {"type": "string"}, "reference_images": {"type": "array", "items": {"type": "string"}}, "output_dir": {"type": "string"}}, "required": ["prompt"]})
+        async def generate_images(args):
+            if session is None or turn.interrupted:
+                result = {"state": "cancelled", "images": [], "error": "当前任务不可委派"}
+            else:
+                try:
+                    result = await self._generate_images(session, turn, args)
+                except (ValueError, OSError) as exc:
+                    result = {"state": "failed", "images": [], "error": str(exc)[:500]}
+            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
+
+        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan, generate_images])
 
     async def _prompt(self, job: Job):
         content: list[dict] = []
@@ -526,6 +607,9 @@ class Runner:
             mt = mimetypes.guess_type(p.name)[0] or "image/png"
             content.append({"type": "image", "source": {"type": "base64", "media_type": mt,
                                                          "data": base64.b64encode(p.read_bytes()).decode()}})
+        if job.images:
+            content.append({"type": "text", "text": "本轮参考图片的本机路径（按显示顺序，供图片工具引用）：\n" +
+                            "\n".join(f"{i}. {p.resolve()}" for i, p in enumerate(job.images, 1))})
         content.append({"type": "text", "text": job.text or "（见图）"})
         yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
 
@@ -546,7 +630,7 @@ class Runner:
             setting_sources=["user", "project", "local"],
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code", "append": build_instructions(self.language, self.extra_instructions)},
-            mcp_servers={"anzhuo": self._image_tool(turn)},
+            mcp_servers={"anzhuo": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）

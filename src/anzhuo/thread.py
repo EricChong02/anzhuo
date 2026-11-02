@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import math
 from pathlib import Path
 
 from .cards import step_label
@@ -168,7 +169,9 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         pairs, free = [], list(reversed(replies))
         for rec in reversed(records):
             lo, hi = rec.get("started") or 0, (rec.get("ended") or time.time()) + 10
-            hit = next((it for it in free if lo - 2 <= it["ts"] <= hi), None)
+            hit = next((it for it in free if it.get("end") == rec["id"]), None)
+            if hit is None:
+                hit = next((it for it in free if lo - 2 <= it["ts"] <= hi), None)
             if hit:
                 free.remove(hit)
                 pairs.append((hit, rec))
@@ -176,6 +179,9 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         pairs = list(zip(reversed(replies), reversed(records)))
     for it, rec in pairs:
         it["model"], it["effort"] = rec.get("model", ""), rec.get("effort", "")
+        started, ended = rec.get("started"), rec.get("ended")
+        if all(isinstance(t, (int, float)) and math.isfinite(t) for t in (started, ended)) and ended >= started:
+            it["elapsed"] = ended - started
         it["tid"] = rec["id"]
         it["title"] = rec.get("title", "")
         it["images"] = rec.get("images", [])

@@ -23,6 +23,7 @@ from aiohttp import web
 
 from . import thread, translate
 from .push import Push
+from .speech import Speech
 from .sessions import COMPACT, Session
 from .cards import parse_decision
 from .sessions import NOISE
@@ -119,6 +120,7 @@ class Web:
         self.push = Push(data_dir / "push.json", self.base or "https://localhost", mirror=watch_host)
         self.store = self._load()
         self._rewind_lock = asyncio.Lock()
+        self.speech = Speech(data_dir / "speech")
         self.bridge = None  # 案头本体（app.Bridge），网页对话框靠它看对话、发话
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
         self._zh_path = data_dir / "translations.json"
@@ -308,6 +310,118 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         resp.del_cookie(COOKIE, path="/")
         return resp
 
+    # ---------- 本地朗读 ----------
+    async def _speech_context(self, app):
+        task = asyncio.create_task(self.speech.maintenance())
+        yield
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await self.speech.close()
+
+    @staticmethod
+    def _speech_listener(request, tag):
+        if not isinstance(tag, str) or len(tag) > 100:
+            raise web.HTTPBadRequest()
+        return hashlib.sha256((request.cookies.get(COOKIE, '') + ':' + tag).encode()).hexdigest()
+
+    async def _release_speech(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        data = await request.json()
+        await self.speech.release(self._speech_listener(request, data.get('listener', '')))
+        return web.json_response({'ok': True})
+
+    async def _api_speech(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        num = int(request.match_info["num"])
+        session = self.bridge.registry.get(num)
+        if not session or session.hidden:
+            raise web.HTTPNotFound()
+        data = await request.json()
+        # 只朗读真实回复；客户端传轮次标识，不接受任意路径、命令或替换后的正文。
+        text = ""
+        if tid := data.get("tid"):
+            if not isinstance(tid, str) or tid not in {p.stem for p in self._turn_paths(num)}:
+                raise web.HTTPNotFound()
+            text = (self._turn(tid) or {}).get("final_text", "")
+        if not text and data.get("end"):
+            response = await self._api_thread(request)
+            items = json.loads(response.body)["items"]
+            text = next((it["text"] for it in items if it.get("who") == "claude" and it.get("end") == data["end"]), "")
+        if not text:
+            return web.json_response({"ok": False, "error": "这条回复还未保存，请稍后再点朗读"})
+        try:
+            return web.json_response({"ok": True, **await self.speech.start(num, text, listener=self._speech_listener(request, data.get('listener', '')))})
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)})
+
+    def _speech_allowed(self, key: str):
+        try:
+            m = self.speech.meta(key)
+            session = self.bridge.registry.get(m["num"])
+            if not session or session.hidden:
+                raise web.HTTPNotFound()
+        except (ValueError, KeyError):
+            raise web.HTTPNotFound() from None
+
+    async def _api_audio(self, request: web.Request) -> web.Response:
+        key = request.match_info["key"]
+        self._speech_allowed(key)
+        if request.method == "POST":
+            if not self._same_origin(request):
+                raise web.HTTPForbidden()
+            data = await request.json()
+            self.speech.touch(key, playing=data.get("playing") is True)
+            self.speech.renew(key, self._speech_listener(request, data.get('listener', '')))
+        else:
+            self.speech.renew(key, self._speech_listener(request, request.query.get('listener', '')))
+        return web.json_response({"ok": True, **self.speech.status(key)}, headers={"Cache-Control": "no-store"})
+
+    async def _audio(self, request: web.Request) -> web.StreamResponse:
+        key = request.match_info["key"]
+        self._speech_allowed(key)
+        d = self.speech.directory(key)
+        state = self.speech.status(key)
+        if state["state"] == "error":
+            return web.json_response({"error": state["error"]}, status=409)
+        self.speech.touch(key, playing=request.query.get("download") != "1")
+        headers = {"Content-Type": "audio/mpeg", "Cache-Control": "private, no-store",
+                   "Content-Disposition": ("attachment" if request.query.get("download") == "1" else "inline") + "; filename*=UTF-8''" + quote("案头朗读.mp3")}
+        if state["state"] == "ready":
+            return web.FileResponse(d / "audio.mp3", headers=headers)
+        if request.query.get("download") == "1":
+            return web.json_response({"error": "音频还在生成，请稍后下载"}, status=409)
+        # 连续 HTTP 音频流：锁屏后无需依靠 JS 切换下一段。完成后的文件支持 Range 拖动。
+        self.speech.readers[key] = self.speech.readers.get(key, 0) + 1
+        resp = web.StreamResponse(headers={**headers, "X-Accel-Buffering": "no"})
+        await resp.prepare(request)
+        if request.method == "HEAD":
+            self.speech.readers[key] -= 1
+            return resp
+        offset = 0
+        try:
+            async with asyncio.timeout(1860):
+                while True:
+                    path = d / "audio.mp3" if (d / "audio.mp3").exists() else d / "audio.part"
+                    if path.is_file():
+                        with path.open("rb") as audio:
+                            audio.seek(offset)
+                            block = audio.read(64 * 1024)
+                        if block:
+                            await resp.write(block)
+                            offset += len(block)
+                            continue
+                    state = self.speech.status(key)
+                    if state["state"] in ("ready", "error"):
+                        break
+                    await asyncio.sleep(.1)
+        except (ConnectionError, ValueError, OSError, TimeoutError):
+            pass
+        finally:
+            self.speech.readers[key] = max(0, self.speech.readers.get(key, 1) - 1)
+        return resp
+
     # ---------- 记下一轮的完整过程 ----------
     def save_turn(self, label: str, turn, cwd: str, title: str) -> str:
         tid = f"{label.split()[0].lstrip('#')}-{int(turn.started)}"
@@ -495,9 +609,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not r or not 0 <= i < len(r.get("files", [])) or not Path(r["files"][i]).is_file():
             raise web.HTTPNotFound()
         name = Path(r["files"][i]).name
+        inline = Path(name).suffix.lower() == ".pdf" and request.query.get("download") != "1"
         return web.FileResponse(r["files"][i], headers={
             "Cache-Control": "private, max-age=3600",
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+            **({"Content-Type": "application/pdf"} if inline else {}),
+            "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}"})
 
     # ---------- PDF 在手机上看：转成一页页图片（iPhone 的网页里直接放 PDF 只显示第一页、还缩不全） ----------
     def _pdf_dir(self, request: web.Request) -> tuple[Path, Path]:
@@ -591,7 +707,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     for e in tl if e.get("kind") in ("think", "say", "do")]
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
                 proc.pop()
-            items.append({"who": "claude", "end": r["id"], "text": r.get("final_text") or r.get("error") or "（没有回复）",
+            items.append({"who": "claude", "end": r["id"], "ts": r.get("ended") or r.get("started"), "text": r.get("final_text") or r.get("error") or "（没有回复）",
                           "steps": sum(1 for e in tl if e.get("kind") == "do"), "process": proc[-80:]})
         lt = getattr(self.bridge.runner, "last", {}).get(num) if self.bridge else None
         session = self.bridge.registry.get(num) if self.bridge and hasattr(self.bridge, "registry") else None
@@ -599,6 +715,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             # 刚做完、记录还没写好（翻译、存档要几秒）：先用这一轮本身显示，免得回复“消失”一下
             items += [{"who": "you", "text": e["text"]} for e in lt.timeline if e.get("kind") == "you"]
             items.append({"who": "claude", "text": lt.final_text or lt.error or "（没有回复）",
+                          "ts": lt.ended, "elapsed": max(0, lt.ended - lt.started) if lt.ended >= lt.started else None,
                           "steps": len(lt.steps), "process": []})
         return items[-300:]
 
@@ -707,6 +824,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         elif act == "delete":
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，先停下再删"})
+            await self.speech.remove_session(s.num)
             s.hidden, s.hidden_at, s.pinned = True, time.time(), False
             if b.registry.current == s.num:
                 b.registry.current = None
@@ -774,9 +892,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(num)
         if not s:
             raise web.HTTPNotFound()
-        # GPT 对话的内容来自案头每轮的记录：记录写好比“做完”晚几秒，把记录份数也算进去，免得缓存住一个空的
+        # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
         lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
-        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))) if s.engine == "codex" else 0,
+        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
                lt.ended if lt else 0)
         cached = self._threads.get(num)
         if cached and cached[0] == key:
@@ -900,16 +1018,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _save_files(self, data: dict) -> list[str]:
         """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
         files = data.get("files") or []
-        limit = 300 * 1024 * 1024
-        if len(files) > 10:
-            raise web.HTTPBadRequest(text="一次最多传 10 个文件")
-        total = 0
-        for f in files:
-            encoded = str(f.get("data", "")).partition(",")[2]
-            size = len(encoded) * 3 // 4 - (len(encoded) - len(encoded.rstrip("=")))
-            total += size
-            if size > limit or total > limit:
-                raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=total)
         paths = []
         folder = Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
@@ -924,7 +1032,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         paths = []
         folder = Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
-        for i, url in enumerate((data.get("images") or [])[:6]):
+        for i, url in enumerate(data.get("images") or []):
             head, _, b64 = str(url).partition(",")
             ext = "jpg" if "jpeg" in head else "png"
             p = folder / f"{int(time.time() * 1000)}-{i}.{ext}"
@@ -949,17 +1057,53 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except (ValueError, TypeError) as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
 
+    async def _read_send(self, request: web.Request) -> tuple[dict, list[str]]:
+        """普通附件流式落盘；保留旧网页的 JSON 上传兼容。"""
+        if not request.content_type.startswith("multipart/"):
+            return await request.json(), []
+        reader = await request.multipart()
+        data, saved = None, []
+        folder = self.store_path.parent / "inbox" / "web"
+        try:
+            async for part in reader:
+                if part.name == "message" and data is None and not saved:
+                    raw = bytearray()
+                    while chunk := await part.read_chunk(1024 * 1024):
+                        raw.extend(chunk)
+                    data = json.loads(raw)
+                    if not isinstance(data, dict) or data.get("files"):
+                        raise web.HTTPBadRequest(text="上传信息格式不正确")
+                elif part.name == "files" and data is not None and part.filename:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    name = Path(part.filename).name.replace("/", "_")[:120] or "file"
+                    path = folder / f"{int(time.time() * 1000)}-{secrets.token_hex(6)}-{name}"
+                    saved.append(str(path))
+                    with path.open("wb") as f:
+                        while chunk := await part.read_chunk(1024 * 1024):
+                            f.write(chunk)
+                else:
+                    raise web.HTTPBadRequest(text="上传内容格式不正确")
+            if data is None:
+                raise web.HTTPBadRequest(text="缺少消息内容")
+            return data, saved
+        except BaseException as exc:
+            for raw in saved:
+                Path(raw).unlink(missing_ok=True)
+            if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError)):
+                raise web.HTTPBadRequest(text="上传信息格式不正确") from None
+            raise
+
     async def _api_send(self, request: web.Request) -> web.Response:
         """在某个对话里说话（它正在做就是插话）；没给 num 就是新开一个对话。"""
         if not self._same_origin(request):
             raise web.HTTPForbidden()
-        data = await request.json()
+        data, streamed_files = await self._read_send(request)
         text = str(data.get("text") or "").strip()
         from .schedules import parse_request
         try:
             plan = parse_request(text)
             if plan:
-                if data.get("images") or data.get("files"):
+                if data.get("images") or data.get("files") or streamed_files:
                     raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
                 from .app import inline_overrides, MODELS
                 m, e = inline_overrides(text)
@@ -972,7 +1116,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
         images = await self._save_images(data)
-        uploaded = await self._save_files(data)
+        uploaded = streamed_files + await self._save_files(data)
         if uploaded:
             text = (text + "\n\n" if text else "") + "\n".join(f"（附件已存到：{p}）" for p in uploaded)
         if not text and not images:
@@ -1258,7 +1402,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def _sig_thread(self, num: int) -> str:
         b = self.bridge
         s, t = b.registry.get(num), b.runner.turns.get(num)
-        recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s and s.engine == "codex" else 0
+        recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s else 0
         return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
                            s.limit_until if s else 0, s.auto_resume if s else True])
@@ -1343,7 +1487,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return await handler(request)
 
     def app(self) -> web.Application:
-        app = web.Application(middlewares=[self._guard], client_max_size=450 * 1024 * 1024)
+        app = web.Application(middlewares=[self._guard], client_max_size=0)
+        app.cleanup_ctx.append(self._speech_context)
         app.router.add_get(f"{PREFIX}/login", self._login_get)
         app.router.add_post(f"{PREFIX}/login", self._login_post)
         app.router.add_get("/", self._to_index)
@@ -1364,6 +1509,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
         app.router.add_post(f"{PREFIX}/api/manage/{{num:\\d+}}", self._api_manage)
+        app.router.add_post(f"{PREFIX}/api/speech/{{num:\\d+}}", self._api_speech)
+        app.router.add_post(f"{PREFIX}/api/speech/release", self._release_speech)
+        app.router.add_get(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
+        app.router.add_post(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
+        app.router.add_get(f"{PREFIX}/audio/{{key}}.mp3", self._audio)
         app.router.add_get(f"{PREFIX}/api/search", self._api_search)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_get(f"{PREFIX}/api/schedules", self._api_schedules)

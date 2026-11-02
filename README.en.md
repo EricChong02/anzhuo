@@ -34,7 +34,9 @@ Nothing is opened on your computer's firewall: the web server only listens on `1
 - "Needs you" decisions rendered as buttons; quick replies; 3-second undo for one-tap answers.
 - Dangerous-command confirmation, optional AI reviewer with a policy you write yourself (off by default).
 - Web Push notifications (add to the iOS / iPadOS home screen; needs HTTPS), no duplicate alerts when you are looking at the conversation.
-- Two-way file and image transfer (up to 300 MB).
+- Two-way file and image transfer (no count or size limit; plain files stream as-is); PDFs open directly, videos play while downloading.
+- Claude can delegate image generation / editing to the local Codex image tool; real images come back into the reply.
+- Optional read-aloud: Mandarin speech generated locally on the Mac (Apple Silicon, one-time model setup via `scripts/setup_speech.sh`).
 - Rewind to an earlier message (optionally restore changed files), fork a conversation, copy replies — for both Claude and Codex.
 - Scheduled tasks in natural language ("every Friday 3 pm summarize the week"), editable in the UI.
 - Usage / quota display, context usage, auto "continue" after a 5‑hour limit resets.

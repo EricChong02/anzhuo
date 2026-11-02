@@ -18,7 +18,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/$HOST_NAME/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-    client_max_body_size 450m;
+    client_max_body_size 0;
     add_header X-Robots-Tag \"noindex, nofollow\" always;
     location / {
         proxy_pass http://127.0.0.1:$PORT;

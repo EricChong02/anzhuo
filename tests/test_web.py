@@ -1,5 +1,6 @@
 """案头网页：账号密码登录、过程页、新对话的文件夹解析，以及“没登记的地址一律不转发”。"""
 import asyncio
+import re
 import time
 from pathlib import Path
 
@@ -256,7 +257,13 @@ def test_files_delivered_and_uploaded(tmp_path):
             await c.post("/_x/login", data={"username": "u", "password": "p"})
             r = await c.get(f"/_x/t/{tid}/file/0")
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
-            assert "attachment" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
+            assert "inline" in r.headers["Content-Disposition"] and "%E7%A0%94" in r.headers["Content-Disposition"]
+            assert r.headers["Content-Type"] == "application/pdf"
+            r = await c.get(f"/dl/{tid}/0?download=1")
+            assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
+            assert "attachment" in r.headers["Content-Disposition"]
+            r = await c.get(f"/dl/{tid}/0", headers={"Range": "bytes=0-3"})
+            assert r.status == 206 and await r.read() == b"%PDF"
             assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
             r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的案头能返回）
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
@@ -265,6 +272,36 @@ def test_files_delivered_and_uploaded(tmp_path):
             assert r["ok"] and "附件已存到" in sent[0] and sent[0].endswith("合同.pdf）")
             saved = sent[0].split("附件已存到：")[1].rstrip("）")
             assert Path(saved).read_bytes() == b"hello" and Path(saved).parent == tmp_path / "inbox" / "web"
+            batch = [{"name": f"photo-{i:02d}.jpg", "data": data} for i in range(18)]
+            response = await c.post("/_x/api/send", json={"num": 7, "text": "全部原件", "files": batch})
+            assert response.status == 200
+            assert (await response.json())["ok"]
+            uploaded_paths = re.findall(r"附件已存到：([^）]+)", sent[-1])
+            assert len(uploaded_paths) == 18
+            assert all(Path(p).read_bytes() == b"hello" for p in uploaded_paths)
+            # 新网页直接传原始文件，不能再把整个 ZIP 转成 base64 JSON。
+            import json
+            from aiohttp import FormData
+            form = FormData()
+            form.add_field("message", json.dumps({"num": 7, "text": "原始文件直传"}))
+            for i in range(18):
+                form.add_field("files", bytes([i]) * 4096, filename=f"{i:02d}.zip", content_type="application/zip")
+            response = await c.post("/_x/api/send", data=form)
+            assert response.status == 200
+            assert (await response.json())["ok"]
+            paths = re.findall(r"附件已存到：([^）]+)", sent[-1])
+            assert len(paths) == 18
+            assert [Path(p).read_bytes() for p in paths] == [bytes([i]) * 4096 for i in range(18)]
+            assert all(Path(p).name.endswith(f"{i:02d}.zip") for i, p in enumerate(paths))
+            before = set((tmp_path / "inbox" / "web").iterdir())
+            calls = len(sent)
+            form = FormData()
+            form.add_field("message", json.dumps({"num": 7, "text": "坏请求"}))
+            form.add_field("files", b"partial", filename="partial.zip")
+            form.add_field("unexpected", "bad")
+            response = await c.post("/_x/api/send", data=form)
+            assert response.status == 400 and len(sent) == calls
+            assert set((tmp_path / "inbox" / "web").iterdir()) == before
         finally:
             await c.close()
 
@@ -607,4 +644,91 @@ def test_schedule_management_and_natural_request_api(tmp_path):
             assert (await (await c.post('/_x/api/schedules',json={'id':key,'action':'delete'})).json())['ok']
             assert key not in b.schedules.tasks
         finally:await c.close()
+    asyncio.run(go())
+
+
+def test_turn_duration_matches_record_identity_not_next_reply():
+    from anzhuo import thread
+    items = [{"who": "claude", "text": "第一轮", "end": "1-100", "ts": 110},
+             {"who": "claude", "text": "刚完成但还没存档", "ts": 112, "elapsed": 2}]
+    records = [{"id": "1-100", "started": 100, "ended": 110}]
+    out = thread.attach_records(items, records)
+    assert out[0]["elapsed"] == 10 and out[0]["tid"] == "1-100"
+    assert out[1]["elapsed"] == 2 and "tid" not in out[1]
+    for rec in [{"id": "x", "started": 10}, {"id": "x", "started": 10, "ended": 9}]:
+        assert "elapsed" not in thread.attach_records([{"who": "claude", "text": "旧记录"}], [rec])[0]
+
+
+def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
+    """先读到最终文字、稍后才归档附件：缓存与实时事件都必须更新。"""
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Session
+    from anzhuo import thread
+
+    async def go():
+        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=120)
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
+                      runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
+                                busy=lambda n: False, queued=lambda n: []))
+        monkeypatch.setattr(thread, "full_messages", lambda *a: [])
+        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            before = w._sig_thread(6)
+            data = await (await c.get("/_x/api/thread/6")).json()
+            assert not data["items"][0].get("files")
+            img, pdf = tmp_path / "图.png", tmp_path / "文件.pdf"
+            img.write_bytes(b"\x89PNG")
+            pdf.write_bytes(b"%PDF-1.4")
+            tid = w.save_turn("#6 交付", Turn(started=100, ended=120, final_text="图片和文件已做好",
+                                         images=[str(img)], files=[str(pdf)]), str(tmp_path), "完成")
+            assert s.updated == 120 and w._sig_thread(6) != before
+            data = await (await c.get("/_x/api/thread/6")).json()
+            reply = data["items"][0]
+            assert reply["tid"] == tid and len(reply["images"]) == len(reply["files"]) == 1
+            for url, expected in [(reply["images"][0], img.read_bytes()), (reply["files"][0]["url"], pdf.read_bytes())]:
+                r = await c.get(url)
+                assert r.status == 200 and await r.read() == expected
+        finally:
+            await c.close()
+    asyncio.run(go())
+
+
+def test_all_selected_images_reach_model_in_order(tmp_path):
+    """网页选 18 张必须原样送出，忙碌时插话也不能静默只留前 6 张。"""
+    import base64
+    from types import SimpleNamespace as NS
+    from anzhuo.codex import CodexConn
+
+    async def go():
+        w = Web('http://x.example', 0, tmp_path, user='u', pw_hash=hash_password('p', iters=1000))
+        received = []
+
+        async def message(cmd, inc, routed=False):
+            received.append(list(inc.local_images))
+
+        runner = NS(turns={})
+        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, _message=message)
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post('/_x/login', data={'username': 'u', 'password': 'p'})
+            payloads = [f'photo-{i}'.encode() for i in range(18)]
+            images = ['data:image/jpeg;base64,' + base64.b64encode(p).decode() for p in payloads]
+            for busy in [False, True]:
+                runner.turns = {7: object()} if busy else {}
+                r = await c.post('/_x/api/send', json={'num': 7, 'text': '检查这些照片', 'images': images})
+                assert r.status == 200
+                assert (await r.json())['injected'] == busy
+                paths = received[-1]
+                assert len(paths) == 18
+                assert len(set(paths)) == 18
+                assert [Path(p).read_bytes() for p in paths] == payloads
+                model_input = CodexConn._input("检查这些照片", [Path(p) for p in paths])
+                assert [p["path"] for p in model_input if p["type"] == "localImage"] == paths
+        finally:
+            await c.close()
     asyncio.run(go())
