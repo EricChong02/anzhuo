@@ -1119,10 +1119,10 @@ const courseState = c => c.num && (c.status === 'running' || c.status === 'queue
 let coursesFolded = false;
 try { coursesFolded = localStorage.getItem('coursesFolded') === '1'; } catch (e) {}
 function renderCourses() {
-  const cs = courses.slice(0, query ? 0 : 3);
+  const cs = courses.slice(0, query ? 0 : 2);
   $('#courses').innerHTML = cs.length ? `<button class="course-toggle" aria-expanded="${!coursesFolded}" aria-controls="courseCards"><span>课</span>${ICON.chev}</button><div id="courseCards" ${coursesFolded ? 'hidden' : ''}>` + cs.map(c =>
     `<div class="ccard ${c.status || 'none'} ${c.dirty && !['running', 'queued', 'awaiting'].includes(c.status) ? 'dirty' : ''}"><button class="cgo" data-n="${c.num || ''}" data-d="${esc(c.dir)}">
-      <span class="tx"><div class="nm">${esc(c.title)}</div><div class="st"><span class="dot"></span>${esc(courseState(c))}</div></span></button>
+      <span class="tx"><div class="nm">${esc(c.title)}</div></span></button>
       <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('') + '</div>' : '';
   const toggle = $('#courses .course-toggle');
   if (toggle) toggle.onclick = () => { coursesFolded = !coursesFolded; try { localStorage.setItem('coursesFolded', coursesFolded ? '1' : '0'); } catch (e) {} renderCourses(); };
