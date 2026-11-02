@@ -295,6 +295,17 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .wo svg{width:19px;height:19px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .wo .tx{flex:1;min-width:0} .wo b{display:block;font-size:var(--t3);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wo small{display:block;font-size:var(--t2);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.amenu .box.browse{width:min(460px,100%);padding:14px}
+.bhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px} .bhead b{font-size:var(--t4);white-space:nowrap}
+.amenu .browse .bx{width:32px;height:32px;flex:none;padding:0;display:grid;place-items:center;background:var(--bg);border-radius:50%;color:var(--mute);font-size:14px}
+.bpath{font-size:var(--t3);color:var(--ink);margin-bottom:10px;word-break:break-all}
+.blist{max-height:min(48vh,420px);overflow:auto;border:1px solid var(--line);border-radius:var(--r2);margin-bottom:12px;padding:4px}
+.blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:var(--r1);color:var(--ink)}
+.blist .bo:hover{background:var(--line)}
+.blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.amenu .browse .bbtns{display:flex;gap:8px} .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
+.bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
 .newv .dock{position:static;padding:0}
 
 /* 侧栏的课 */
@@ -1916,30 +1927,63 @@ if (window.visualViewport) {
   visualViewport.addEventListener('scroll', placeWhereMenu);
 }
 
+// 文件夹浏览：从 ~/Projects 开始一层层点进去，选定的文件夹加进“在哪做”（来自开源版 GitHub #1）
+function browseSheet(start, done) {
+  let at = /^(\/|~)/.test(start || '') ? start : '', up = '', show = '';
+  const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
+    <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
+    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+  el.querySelector('.box').classList.add('browse');
+  const draw = async () => {
+    try {
+      const d = await api('browse' + (at ? '?path=' + encodeURIComponent(at) : ''));
+      if (!d.dirs) throw new Error(d.error);
+      at = d.raw; up = d.parent; show = d.show;
+      $('#bpath').textContent = d.show;
+      $('#bup').style.visibility = up ? 'visible' : 'hidden';
+      $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}">${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
+        || '<div class="bempty">这里没有子文件夹了</div>';
+      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => { at = at.replace(/\/$/, '') + '/' + b.dataset.n; draw(); });
+    } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
+  };
+  $('#bx').onclick = () => el.remove();
+  $('#bup').onclick = () => { if (up) { at = up; draw(); } };
+  $('#bok').onclick = () => { el.remove(); done(at, show); };
+  draw();
+}
+
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
-  const said = Object.keys(FOLDER_SAY);
+  // 菜单只留常用的几项（2026-11-02 庄毅嫌入口太多）：最近的课在侧栏“课”里点，其他文件夹靠“浏览文件夹…”；
+  // 从侧栏点课、或浏览选中的文件夹，只作为“这次选的”临时加一项
   const opts = [{v: 'auto', ic: 'auto', t: '自动', d: '看你说的话自动选地方'},
-    ...drafts.slice(0, 3).map(x => ({v: 'c:' + x.dir, ic: 'course', t: `接着做《${x.title}》`, d: agoDays(x.mtime)})),
-    ...said.filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1], d: FOLDER_SAY[f][2]})),
-    {v: 'scratch', ic: 'chat', t: '不碰文件', d: '查资料、问问题'},
-    ...folders.filter(f => !said.includes(f)).map(f => ({v: f, ic: 'folder', t: f, d: '文件夹'}))];
+    ...Object.keys(FOLDER_SAY).filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1], d: FOLDER_SAY[f][2]})),
+    {v: 'scratch', ic: 'chat', t: '不碰文件', d: '查资料、问问题'}];
+  const choose = o => { const k = opts.findIndex(x => x.once); if (k >= 0) opts.splice(k, 1); opts.splice(1, 0, {...o, once: true}); };
+  const pc = (preset || '').startsWith('c:') && drafts.find(x => 'c:' + x.dir === preset);
+  if (pc) choose({v: preset, ic: 'course', t: `接着做《${pc.title}》`, d: agoDays(pc.mtime)});
   let pick = preset && opts.some(o => o.v === preset) ? preset : 'auto', menu = false;
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>新对话</b></div></div>
     <div class="newv"><h1>要做什么？</h1>${composerHTML('说说要做什么')}<div class="wbar" id="wbar"></div></div>`;
   $('#back').onclick = () => history.state && history.state.n ? history.back() : goList();
   const draw = () => {
-    const cur = opts.find(o => o.v === pick), last = drafts[0] && opts.find(o => o.v === 'c:' + drafts[0].dir);
+    const cur = opts.find(o => o.v === pick);
     $('#wbar').innerHTML = `<button class="pill ${pick !== 'auto' ? 'on' : ''}" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.v === 'auto' ? '在哪做：自动' : cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
-      + (pick === 'auto' && last ? `<button class="pill" id="wlast">${WHERE_ICON.course}<span>${esc(last.t)}</span></button>` : '')
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
-          <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}</div>` : '');
+          <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}
+          <button class="wo" id="wbrowse">${WHERE_ICON.folder}<span class="tx"><b>浏览文件夹…</b><small>从 Projects 一层层点进去选</small></span></button></div>` : '');
     if (menu) placeWhereMenu();
     $('#wp').onclick = e => { e.stopPropagation(); menu = !menu; draw(); };
-    if ($('#wlast')) $('#wlast').onclick = () => { pick = last.v; draw(); $('#ta').focus(); };
-    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); pick = c.dataset.v; menu = false; draw(); });
+    if ($('#wbrowse')) $('#wbrowse').onclick = e => {
+      e.stopPropagation(); menu = false; draw();
+      browseSheet(pick, (path, show) => {
+        if (!opts.some(o => o.v === path)) choose({v: path, ic: 'folder', t: path.split('/').pop() || path, d: show});
+        pick = path; draw(); $('#ta').focus();
+      });
+    };
+    document.querySelectorAll('.wo[data-v]').forEach(c => c.onclick = e => { e.stopPropagation(); pick = c.dataset.v; menu = false; draw(); });
   };
   draw();
   $('.newv').onscroll = placeWhereMenu;

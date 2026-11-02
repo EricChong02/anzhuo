@@ -870,3 +870,29 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
         finally:
             await c.close()
     asyncio.run(go())
+
+
+def test_browse_defaults_to_projects_and_lists_only_visible_dirs(tmp_path, monkeypatch):
+    """新对话的“浏览文件夹…”：默认从 ~/Projects 开始，只列看得见的子文件夹，要登录。"""
+    root = tmp_path / "Projects"
+    for d in ["乙", "甲", ".藏起来"]:
+        (root / d).mkdir(parents=True)
+    (root / "文件.txt").write_text("x")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path / "data", "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            assert (await c.get("/_x/api/browse", allow_redirects=False)).status in (302, 401, 403)
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/browse")).json()
+            assert d["raw"] == str(root.resolve()) and d["dirs"] == sorted(["乙", "甲"], key=str.lower)
+            assert d["parent"] == str(tmp_path.resolve())
+            d = await (await c.get("/_x/api/browse", params={"path": str(root / "甲")})).json()
+            assert d["dirs"] == [] and d["parent"] == str(root.resolve())
+            assert (await c.get("/_x/api/browse", params={"path": str(root / "没有这个")})).status == 400
+        finally:
+            await c.close()
+    asyncio.run(go())

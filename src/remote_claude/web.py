@@ -31,7 +31,7 @@ from .cards import parse_decision
 from .sessions import NOISE
 from .commands import Cmd
 from .dingtalk import Incoming
-from .folders import display
+from .folders import display, readable
 from .report import EFFORT_CN, LIMIT_CN, model_name
 
 log = logging.getLogger(__name__)
@@ -1000,6 +1000,30 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._search_cache[s.num] = (key, items)
         return items
 
+    @staticmethod
+    def _list_dirs(base: Path) -> list[str] | None:
+        """base 下看得见的子文件夹名（不读文件内容）；打不开返回 None。下载 / 桌面 / 文稿先用 readable 试，免得卡在隐私弹窗。"""
+        if not base.is_dir() or not readable(base):
+            return None
+        try:
+            return sorted((e.name for e in base.iterdir() if not e.name.startswith(".") and e.is_dir()), key=str.lower)[:500]
+        except OSError:
+            return None
+
+    async def _api_browse(self, request: web.Request) -> web.Response:
+        """新对话“在哪做”的“浏览文件夹…”：一层层列子文件夹，默认从 ~/Projects 开始。"""
+        raw = request.query.get("path", "").strip()
+        home = Path.home()
+        base = Path(raw).expanduser() if raw else (home / "Projects" if (home / "Projects").is_dir() else home)
+        if not base.is_absolute():
+            base = home / base
+        base = base.resolve()
+        dirs = await asyncio.to_thread(self._list_dirs, base)
+        if dirs is None:
+            return web.json_response({"error": "读不到这个文件夹"}, status=400)
+        return web.json_response({"raw": str(base), "show": display(base),
+                                  "parent": "" if base == base.parent else str(base.parent), "dirs": dirs})
+
     async def _api_search(self, request: web.Request) -> web.Response:
         q = request.query.get("q", "").strip()
         b = self.bridge
@@ -1785,6 +1809,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
         app.router.add_get(f"{PREFIX}/audio/{{key}}.mp3", self._audio)
         app.router.add_get(f"{PREFIX}/api/search", self._api_search)
+        app.router.add_get(f"{PREFIX}/api/browse", self._api_browse)
         app.router.add_post(f"{PREFIX}/api/send", self._api_send)
         app.router.add_get(f"{PREFIX}/api/schedules", self._api_schedules)
         app.router.add_post(f"{PREFIX}/api/schedules", self._api_schedules)
