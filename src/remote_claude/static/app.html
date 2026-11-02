@@ -791,6 +791,12 @@ html,body{background:var(--sky) var(--bg);background-attachment:fixed}
 
 /* 在做的卡片也不透色：转圈和进度条已经说明在做 */
 .live::before{display:none}
+
+/* 打字的地方不画框：输入框聚焦时只是板子亮一点 */
+textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable]:focus-visible{box-shadow:none!important;outline:none}
+.composer:focus-within{box-shadow:none;background:rgba(255,255,255,.70)}
+@media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
+.find:focus-within{box-shadow:none}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
