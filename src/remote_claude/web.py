@@ -24,6 +24,7 @@ import aiohttp
 from aiohttp import web
 
 from . import thread, translate
+from .brand import LOGIN_CSS, MARK
 from .push import Push
 from .speech import Speech
 from .sessions import COMPACT, Session
@@ -65,7 +66,7 @@ def category(s, folders: dict) -> str:
         return s.category
     cwd = str(Path(s.cwd).expanduser())
     under = lambda key: bool(folders.get(key)) and (cwd + "/").startswith(str(Path(folders[key]).expanduser()) + "/")
-    if "remote-claude" in cwd or "案头" in s.name or "小E" in s.name:
+    if "remote-claude" in cwd or "案头" in s.name or "远窗" in s.name or "小E" in s.name:
         return "案头"
     if under("课程根"):
         return "做课"
@@ -154,24 +155,45 @@ def _md(text: str) -> str:
 
 PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{title}</title>
+<meta name="theme-color" content="#c2cfd8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#2e3a45" media="(prefers-color-scheme: dark)">
 <style>
-:root{{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1f;--mute:#6e6e73;--line:#e5e5e2;--acc:#2f6fdf}}
-@media (prefers-color-scheme:dark){{:root{{--bg:#151515;--card:#1f1f1f;--ink:#ececec;--mute:#9a9a9a;--line:#333;--acc:#7aa7ff}}}}
-body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,"PingFang SC",sans-serif}}
-main{{max-width:760px;margin:0 auto;padding:16px}}
-h1{{font-size:20px;margin:8px 0 4px}} h2{{font-size:16px;margin:24px 0 8px;color:var(--mute)}}
-.meta{{color:var(--mute);font-size:14px}} a{{color:var(--acc)}}
-.card{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}}
-.say{{white-space:pre-wrap}} code{{font:13px ui-monospace,Menlo,monospace;background:rgba(127,127,127,.12);padding:1px 4px;border-radius:4px}}
-pre{{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,Menlo,monospace;margin:6px 0 0}}
-.step{{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}} .step:last-child{{border:0}}
-.t{{color:var(--mute);font:12px ui-monospace,Menlo,monospace;min-width:58px;padding-top:3px}}
-details summary{{cursor:pointer}} img{{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 0}}
-.btn{{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:8px 14px;border-radius:8px;margin:4px 6px 4px 0}}
-ul{{padding-left:20px;margin:4px 0}}
+:root{{--sky:linear-gradient(158deg,#d4e0ea 0%,#e1eaf1 38%,#ecf2f6 72%,#f3f6f9 100%);--ink:#25313e;--mute:#566474;--faint:#8592a0;--line:rgba(24,44,64,.065);
+  --acc:#2c4a74;--acc-hi:#4b78b4;--acc-glow:rgba(66,108,170,.55);--accsoft:rgba(44,74,116,.08);--red:#b0443a;
+  --glass:rgba(255,255,255,.60);--glass-hi:rgba(255,255,255,.72);--edge:rgba(255,255,255,.92);--hi:rgba(255,255,255,.95);--glow:rgba(58,98,156,.40);
+  --shadow:10px 18px 48px -12px rgba(92,124,168,.22),3px 6px 14px -6px rgba(92,124,168,.10);--blur:saturate(1.15) blur(24px);
+  --ff:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;--fd:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC",sans-serif}}
+@media (prefers-color-scheme:dark){{:root{{--sky:linear-gradient(176deg,#151b22 0%,#11171d 50%,#0d1217 100%);--ink:#e6ebf0;--mute:#a3aeb9;--faint:#76828d;--line:rgba(255,255,255,.075);
+  --acc:#9dbbe4;--acc-hi:#8db4ee;--acc-glow:rgba(122,166,234,.55);--accsoft:rgba(141,180,238,.11);--red:#ee8b7c;
+  --glass:rgba(255,255,255,.045);--glass-hi:rgba(255,255,255,.08);--edge:rgba(255,255,255,.085);--hi:rgba(255,255,255,.10);--glow:rgba(96,140,210,.22);
+  --shadow:10px 18px 48px -12px rgba(0,0,0,.5),3px 6px 14px -6px rgba(0,0,0,.3)}}}}
+html{{background:var(--sky) fixed;min-height:100%}}
+body{{margin:0;color:var(--ink);font:400 16px/1.75 var(--ff);letter-spacing:.01em;-webkit-font-smoothing:antialiased}}
+main{{max-width:760px;margin:0 auto;padding:20px 16px 48px}}
+h1{{font:300 30px/1.3 var(--fd);letter-spacing:.06em;margin:18px 0 6px}} h2{{font-size:11.5px;font-weight:500;letter-spacing:.14em;margin:28px 0 8px;color:var(--faint)}}
+b,strong,th{{font-weight:500}} .meta{{color:var(--mute);font-size:14px}} a{{color:var(--acc)}}
+.card{{background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-radius:16px;padding:14px 16px;margin:10px 0;
+  box-shadow:inset 0 0 0 1px var(--edge)}}
+.say{{white-space:pre-wrap}} code{{font:400 13px ui-monospace,"SF Mono",Menlo,monospace;background:var(--glass);box-shadow:inset 0 0 0 1px var(--edge);padding:1px 6px;border-radius:6px}}
+pre{{white-space:pre-wrap;word-break:break-all;font:400 13px/1.55 ui-monospace,"SF Mono",Menlo,monospace;margin:6px 0 0}}
+.step{{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}} .step:last-child{{border:0}}
+.t{{color:var(--faint);font:400 12px ui-monospace,"SF Mono",Menlo,monospace;min-width:58px;padding-top:4px;font-variant-numeric:tabular-nums}}
+details summary{{cursor:pointer;color:var(--mute)}} img{{max-width:100%;border-radius:12px;box-shadow:inset 0 0 0 1px var(--edge);margin:6px 0}}
+.btn{{display:inline-block;color:var(--acc);text-decoration:none;padding:9px 18px;border-radius:999px;margin:4px 6px 4px 0;font-weight:500;background:var(--accsoft);box-shadow:inset 0 0 0 1px rgba(44,74,116,.14)}}
+ul{{padding-left:20px;margin:4px 0}} li::marker{{color:var(--faint)}}
 .card > a{{text-decoration:none;font-size:17px;color:var(--ink)}} details li{{margin:4px 0}} details li a{{color:var(--ink);text-decoration:none;font-size:15px}}
-.bk{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:4px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
-  background:var(--bg);border-bottom:1px solid var(--line);color:var(--acc);font-size:16px;text-decoration:none}}
+.bk{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:4px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background:rgba(236,241,244,.5);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-bottom:1px solid var(--line);color:var(--acc);font-size:16px;text-decoration:none}}
+@media (prefers-color-scheme:dark){{.bk{{background:rgba(14,20,27,.6)}}}}
+.mk{{display:block;overflow:hidden}} .mk>svg{{display:block;width:100%;height:100%}} .mk>svg.d{{display:none}}
+@media (prefers-color-scheme:dark){{.mk>svg.l{{display:none}} .mk>svg.d{{display:block}}}}
+::selection{{background:rgba(75,120,180,.22)}}
+/* 第五版：扁平磨砂（对照参考图） */
+:root{{--sky:linear-gradient(200deg,#c2cfd8 0%,#d6dfe5 32%,#e5ebee 64%,#f0f4f3 100%);--ink:#24323e;--mute:#566673;--faint:#7d8c98;
+  --glass:rgba(255,255,255,.46);--glass-hi:rgba(255,255,255,.60);--knob-in:rgba(60,84,104,.07);--shadow:none}}
+@media (prefers-color-scheme:dark){{:root{{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;
+  --glass:rgba(255,255,255,.055);--glass-hi:rgba(255,255,255,.085);--knob-in:rgba(255,255,255,.06)}}}}
+.card{{box-shadow:none}} .bk{{border-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}}
+.btn{{background:rgba(44,74,116,.12);box-shadow:none}}
 </style></head><body>
 <a class="bk" href="/_x/" onclick="if(history.length>1){{history.back();return false}}">‹ 返回</a>
 <main>{body}</main></body></html>"""
@@ -273,21 +295,14 @@ class Web:
 
     def _login_form(self, nxt: str, msg: str = "", status: int = 200) -> web.Response:
         note = f'<p class="err">{html.escape(msg)}</p>' if msg else ""
-        body = f"""<style>
-main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}}
-.login{{width:100%;max-width:360px}} .login h1{{font-size:26px;margin:0 0 6px;display:flex;align-items:center;gap:10px}} .login h1 img{{width:36px;height:36px;border-radius:9px}} .login .sub{{color:var(--mute);margin:0 0 24px}}
-.login input{{box-sizing:border-box;width:100%;font:inherit;font-size:17px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 12px;outline:none}}
-.login input:focus{{border-color:var(--acc)}}
-.login button{{width:100%;font:inherit;font-size:17px;font-weight:600;color:#fff;background:var(--acc);border:0;border-radius:12px;padding:12px;margin-top:4px}}
-.err{{color:#c2410c;margin:0 0 12px}}
-</style>
+        body = LOGIN_CSS + f"""
 <form class="login" method="post" action="{PREFIX}/login">
-<h1><img src="{PREFIX}/icon.png" alt="">案头</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
+{MARK}<h1>远窗</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
 <input name="username" placeholder="账号" autocomplete="username" inputmode="numeric" required>
 <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
 <button>登录</button></form>"""
-        return self._page("登录 · 案头", body, status)
+        return self._page("登录 · 远窗", body, status)
 
     async def _login_get(self, request: web.Request) -> web.Response:
         nxt = self._safe_next(request.query.get("next", f"{PREFIX}/"))
@@ -462,7 +477,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
             return web.json_response({"error": state["error"]}, status=409)
         self.speech.touch(key, playing=request.query.get("download") != "1")
         headers = {"Content-Type": "audio/mpeg", "Cache-Control": "private, no-store",
-                   "Content-Disposition": ("attachment" if request.query.get("download") == "1" else "inline") + "; filename*=UTF-8''" + quote("案头朗读.mp3")}
+                   "Content-Disposition": ("attachment" if request.query.get("download") == "1" else "inline") + "; filename*=UTF-8''" + quote("远窗朗读.mp3")}
         if state["state"] == "ready":
             return web.FileResponse(d / "audio.mp3", headers=headers)
         if request.query.get("download") == "1":
@@ -541,7 +556,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
     def _denied(self, request: web.Request) -> web.Response:
         if request.method == "GET" and "/api/" not in request.path:
             raise web.HTTPFound(f"{PREFIX}/login?next={quote(request.rel_url.path_qs, safe='')}")
-        return web.json_response({"detail": "需要先登录案头"}, status=401)
+        return web.json_response({"detail": "需要先登录远窗"}, status=401)
 
     async def _app_page(self, request: web.Request) -> web.Response:
         from .webui import app_html
@@ -552,8 +567,8 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         return web.FileResponse(Path(__file__).parent / "static" / name, headers={"Cache-Control": "max-age=86400"})
 
     async def _manifest(self, request: web.Request) -> web.Response:
-        return web.json_response({"name": "案头", "short_name": "案头", "start_url": f"{PREFIX}/", "display": "standalone",
-                                  "background_color": "#fafaf9", "theme_color": "#fafaf9",
+        return web.json_response({"name": "远窗", "short_name": "远窗", "start_url": f"{PREFIX}/", "display": "standalone",
+                                  "background_color": "#c2cfd8", "theme_color": "#c2cfd8",
                                   "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"},
                                             {"src": f"{PREFIX}/icon-512.png", "sizes": "512x512", "type": "image/png"}]})
 
@@ -561,7 +576,7 @@ main{{min-height:100dvh;display:flex;align-items:center;justify-content:center;p
         # 点通知：先把要打开的对话编号记进缓存（iPhone 冷启动时不一定带上地址），再叫醒已开着的页面或新开一个
         js = """self.addEventListener('push', e => {
   const d = e.data ? e.data.json() : {};
-  e.waitUntil(self.registration.showNotification(d.title || '案头', {body: d.body || '', tag: d.tag || undefined, data: {num: d.num || null}, icon: '/_x/icon.png'}));
+  e.waitUntil(self.registration.showNotification(d.title || '远窗', {body: d.body || '', tag: d.tag || undefined, data: {num: d.num || null}, icon: '/_x/icon.png'}));
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
@@ -632,7 +647,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                         f'<details><summary class="meta">每一轮</summary><ul>{turns}{more}</ul></details></div>')
         drafts = [f'<a class="btn" href="{html.escape(d["url"])}">试课：{html.escape(d["title"])}</a>' for d in self._drafts()[:6]]
         top = f"<h1>最近的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
-        return self._page("案头 · 历史记录", top + "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
+        return self._page("远窗 · 历史记录", top + "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
                           + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
     async def _turn_page(self, request: web.Request) -> web.Response:
@@ -769,7 +784,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return resp
         except aiohttp.ClientError:
             return self._page("预览没开", "<h1>本机的课程预览没开</h1><p class='meta'>Mac 上的 CyberScope（8000 端口）"
-                              "没在运行。在钉钉里让案头帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
+                              "没在运行。在钉钉里让远窗帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
 
     # ---------- 网页对话框的接口 ----------
     def _turn_paths(self, num: int) -> list[Path]:
@@ -1826,8 +1841,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
-        # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的案头，点范围外的链接会弹出带“完成”的浏览页，
-        # 看完能回来；范围内的链接直接在案头窗口里打开文件，没有返回键（10-27 遇到）
+        # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的远窗，点范围外的链接会弹出带“完成”的浏览页，
+        # 看完能回来；范围内的链接直接在远窗窗口里打开文件，没有返回键（10-27 遇到）
         app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
         app.router.add_get("/dl/{tid}/{i:\\d+}/pages", self._pdf_pages)
         app.router.add_get("/dl/{tid}/{i:\\d+}/p/{name}", self._pdf_page)

@@ -710,7 +710,7 @@ def test_notify_routing(tmp_path, monkeypatch):
         ok["n"] = 0                                                     # 推送没发到
         await b._submit(s, "又查", web("又查"))
         await asyncio.sleep(0.2)
-        assert len(dt.sent) == 1 and "在案头看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
+        assert len(dt.sent) == 1 and "在远窗看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
         dt.sent.clear()
         await b.on_raw(msg("#1 钉钉里问"))                              # 钉钉里说的：完整报告回钉钉
         await asyncio.sleep(0.2)

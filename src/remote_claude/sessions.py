@@ -399,8 +399,8 @@ class Runner:
                     await self._run(s, job, turn)
                 except FolderBlocked as e:
                     turn.is_error = True
-                    turn.error = (f"打不开 {e}。下载、桌面、文稿这几个文件夹受 macOS 隐私保护，案头在后台头一次用时，"
-                                  "Mac 会弹窗等人点“允许”，没人点就卡住。回到电脑前给案头授权一次就好（做法见说明的“文件夹权限”）。")
+                    turn.error = (f"打不开 {e}。下载、桌面、文稿这几个文件夹受 macOS 隐私保护，远窗在后台头一次用时，"
+                                  "Mac 会弹窗等人点“允许”，没人点就卡住。回到电脑前给远窗授权一次就好（做法见说明的“文件夹权限”）。")
                 except Exception as e:  # noqa: BLE001 - 任何失败都要报给用户
                     log.exception("对话 #%s 运行失败", num)
                     turn.is_error = True

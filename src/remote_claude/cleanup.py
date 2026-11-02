@@ -75,7 +75,7 @@ def _newest(d: Path) -> float:
 
 
 def tidy_scratch(root: Path, keep: set[str], now: float | None = None, trash: Path = TRASH) -> list[str]:
-    """案头新开对话时建的临时文件夹：60 天没动、也没有在用的对话指着它，就挪进废纸篓（不直接删，还能捡回来）。"""
+    """远窗新开对话时建的临时文件夹：60 天没动、也没有在用的对话指着它，就挪进废纸篓（不直接删，还能捡回来）。"""
     now = now or time.time()
     moved = []
     if not root.is_dir():
@@ -83,11 +83,11 @@ def tidy_scratch(root: Path, keep: set[str], now: float | None = None, trash: Pa
     for d in root.iterdir():
         if not d.is_dir() or str(d) in keep or now - _newest(d) < SCRATCH_DAYS * 86400:
             continue
-        dest = trash / f"案头临时-{d.name}"
+        dest = trash / f"远窗临时-{d.name}"
         n = 1
         while dest.exists():
             n += 1
-            dest = trash / f"案头临时-{d.name}-{n}"
+            dest = trash / f"远窗临时-{d.name}-{n}"
         try:
             trash.mkdir(exist_ok=True)
             shutil.move(str(d), dest)
@@ -113,7 +113,7 @@ def purge_deleted(registry, now: float | None = None) -> list[int]:
 CHECKUP = """【每月清理体检】请检查这台 Mac 上可能该清理的东西，只列清单，这一轮什么都不要删、不要挪。
 范围：~/Projects/_scratch、~/Downloads、~/Desktop，以及 ~/Projects 下 90 天以上没动过、超过 200MB 的文件夹。
 用 du、find、ls 看大小和最后改动时间，必要时看一眼里面是什么（打开说明文件、看文件名），判断是不是临时产物、旧发布包、旧离线包、下载过的安装包、重复副本。
-不要碰：对话记录和案头数据（~/.claude、~/.local/share/remote-claude）、课程根和平台仓库里的东西、任何 git 仓库的工作目录、看起来是原始资料（照片、成绩、证件、合同、学生数据、教案原稿）的文件、钥匙串和配置。
+不要碰：对话记录和远窗数据（~/.claude、~/.local/share/remote-claude）、课程根和平台仓库里的东西、任何 git 仓库的工作目录、看起来是原始资料（照片、成绩、证件、合同、学生数据、教案原稿）的文件、钥匙串和配置。
 最后按“要你定”的格式回复：第一行“要你定：这些要清掉吗？”，然后最多 4 个选项，例如：
 A. 全部清掉（列出的 N 项，共约 X GB）
 B. 只清最稳妥的几项（说明是哪几项）

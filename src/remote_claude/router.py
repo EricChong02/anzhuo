@@ -23,9 +23,9 @@ ROUTER_EFFORT = "low"  # 小E 自己的判断只用低档思考；干活的对�
 SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工作对话发消息，你判断这条消息该交给谁。
 只输出一个 JSON 对象，不要任何别的文字：
 {"action": "reply" | "continue" | "new" | "ask", "target": 对话编号或 null, "folder": 文件夹或 null, "kind": "dev" | "simple" | null, "answer": 文字或 null, "reason": "十个字以内"}
-- reply：只限打招呼、谢谢、问你是谁、问案头的指令怎么写，或和所有对话都毫不相关的闲聊、常识问答；你直接回答。answer 写给用户的回答，简体中文，口语，一到三句话；问用法时按下面的用法说明答。
+- reply：只限打招呼、谢谢、问你是谁、问远窗的指令怎么写，或和所有对话都毫不相关的闲聊、常识问答；你直接回答。answer 写给用户的回答，简体中文，口语，一到三句话；问用法时按下面的用法说明答。
   你只是分派员，不能替干活的对话回答它的事，也不要用它的口吻道歉、解释或承诺。
-  问“以后能不能…”“开发完之后…”“要怎么设计”这类关于功能本身的问题，不是问指令怎么写：如果有对话在开发案头（原名小E，remote-claude），选 continue 它。
+  问“以后能不能…”“开发完之后…”“要怎么设计”这类关于功能本身的问题，不是问指令怎么写：如果有对话在开发远窗（原名案头、小E，remote-claude），选 continue 它。
 - continue：消息是在接着某个已有对话说（追问、补充、修改意见、“继续”、“好的”、“选B”、对刚做完的事提要求等）。target 写那个对话的编号；多半是“当前对话”。
 - new：消息是一件和已有对话都不相干的新事。folder 写最合适的文件夹：优先用给出的短名；否则写用户提到的文件夹名或其中几个字；完全不涉及文件夹（查资料、算东西、闲聊）就写 null。
 - ask：确实拿不准是接着还是新开，或看不出是接哪个对话。
@@ -100,7 +100,7 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
                 busy: set[int] | None = None) -> Route | None:
     """返回判断结果；出错、超时、答非所问时返回 None，由调用方按老规矩交给当前对话。"""
     options = ClaudeAgentOptions(
-        model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫案头（原名小E），是用户钉钉里的助手，背后是用户 Mac 上的 Claude Code。称呼用户时用“你”。用法说明：\n" + HELP,
+        model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫远窗（原名案头、小E），是用户钉钉里的助手，背后是用户 Mac 上的 Claude Code。称呼用户时用“你”。用法说明：\n" + HELP,
         tools=[], max_turns=1,
         setting_sources=[], cwd=str(Path.home()),
         extra_args={"no-session-persistence": None},  # 不落盘，免得混进“最近的对话”
