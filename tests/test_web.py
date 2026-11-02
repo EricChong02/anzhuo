@@ -732,3 +732,47 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
         finally:
             await c.close()
     asyncio.run(go())
+
+
+def test_web_hash_env_first_and_file_private(tmp_path, monkeypatch):
+    """ANZHUO_WEB_HASH 优先（演示、测试靠它）；非 macOS 的 web_hash.json 只给自己读写。"""
+    import os
+    import sys
+    from anzhuo import config
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.toml")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("ANZHUO_WEB_HASH", "env-hash")
+    assert config.read_web_hash("u") == "env-hash"
+    monkeypatch.delenv("ANZHUO_WEB_HASH")
+    assert config.read_web_hash("u") == ""
+    config.write_web_hash("u", "h1")
+    config.write_web_hash("v", "h2")
+    assert config.read_web_hash("u") == "h1" and config.read_web_hash("v") == "h2"
+    if os.name != "nt":
+        assert (tmp_path / "web_hash.json").stat().st_mode & 0o777 == 0o600
+    (tmp_path / "web_hash.json").write_text("[]")
+    assert config.read_web_hash("u") == ""
+
+
+def test_browse_lists_only_visible_dirs_and_needs_login(tmp_path):
+    async def go():
+        root = tmp_path / "看这里"
+        for d in ["乙", "甲", ".藏起来"]:
+            (root / d).mkdir(parents=True)
+        (root / "文件.txt").write_text("x")
+        w = Web("http://x.example", 0, tmp_path / "data", user="u", pw_hash=hash_password("p", iters=1000))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            r = await c.get("/_x/api/browse", params={"path": str(root)}, allow_redirects=False)
+            assert r.status in (302, 401, 403)
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/browse", params={"path": str(root)})).json()
+            assert d["dirs"] == sorted(["乙", "甲"], key=str.lower)
+            assert ".藏起来" not in d["dirs"] and "文件.txt" not in d["dirs"]
+            assert d["parent"] == str(tmp_path.resolve())
+            r = await c.get("/_x/api/browse", params={"path": str(root / "没有这个")})
+            assert r.status == 400
+        finally:
+            await c.close()
+    asyncio.run(go())
