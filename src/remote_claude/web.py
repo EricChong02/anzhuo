@@ -155,7 +155,7 @@ def _md(text: str) -> str:
 
 PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>{title}</title>
-<meta name="theme-color" content="#c2cfd8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#2e3a45" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#d5dee5" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#2e3a45" media="(prefers-color-scheme: dark)">
 <style>
 :root{{--sky:linear-gradient(158deg,#d4e0ea 0%,#e1eaf1 38%,#ecf2f6 72%,#f3f6f9 100%);--ink:#25313e;--mute:#566474;--faint:#8592a0;--line:rgba(24,44,64,.065);
   --acc:#2c4a74;--acc-hi:#4b78b4;--acc-glow:rgba(66,108,170,.55);--accsoft:rgba(44,74,116,.08);--red:#b0443a;
@@ -188,8 +188,8 @@ ul{{padding-left:20px;margin:4px 0}} li::marker{{color:var(--faint)}}
 @media (prefers-color-scheme:dark){{.mk>svg.l{{display:none}} .mk>svg.d{{display:block}}}}
 ::selection{{background:rgba(75,120,180,.22)}}
 /* 第五版：扁平磨砂（对照参考图） */
-:root{{--sky:linear-gradient(200deg,#c2cfd8 0%,#d6dfe5 32%,#e5ebee 64%,#f0f4f3 100%);--ink:#24323e;--mute:#566673;--faint:#7d8c98;
-  --glass:rgba(255,255,255,.46);--glass-hi:rgba(255,255,255,.60);--knob-in:rgba(60,84,104,.07);--shadow:none}}
+:root{{--sky:linear-gradient(200deg,#d5dee5 0%,#e3e9ed 34%,#edf1f3 66%,#f5f7f7 100%);--ink:#34434f;--mute:#67757f;--faint:#909ca6;
+  --glass:rgba(255,255,255,.52);--glass-hi:rgba(255,255,255,.66);--knob-in:rgba(60,84,104,.07);--shadow:none}}
 @media (prefers-color-scheme:dark){{:root{{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;
   --glass:rgba(255,255,255,.055);--glass-hi:rgba(255,255,255,.085);--knob-in:rgba(255,255,255,.06)}}}}
 .card{{box-shadow:none}} .bk{{border-bottom:0;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}}
@@ -568,7 +568,7 @@ class Web:
 
     async def _manifest(self, request: web.Request) -> web.Response:
         return web.json_response({"name": "远窗", "short_name": "远窗", "start_url": f"{PREFIX}/", "display": "standalone",
-                                  "background_color": "#c2cfd8", "theme_color": "#c2cfd8",
+                                  "background_color": "#d5dee5", "theme_color": "#d5dee5",
                                   "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"},
                                             {"src": f"{PREFIX}/icon-512.png", "sizes": "512x512", "type": "image/png"}]})
 
