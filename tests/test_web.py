@@ -781,3 +781,44 @@ def test_browse_lists_only_visible_dirs_and_needs_login(tmp_path):
         finally:
             await c.close()
     asyncio.run(go())
+
+
+def test_resume_claude_code_history(tmp_path, monkeypatch):
+    """接上文件夹里已有的 Claude Code 对话：只接这个文件夹里真有的；接过的（含收起的）回到原来那个，不重复开；写接口校验同源。"""
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    sid_a, sid_b = "aaaaaaaa-1111-2222-3333-444444444444", "bbbbbbbb-1111-2222-3333-444444444444"
+    infos = [NS(session_id=sid_a, custom_title="", summary="修登录\n报错", first_prompt="", last_modified=1_700_000_000_000),
+             NS(session_id=sid_b, custom_title="周报", summary="", first_prompt="", last_modified=1_700_000_100_000)]
+    monkeypatch.setattr(Web, "_cc_list", staticmethod(lambda d, limit: infos if Path(d) == proj else []))
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        old = reg.add(Session(num=reg.reserve_num(), name="早接过的", cwd=str(proj), claude_id=sid_b, hidden=True, hidden_at=time.time()))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=reg)
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/cc-sessions", params={"path": str(proj)})).json()
+            assert [(x["id"], x["title"], x["num"]) for x in d["sessions"]] == [(sid_a, "修登录 报错", None), (sid_b, "周报", old.num)]
+            resume = lambda sid, path=str(proj), **kw: c.post("/_x/api/resume-cc", json={"path": path, "session_id": sid, "name": "接着"}, **kw)
+            w.base = "https://x.example"                                                       # 外网地址才校验同源
+            assert (await resume(sid_a, headers={"Origin": "https://evil.example"})).status == 403
+            assert (await resume("cccccccc-0000-0000-0000-000000000000")).status == 400      # 不在这个文件夹里
+            assert (await resume(sid_a, path=str(tmp_path / "别处"))).status == 400
+            assert (await resume("../../etc")).status == 400
+            r = await (await resume(sid_a)).json()
+            s = reg.get(r["num"])
+            assert s.claude_id == sid_a and s.cwd == str(proj) and s.from_desktop
+            assert (await (await resume(sid_a)).json())["num"] == r["num"]                  # 再接一次不重复开
+            r = await (await resume(sid_b)).json()
+            assert r["num"] == old.num and r["existing"] and not old.hidden                 # 收起的找回来
+            assert len(reg.sessions) == 2
+        finally:
+            await c.close()
+    asyncio.run(go())

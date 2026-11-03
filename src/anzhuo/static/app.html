@@ -303,6 +303,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:var(--r1);color:var(--ink)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blist .bo .tx{min-width:0;display:flex;flex-direction:column} .blist .bo small{color:var(--faint);font-size:var(--t1)}
 .bsec{padding:8px 10px 4px;color:var(--mute);font-size:var(--t2)}
 .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
@@ -2288,7 +2289,7 @@ async function browseSheet(start, done) {
       up = d.parent || (d.drive_root ? '__drives__' : '');
       $('#bpath').textContent = d.show;
       $('#bup').style.visibility = up ? 'visible' : 'hidden';
-      $('#bhis').style.display = d.drive_level ? 'none' : '';
+      $('#bok').style.display = $('#bhis').style.display = d.drive_level ? 'none' : '';
       $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}" ${d.absolute ? 'data-abs="1"' : ''}>${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
       document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
@@ -2301,19 +2302,22 @@ async function browseSheet(start, done) {
   };
   const showSessions = async dir => {
     $('#bpath').textContent = dir;
-    $('#bup').style.visibility = 'hidden'; $('#bok').style.display = 'none';
+    $('#bup').style.visibility = 'hidden'; $('#bok').style.display = $('#bhis').style.display = 'none';
+    const back = `<button class="bo" id="bback">← 返回文件夹</button>`;
+    const wire = () => { const x = $('#bback'); if (x) x.onclick = () => draw(); };
     $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
     try {
       const d = await api('cc-sessions?path=' + encodeURIComponent(dir));
-      if (!d.sessions.length) { $('#blist').innerHTML = '<div class="bempty">这个文件夹还没有 Claude Code 对话</div>'; return; }
-      $('#blist').innerHTML = `<button class="bo" id="bback">← 返回文件夹</button>`
-        + d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-name="${esc(s.title.slice(0, 16))}"><span class="tx"><b>${esc(s.title)}</b></span></button>`).join('');
-      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = async () => {
-        if (b.id === 'bback') { draw(); return; }
-        const r = await api('resume-cc', {path: dir, session_id: b.dataset.sid, name: b.dataset.name});
+      if (d.error) throw new Error(d.error);
+      if (!d.sessions.length) { $('#blist').innerHTML = back + '<div class="bempty">这个文件夹还没有 Claude Code 对话</div>'; wire(); return; }
+      $('#blist').innerHTML = back + d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-name="${esc(s.title.slice(0, 16))}"><span class="tx"><b>${esc(s.title)}</b><small>${s.num ? "已在远窗 · " : ""}${esc(ago(s.at / 1000))}</small></span></button>`).join('');
+      wire();
+      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = async () => {
+        const r = await api('resume-cc', {path: dir, session_id: b.dataset.sid, name: b.dataset.name}).catch(() => ({error: '没接上，再试一次'}));
+        if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
         el.remove(); openSession(r.num); loadSessions();
       });
-    } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到对话记录</div>'; }
+    } catch (e) { $('#blist').innerHTML = back + '<div class="bempty">读不到对话记录</div>'; wire(); }
   };
   $('#bx').onclick = () => el.remove();
   $('#bup').onclick = () => { at = up; draw(); };

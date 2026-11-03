@@ -914,6 +914,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "parent": "" if at_root else str(base.parent),
                                   "dirs": dirs, "drive_root": at_root and bool(base.drive)})
 
+    @staticmethod
+    def _cc_list(d: Path, limit: int | None) -> list:
+        from claude_agent_sdk import list_sessions
+        return list_sessions(str(d), limit, 0, False)
 
     async def _api_cc_sessions(self, request: web.Request) -> web.Response:
         """某个文件夹里 Claude Code 已有的对话（接着聊用）：读 ~/.claude/projects 的记录，不碰文件内容。"""
@@ -921,29 +925,42 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         d = Path(raw).expanduser() if raw else None
         if not d or not d.is_absolute() or not d.is_dir():
             return web.json_response({"error": "先选一个文件夹"}, status=400)
-
-        def read():
-            from claude_agent_sdk import list_sessions
-            return list_sessions(str(d), 10, 0, False)
         try:
-            infos = await asyncio.to_thread(read)
+            infos = await asyncio.to_thread(self._cc_list, d, 30)
         except Exception as e:  # noqa: BLE001 - SDK 读记录失败就算了，不让网页 500
             return web.json_response({"error": f"读不到对话记录：{e}"}, status=400)
+        mine = {s.claude_id: s.num for s in self.bridge.registry.sessions.values() if s.claude_id} if self.bridge else {}
         out = [{"id": x.session_id,
                 "title": (x.custom_title or x.summary or x.first_prompt or "（没标题）").replace("\n", " ")[:60],
-                "at": x.last_modified} for x in infos]
+                "at": x.last_modified, "num": mine.get(x.session_id)} for x in infos]
         return web.json_response({"sessions": out})
 
     async def _api_resume_cc(self, request: web.Request) -> web.Response:
-        """把 Claude Code 已有的对话接进案头：建一个带 claude_id 的对话，之后的说话都 resume 它。"""
+        """把 Claude Code 已有的对话接进远窗：建一个带 claude_id 的对话，之后的说话都 resume 它。
+        已经接过的（包括收起的）直接回到原来那个，不另开一个：两个对话续同一份记录会互相打架。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
         b = self.bridge
         d = await request.json()
         path, sid = str(d.get("path", "")).strip(), str(d.get("session_id", "")).strip()
         name = str(d.get("name", "")).strip()[:16] or "接着聊"
-        if not path or not sid or not Path(path).expanduser().is_dir():
+        folder = Path(path).expanduser() if path else None
+        if not folder or not folder.is_absolute() or not folder.is_dir() or not re.fullmatch(r"[0-9A-Za-z-]{8,64}", sid):
             return web.json_response({"error": "参数不完整"}, status=400)
+        if s := next((v for v in b.registry.sessions.values() if v.claude_id == sid), None):
+            if s.hidden:
+                s.hidden, s.hidden_at = False, 0.0
+                s.updated = max(s.updated, time.time() - 60)
+                b.registry.save()
+            return web.json_response({"num": s.num, "name": s.name, "existing": True})
+        try:
+            ids = {x.session_id for x in await asyncio.to_thread(self._cc_list, folder, None)}
+        except Exception:  # noqa: BLE001
+            ids = set()
+        if sid not in ids:   # 只接这个文件夹里真有的对话
+            return web.json_response({"error": "这个文件夹里没有这段对话"}, status=400)
         s = b.registry.add(Session(num=b.registry.reserve_num(), name=name,
-                                   cwd=str(Path(path).expanduser()), claude_id=sid, from_desktop=True))
+                                   cwd=str(folder), claude_id=sid, from_desktop=True))
         return web.json_response({"num": s.num, "name": s.name})
 
     async def _api_search(self, request: web.Request) -> web.Response:

@@ -131,6 +131,7 @@ def build() -> Bridge:
     live = Session(num=5, name="生成接口文档", cwd=str(TMP / "my-app"), claude_id="demo-5", model="claude-sonnet-5-5", updated=NOW - 20,
                    seen=NOW, worked=True, context_pct=27)
     reg.add(live)
+    reg.next_num = max(reg.sessions) + 1   # 上面是手工编号，新开的对话从后面接着排
     SCRIPTS["demo-5"] = [U("把 /api 下所有接口整理成文档，放到 docs/api.md", 1)]
     turn = Turn(started=NOW - 260, request="把 /api 下所有接口整理成文档", model="claude-sonnet-5-5", effort="medium",
                 steps=["搜：@router", "看 users.py", "看 orders.py", "写 api.md"], last_at=NOW - 8,
