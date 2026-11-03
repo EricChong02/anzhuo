@@ -433,6 +433,12 @@ def test_course_feedback(tmp_path):
             assert r["ok"] and r["num"] == 6
             num, text, imgs = b.sent[0]
             assert num == 6 and "《淘宝 2003》第 2 节「数据从哪来」第 3 屏" in text and "标题太小" in text and len(imgs) == 1
+            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
+                                                   "section_title": "数据从哪来", "screen": 2, "step": 2, "steps": 4, "text": "字太小"})
+            assert "第 3 屏的第 2 步（共 4 步）" in b.sent[1][1]
+            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
+                                                   "section_title": "数据从哪来", "screen": 0, "step": 0, "steps": 5, "step_name": "封面", "text": "y"})
+            assert "第 1 屏的封面（共 5 步）" in b.sent[2][1]
             s6.cwd = str(tmp_path / "别处")          # 没有在做这门课的对话 → 在课程根新开
             await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "text": "x"})
             assert b.new and b.new[0][0] == [str(root)]

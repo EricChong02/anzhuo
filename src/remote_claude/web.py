@@ -1487,7 +1487,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=msg, local_images=images,
                        via="feedback")
         b.record("你（试课提问）" if data.get("ask") else "你（试课反馈）", msg, images=len(images))
-        spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"),
+        spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"), "step": last.get("step"),
                 "where": self._where(m.group(1), cdir, last), "t": time.time()}
         s = self._course_session(cdir, title)
         if s:
@@ -1513,8 +1513,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 sec_no, sec_title = k + 1, secs[k].get("title") or ""
             except (OSError, ValueError, StopIteration, AttributeError):
                 pass
+        # “老师讲课”模式下停在这一屏的第几步（封面 / 进屏 / 第 k 步，和 cues.md 的叫法一致）；学生视角整屏全显示，不带
+        step, steps = x.get("step"), x.get("steps")
+        name = ""
+        if isinstance(screen, int) and screen >= 0 and isinstance(step, int) and isinstance(steps, int) and 0 <= step <= steps and steps > 0:
+            name = str(x.get("step_name") or "")[:8] if step == 0 else f"第 {step} 步"
+            name = f"的{name or '进屏'}（共 {steps} 步）"
         return "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "",
-                        f"第 {int(screen) + 1} 屏" if isinstance(screen, int) and screen >= 0 else ""])
+                        f"第 {int(screen) + 1} 屏{name}" if isinstance(screen, int) and screen >= 0 else ""])
 
     async def _course_cards(self, rows: list[dict]) -> list[dict]:
         """侧栏顶上的“课”：最近动过的几门课，各自是哪个对话在做、做到哪了。30 秒算一次（要翻每个对话的记录）。"""

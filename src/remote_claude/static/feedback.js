@@ -69,8 +69,18 @@
     const secs = m.sections || [];
     const i = secs.findIndex(x => x.id === section);
     const screen = typeof window.__CS_SCREEN_IDX === 'number' ? window.__CS_SCREEN_IDX : -1;
-    const where = [i >= 0 ? `第 ${i + 1} 节「${secs[i].title || secs[i].id}」` : '', screen >= 0 ? `第 ${screen + 1} 屏` : ''].filter(Boolean).join(' · ') || '当前这一屏';
-    return {m, section, section_no: i + 1, section_title: i >= 0 ? (secs[i].title || '') : '', screen, where};
+    // “老师讲课”模式下逐步出：平台的 __cs_lectureStep() 给出这一屏出到第几步，叫法照讲解页（封面 / 进屏 / 第 k 步，和 cues.md 一一对应）
+    let step = -1, steps = 0, step_name = '';
+    try {
+      const ls = window.__cs_lectureStep?.();
+      if (ls?.active && ls.section_id === section && Number(ls.screen_idx) === screen && ls.steps > 0) {
+        step = Number(ls.step) || 0; steps = Number(ls.steps) || 0;
+        step_name = step > 0 ? `第 ${step} 步` : ((secs[i]?.screens || [])[screen]?.cover ? '封面' : '进屏');
+      }
+    } catch (e) {}
+    const where = [i >= 0 ? `第 ${i + 1} 节「${secs[i].title || secs[i].id}」` : '', screen >= 0 ? `第 ${screen + 1} 屏` : '',
+                   step_name ? `${step_name}（共 ${steps} 步）` : ''].filter(Boolean).join(' · ') || '当前这一屏';
+    return {m, section, section_no: i + 1, section_title: i >= 0 ? (secs[i].title || '') : '', screen, step, steps, step_name, where};
   }
   const queue = () => load(KEY) || [];
 
@@ -96,7 +106,7 @@
       image = await shrink(e.target.files[0]);
       sh.querySelector('.xe-th').innerHTML = `<img class="xe-thumb" src="${image}">`; sync();
     };
-    const cur = () => ({section: h.section, section_no: h.section_no, section_title: h.section_title, screen: h.screen, where: h.where,
+    const cur = () => ({section: h.section, section_no: h.section_no, section_title: h.section_title, screen: h.screen, step: h.step, steps: h.steps, step_name: h.step_name, where: h.where,
                         text: ta.value.trim(), images: image ? [image] : []});
     sh.querySelector('.xe-ask').onclick = async e => {
       const b = e.currentTarget; b.disabled = true; b.textContent = '正在问…';
