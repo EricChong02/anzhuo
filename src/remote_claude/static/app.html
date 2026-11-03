@@ -399,6 +399,10 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 
 .course-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:44px;padding:8px 12px;color:var(--mute);font-size:var(--t2);text-align:left}
 .course-toggle svg{width:16px;height:16px;transition:transform .15s}
+.call{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:var(--r2);color:var(--mute);font-size:var(--t2);text-align:left}
+.call svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+@media (hover:hover){.call:hover{background:var(--line)}}
+.lfind{margin:0 0 8px} .amenu .lfind input{font:inherit;font-size:max(16px,var(--t3));margin:0;flex:1;min-width:0;background:none;border:0;box-shadow:none;padding:0;height:auto;outline:none;color:var(--ink)}
 .course-toggle[aria-expanded="true"] svg{transform:rotate(90deg)}
 .course-toggle:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;border-radius:8px}
 .rewind-dialog .box{max-height:calc(100dvh - 40px);overflow:auto;width:min(400px,100%);padding:24px;border-radius:20px}
@@ -824,7 +828,7 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><span class="mk"><svg class="l" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mblc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbls" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#c3d1dd"/><stop offset=".55" stop-color="#dde5eb"/><stop offset="1" stop-color="#eef2f4"/></linearGradient><radialGradient id="mblg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#3a66a3" stop-opacity=".9"/><stop offset=".42" stop-color="#5179b0" stop-opacity=".45"/><stop offset=".66" stop-color="#5179b0" stop-opacity=".17"/><stop offset=".84" stop-color="#5179b0" stop-opacity=".05"/><stop offset="1" stop-color="#5179b0" stop-opacity="0"/></radialGradient><linearGradient id="mblp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".50"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient><filter id="mblb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mblc)"><rect width="512" height="512" fill="url(#mbls)"/><rect width="512" height="512" fill="url(#mblg)"/><rect width="512" height="512" fill="url(#mblp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".8" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#2c5594" opacity=".6" filter="url(#mblb)"/><circle cx="384" cy="128" r="24" fill="#f7fbff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".95" stroke-width="6"/></svg><svg class="d" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mbdc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbds" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#26323f"/><stop offset=".55" stop-color="#18212b"/><stop offset="1" stop-color="#10161d"/></linearGradient><radialGradient id="mbdg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#6f9be0" stop-opacity=".85"/><stop offset=".42" stop-color="#4f7fc6" stop-opacity=".45"/><stop offset=".66" stop-color="#4f7fc6" stop-opacity=".17"/><stop offset=".84" stop-color="#4f7fc6" stop-opacity=".05"/><stop offset="1" stop-color="#4f7fc6" stop-opacity="0"/></radialGradient><linearGradient id="mbdp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient><filter id="mbdb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mbdc)"><rect width="512" height="512" fill="url(#mbds)"/><rect width="512" height="512" fill="url(#mbdg)"/><rect width="512" height="512" fill="url(#mbdp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".2" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#7aa6ea" opacity=".6" filter="url(#mbdb)"/><circle cx="384" cy="128" r="24" fill="#eef4ff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="6"/></svg></span><b>远窗</b><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
-    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
+    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话和课：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
     <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><div id="courses"></div><div id="list"></div>
       <button id="logoutBtn" hidden></button>
     </div>
@@ -1130,10 +1134,37 @@ function renderCourses() {
   $('#courses').innerHTML = cs.length ? `<button class="course-toggle" aria-expanded="${!coursesFolded}" aria-controls="courseCards"><span>课</span>${ICON.chev}</button><div id="courseCards" ${coursesFolded ? 'hidden' : ''}>` + cs.map(c =>
     `<div class="ccard ${c.status || 'none'} ${c.dirty && !['running', 'queued', 'awaiting'].includes(c.status) ? 'dirty' : ''}"><button class="cgo" data-n="${c.num || ''}" data-d="${esc(c.dir)}">
       <span class="tx"><div class="nm">${esc(c.title)}</div></span></button>
-      <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('') + '</div>' : '';
+      <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('')
+    + (drafts.length > cs.length ? `<button class="call" id="callBtn">${ICON.list}<span>课程库 · 全部 ${drafts.length} 节</span></button>` : '') + '</div>' : '';
   const toggle = $('#courses .course-toggle');
   if (toggle) toggle.onclick = () => { coursesFolded = !coursesFolded; try { localStorage.setItem('coursesFolded', coursesFolded ? '1' : '0'); } catch (e) {} renderCourses(); };
-  document.querySelectorAll('.cgo').forEach(b => b.onclick = () => b.dataset.n ? openSession(+b.dataset.n) : openNew(false, 'c:' + b.dataset.d));
+  document.querySelectorAll('#courses .cgo').forEach(b => b.onclick = () => b.dataset.n ? openSession(+b.dataset.n) : openNew(false, 'c:' + b.dataset.d));
+  if ($('#callBtn')) $('#callBtn').onclick = courseLib;
+}
+// 课程库里的任何一节：▶ 试课；点名字去改——有对话在改这节就进那个对话，没有就新开一个接着做
+const libRow = c => `<div class="ccard"><button class="cgo lib" data-d="${esc(c.dir)}" data-rel="${esc(c.rel)}">
+    <span class="tx"><div class="nm">${esc(c.title)}</div><div class="st">${esc([stageText(c), agoDays(c.mtime).replace('动过', '改过')].filter(Boolean).join(' · '))}</div></span></button>
+    <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`;
+const libMatch = (c, q) => (c.title + ' ' + c.dir).toLowerCase().includes(q.trim().toLowerCase());
+async function goCourse(b, after) {
+  let num = null;
+  try { num = (await api('course?course=' + encodeURIComponent(`/workspace/${b.dataset.rel}/course.json`))).num; } catch (e) {}
+  if (after) after();
+  num ? openSession(num) : openNew(false, 'c:' + b.dataset.d);
+}
+function courseLib() {
+  const el = sheet(`<div class="bhead"><b>课程库</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
+    <label class="find lfind"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="lq" type="text" placeholder="找课：课名里的几个字" autocomplete="off" enterkeyhint="search"></label>
+    <div class="blist" id="blist"></div>`);
+  el.querySelector('.box').classList.add('browse');
+  const draw = () => {
+    const q = $('#lq').value, cs = q.trim() ? drafts.filter(c => libMatch(c, q)) : drafts;
+    $('#blist').innerHTML = cs.map(libRow).join('') || `<div class="bempty">没有叫“${esc(q)}”的课</div>`;
+    $('#blist').querySelectorAll('.cgo').forEach(b => b.onclick = () => goCourse(b, () => el.remove()));
+  };
+  $('#bx').onclick = () => el.remove();
+  $('#lq').oninput = draw;
+  draw();
 }
 function renderSide() {
   renderCourses();
@@ -1347,9 +1378,12 @@ async function renderSearch() {
     <div class="st"><span class="dot"></span>${engTag(r.engine)}${del ? (r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}</div>
     ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
   const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
-  $('#list').innerHTML = `<div class="sres"></div>` + (parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
+  const cs = drafts.filter(c => libMatch(c, q));
+  const lib = cs.length ? `<div class="label">课（${cs.length}）</div>` + cs.slice(0, 5).map(libRow).join('') : '';
+  $('#list').innerHTML = `<div class="sres"></div>` + (lib + parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
     || `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>`);
   wireRows();
+  $('#list').querySelectorAll('.cgo.lib').forEach(b => b.onclick = () => goCourse(b));
 }
 { let t = 0; $('#q').oninput = e => { clearTimeout(t); const v = e.target.value; $('#find').classList.toggle('has', !!v); t = setTimeout(() => setQuery(v), 300); }; }
 $('#q').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; setQuery(''); } };
