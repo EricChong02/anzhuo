@@ -2279,7 +2279,7 @@ async function browseSheet(start, done) {
   let at = looksPath(start) ? start : '', parent = '', up = '';
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
-    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill" id="bhis">历史对话</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
   el.querySelector('.box').classList.add('browse');
   const draw = async () => {
     try {
@@ -2288,7 +2288,7 @@ async function browseSheet(start, done) {
       up = d.parent || (d.drive_root ? '__drives__' : '');
       $('#bpath').textContent = d.show;
       $('#bup').style.visibility = up ? 'visible' : 'hidden';
-      $('#bok').style.display = d.drive_level ? 'none' : '';
+      $('#bhis').style.display = d.drive_level ? 'none' : '';
       $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}" ${d.absolute ? 'data-abs="1"' : ''}>${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
       document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
@@ -2299,8 +2299,25 @@ async function browseSheet(start, done) {
       });
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
   };
+  const showSessions = async dir => {
+    $('#bpath').textContent = dir;
+    $('#bup').style.visibility = 'hidden'; $('#bok').style.display = 'none';
+    $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
+    try {
+      const d = await api('cc-sessions?path=' + encodeURIComponent(dir));
+      if (!d.sessions.length) { $('#blist').innerHTML = '<div class="bempty">这个文件夹还没有 Claude Code 对话</div>'; return; }
+      $('#blist').innerHTML = `<button class="bo" id="bback">← 返回文件夹</button>`
+        + d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-name="${esc(s.title.slice(0, 16))}"><span class="tx"><b>${esc(s.title)}</b></span></button>`).join('');
+      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = async () => {
+        if (b.id === 'bback') { draw(); return; }
+        const r = await api('resume-cc', {path: dir, session_id: b.dataset.sid, name: b.dataset.name});
+        el.remove(); openSession(r.num); loadSessions();
+      });
+    } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到对话记录</div>'; }
+  };
   $('#bx').onclick = () => el.remove();
   $('#bup').onclick = () => { at = up; draw(); };
+  $('#bhis').onclick = () => { $('#bup').style.visibility = 'hidden'; showSessions(at); };
   $('#bok').onclick = () => { el.remove(); done(at); };
   draw();
 }
