@@ -304,6 +304,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .blist .bo:hover{background:var(--line)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwarn{padding:14px 10px 4px} .dwarn b{font-weight:500;color:var(--amber)} .dwarn p{margin:6px 0 14px;color:var(--mute);line-height:1.6}
 .blist .bo .tx{min-width:0;display:flex;flex-direction:column} .blist .bo small{color:var(--faint);font-size:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .amenu .browse .bbtns{display:flex;gap:8px} .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
@@ -2370,19 +2371,28 @@ function deskSheet() {
     <div class="blist" id="blist"><div class="bempty">读取中…</div></div>`);
   el.querySelector('.box').classList.add('browse');
   $('#bx').onclick = () => el.remove();
-  (async () => {
+  const load = async () => {
+    $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
     try {
       const d = await api('cc-sessions');
       if (d.error) throw new Error(d.error);
       if (!d.sessions.length) { $('#blist').innerHTML = '<div class="bempty">电脑上还没有 Claude Code 对话</div>'; return; }
       $('#blist').innerHTML = d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-cwd="${esc(s.cwd)}" data-name="${esc(s.title.slice(0, 16))}">${WHERE_ICON.desk}<span class="tx"><b>${esc(s.title)}</b><small>${s.num ? '已在远窗 · ' : ''}${esc(deskDir(s.cwd))} · ${esc(ago(s.at / 1000))}</small></span></button>`).join('');
-      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = async () => {
-        const r = await api('resume-cc', {path: b.dataset.cwd, session_id: b.dataset.sid, name: b.dataset.name}).catch(() => ({error: '没接上，再试一次'}));
-        if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
-        el.remove(); openSession(r.num); loadSessions();
-      });
+      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = () => take(b.dataset, false));
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到对话记录</div>'; }
-  })();
+  };
+  // 记录几分钟内还在被写：电脑上那个窗口可能还开着，两边接着用会各说各的，先问一句
+  const take = async (x, force) => {
+    const r = await api('resume-cc', {path: x.cwd, session_id: x.sid, name: x.name, force}).catch(() => ({error: '没接上，再试一次'}));
+    if (r.warn) {
+      $('#blist').innerHTML = `<div class="dwarn"><b>电脑上可能还开着</b><p>这段对话${r.ago < 60 ? '刚刚' : ` ${Math.floor(r.ago / 60)} 分钟前`}还在电脑上写过。两边同时用会各说各的，先把电脑上那个窗口关掉再接。</p>
+        <div class="bbtns"><button class="pill" id="dno">返回</button><button class="pill on" id="dyes">已关掉，接上</button></div></div>`;
+      $('#dno').onclick = () => load(); $('#dyes').onclick = () => take(x, true); return;
+    }
+    if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
+    el.remove(); openSession(r.num); loadSessions();
+  };
+  load();
 }
 
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开

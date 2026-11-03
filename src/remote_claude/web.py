@@ -56,6 +56,7 @@ def check_password(password: str, stored: str) -> bool:
     except ValueError:
         return False
 
+DESK_FRESH = 300  # 电脑端对话的记录在这么多秒内被写过，就当电脑上可能还开着
 PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
 CATS = ("做课", "平台", "案头", "杂事")
 
@@ -1098,11 +1099,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not folder.is_dir():
             return web.json_response({"error": "这段对话的文件夹已经不在了"}, status=400)
         try:
-            ids = {x.session_id for x in await asyncio.to_thread(self._cc_list, folder, None)}
+            found = {x.session_id: x for x in await asyncio.to_thread(self._cc_list, folder, None)}
         except Exception:  # noqa: BLE001
-            ids = set()
-        if sid not in ids:   # 只接这个文件夹里真有的对话
+            found = {}
+        if sid not in found:   # 只接这个文件夹里真有的对话
             return web.json_response({"error": "这个文件夹里没有这段对话"}, status=400)
+        # 几分钟内还有人写这段记录：电脑上那个窗口多半还开着。两边各自记着自己的上下文，接着用会分叉，先提醒一句
+        idle = time.time() - (found[sid].last_modified or 0) / 1000
+        if idle < DESK_FRESH and not d.get("force"):
+            return web.json_response({"warn": True, "ago": max(0, int(idle))})
         s = b.registry.add(Session(num=b.registry.reserve_num(), name=name,
                                    cwd=str(folder), claude_id=sid, from_desktop=True))
         return web.json_response({"num": s.num, "name": s.name})
