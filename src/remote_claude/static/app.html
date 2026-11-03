@@ -1293,6 +1293,7 @@ function rowMenu(num) {
   const s = sessions.find(x => x.num === num); if (!s) return;
   const el = sheet(`<div class="t">${esc(s.name)}</div>
     <button data-a="rename"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>改名</button>
+    ${['awaiting', 'error'].includes(s.status) && !(s.detail || '').startsWith('等你确认') ? `<button data-a="dismiss"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m6 6 12 12M18 6 6 18"/></svg>不用回答了（清掉这个状态）</button>` : ''}
     <div class="sep"></div><button class="del" data-a="del"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>删除</button>`);
   el.querySelectorAll('button').forEach(b => b.onclick = async () => {
     const a = b.dataset.a;
@@ -1301,6 +1302,8 @@ function rowMenu(num) {
       const inp = el.querySelector('#rn'); inp.focus(); inp.select();
       const ok = async () => { const v = inp.value.trim(); if (!v) return; el.remove(); manage(num, 'rename', v); };
       el.querySelector('#rok').onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) ok(); };
+    } else if (a === 'dismiss') {
+      el.remove(); if (await manage(num, 'dismiss')) { if (sel === num) { lastKey = ''; loadThread(); } toast('已清掉这个状态'); }
     } else if (a === 'del') {
       el.remove();
       if (await manage(num, 'delete')) {
@@ -1370,7 +1373,7 @@ function composerHTML(ph) {
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
-let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['gpt', 'GPT']];
+let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['fable', 'Claude Fable'], ['gpt', 'GPT']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
 // 模型按钮只写型号和深度（“Opus 5.5 · 高”）；菜单按 Claude / GPT 分组，哪家额度快用完了就在组名旁标出来。
@@ -1850,9 +1853,12 @@ function renderThread(d) {
     : d.awaiting && yesNo ? [['是', '是'], ['不是', '不是'], ['先不做', '先不做']]
     : d.awaiting ? [['好的', '好的'], ['就按你推荐的', '就按你推荐的'], ['先不做', '先不做']]
     : me.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
-  q.hidden = !quick.length;
-  q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') ;
-  q.querySelectorAll('button').forEach(b => {
+  const canDismiss = !d.live && !d.limit && (d.awaiting || me.status === 'error');
+  q.hidden = !quick.length && !canDismiss;
+  q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') + (canDismiss ? '<button data-dismiss="1">不用回答了</button>' : '');
+  const dm = q.querySelector('[data-dismiss]');
+  if (dm) dm.onclick = async () => { q.hidden = true; if (await manage(d.num, 'dismiss')) { lastKey = ''; loadThread(); } };
+  q.querySelectorAll('button[data-i]').forEach(b => {
     const text = quick[+b.dataset.i][1];
     let timer = 0, longed = false;
     const fill = () => { longed = true; const ta = $('#ta'); ta.value = text; ta.oninput(); ta.focus(); };

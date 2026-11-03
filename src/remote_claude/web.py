@@ -91,7 +91,7 @@ def display_model(model_id: str) -> str:
 def model_options() -> list[list[str]]:
     from .app import MODELS
     from .codex import configured_model
-    return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku")] + [
+    return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
         ["gpt", display_model(configured_model()) or "GPT"]]
 
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
@@ -985,6 +985,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             s.auto_resume = bool(data.get("value"))
             if s.auto_resume and s.limit_until > time.time():
                 asyncio.create_task(b._auto_resume(s.num, s.limit_until))
+        elif act == "dismiss":   # 不想回答了：把“等你定 / 出错了”的状态撤掉，对话回到空闲
+            if s.num in b.runner.turns or b.runner.busy(s.num):
+                return web.json_response({"ok": False, "error": "还在做，没有可撤的状态"})
+            s.awaiting = s.awaiting_kind = ""
+            if s.status == "error":
+                s.status = "idle"
+            s.seen = time.time()
+            self._threads.pop(s.num, None)
         elif act == "restore":
             s.hidden, s.hidden_at = False, 0.0
             s.updated = max(s.updated, time.time() - 60)   # 找回来的排在最近里

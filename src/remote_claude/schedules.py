@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo('Asia/Taipei')
 ACTIVE = {'dispatching', 'submitted', 'running'}
-MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'gpt'}
+MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt'}
 
 def next_slot(task: dict, now: float) -> float | None:
     if task['kind'] == 'once': return None

@@ -537,6 +537,10 @@ def test_manage_and_search(tmp_path):
             assert [x["num"] for x in s["deleted"]] == [1] and not s["title"]
             s = await (await c.get("/_x/api/search", params={"q": "带伞"})).json()
             assert s["said"][0]["num"] == 2 and "带伞" in s["said"][0]["snippet"]
+            reg.get(2).awaiting, reg.get(2).awaiting_kind = "要不要做？", "decide"
+            r = await (await post(3, "dismiss")).json()
+            assert not r["ok"]                                              # 在做的没有可撤的状态
+            assert (await (await post(2, "dismiss")).json())["ok"] and not reg.get(2).awaiting and not reg.get(2).awaiting_kind
             await post(1, "restore")
             assert not reg.get(1).hidden
             s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
@@ -556,6 +560,7 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
     assert opts["gpt"] == "GPT-6.1 Sol"
+    assert opts["fable"] == "Claude Fable 5.1"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"
