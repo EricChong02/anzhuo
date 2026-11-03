@@ -1,4 +1,4 @@
-"""案头本体：收到你的话（网页或钉钉）→ 找到对话 → 交给 Claude / Codex → 把结果推回网页、手机通知和钉钉。"""
+"""远窗本体：收到你的话（网页或钉钉）→ 找到对话 → 交给 Claude / Codex → 把结果推回网页、手机通知和钉钉。"""
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +25,7 @@ MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "cl
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
-RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、案头发的），排查用
+RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、远窗发的），排查用
 
 log = logging.getLogger(__name__)
 
@@ -210,7 +210,7 @@ class Bridge:
 
     # ---------- 发消息 ----------
     def record(self, who: str, text: str, **extra) -> None:
-        """最近的来往原文存一份在本机（你同意的），排查“案头为什么这么答”时看原话。只留最近 100 行。"""
+        """最近的来往原文存一份在本机（你同意的），排查“远窗为什么这么答”时看原话。只留最近 100 行。"""
         try:
             path = self.data_dir / "recent.jsonl"
             lines = path.read_text().splitlines()[-(RECENT_KEEP - 1):] if path.exists() else []
@@ -223,12 +223,12 @@ class Bridge:
     async def detail(self, title: str, text: str) -> None:
         """过程类消息（开工、收到、插话、开始压缩）：钉钉安静模式下不发，只记下来（网页里本来就看得到）。"""
         if self.cfg.dingtalk_quiet:
-            self.record("案头（只记不发）", text, title=title)
+            self.record("远窗（只记不发）", text, title=title)
             return
         await self.say(title, text)
 
     async def say(self, title: str, text: str, board: bool = True) -> None:
-        self.record("案头", text, title=title)
+        self.record("远窗", text, title=title)
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
         if board:
@@ -274,7 +274,7 @@ class Bridge:
             self.board_task = asyncio.create_task(self._board_loop())
 
     async def _board_follow(self) -> None:
-        """案头刚发了别的消息：还有活在做，就把工作台挪到它下面，免得被顶上去看不到；都做完了就当场收尾。"""
+        """远窗刚发了别的消息：还有活在做，就把工作台挪到它下面，免得被顶上去看不到；都做完了就当场收尾。"""
         if not self.board:
             return
         try:
@@ -389,7 +389,7 @@ class Bridge:
                 head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
                                                  s.awaiting_kind, s.limit_until if turn.is_error else 0)
                 try:
-                    await self.say(f"#{s.num} {what[:20]}", f"**#{s.num} {s.name}**　{what}　[在案头看]({self.web.link(f'/_x/#s{s.num}')})",
+                    await self.say(f"#{s.num} {what[:20]}", f"**#{s.num} {s.name}**　{what}　[在远窗看]({self.web.link(f'/_x/#s{s.num}')})",
                                    board=False)
                 except Exception:  # noqa: BLE001
                     log.exception("钉钉提醒 #%s 失败", s.num)
@@ -425,7 +425,7 @@ class Bridge:
         if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden:
             return
         s.limit_until = 0.0
-        self.record("案头", "额度恢复，自动接着做", num=num)
+        self.record("远窗", "额度恢复，自动接着做", num=num)
         inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text="继续", via="auto")
         await self._submit(s, "继续", inc)
 
@@ -521,7 +521,7 @@ class Bridge:
             await self.handle(inc)
         except Exception as e:  # noqa: BLE001
             log.exception("处理消息失败")
-            await self.say("出错了", f"案头处理这条消息时出错：{type(e).__name__}: {str(e)[:200]}")
+            await self.say("出错了", f"远窗处理这条消息时出错：{type(e).__name__}: {str(e)[:200]}")
 
     async def handle(self, inc: Incoming) -> None:
         if inc.kind == "audio" and not inc.text:
@@ -579,7 +579,7 @@ class Bridge:
         if cmd.kind == "web":
             if not self.web.enabled:
                 return await self.say("网页", "网页没有开启（配置里 web = false）。")
-            return await self.say("网页", f"案头网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
+            return await self.say("网页", f"远窗网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
                                           "里面有全部对话、每一轮的完整过程，以及换模型、定时任务这些设置。")
         if cmd.kind == "compact":
             return await self.compact(cmd.num)
@@ -631,7 +631,7 @@ class Bridge:
         if self.registry.current == s.num:
             self.registry.current = None
         self.registry.save()
-        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，案头也不会再把话交给它。"
+        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，远窗也不会再把话交给它。"
                                   f"聊天记录还在，要找回发“#{s.num} 接着说的话”。")
 
     async def _set_model(self, cmd: Cmd) -> None:
@@ -754,7 +754,7 @@ class Bridge:
         await self.say("接上了", f"{s.label} 接上了，之后直接说的话交给它。")
 
     async def _desktop(self, pick: int | None, infos: list | None = None, replace: int | None = None) -> None:
-        """接上你最近在桌面端聊的那段：不用记文件夹和编号。案头自己新开的、临时文件夹里的不算。"""
+        """接上你最近在桌面端聊的那段：不用记文件夹和编号。远窗自己新开的、临时文件夹里的不算。"""
         if infos is None:
             mine = {s.claude_id for s in self.registry.sessions.values() if not s.from_desktop}
             skip = (str(Path.home()), str(Path(self.cfg.scratch_root).expanduser()))
@@ -958,8 +958,8 @@ class Bridge:
         client = self._dingtalk_client() if self.cfg.dingtalk_enabled else None
         if self.web.enabled:
             await self.web.start()
-        # 插着电时别让 Mac 睡着（案头退出就自动失效）；合盖或用电池时照常睡
-        try:  # 插着电时别让 Mac 睡着（案头退出就自动失效）；Windows / Linux 没有 caffeinate，跳过
+        # 插着电时别让 Mac 睡着（远窗退出就自动失效）；合盖或用电池时照常睡
+        try:  # 插着电时别让 Mac 睡着（远窗退出就自动失效）；Windows / Linux 没有 caffeinate，跳过
             subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         except FileNotFoundError:
             pass
@@ -971,7 +971,7 @@ class Bridge:
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
                 asyncio.create_task(self._auto_resume(s.num, s.limit_until))
-        log.info("案头启动，已登记 %d 个对话；网页%s，钉钉%s", len(self.registry.sessions),
+        log.info("远窗启动，已登记 %d 个对话；网页%s，钉钉%s", len(self.registry.sessions),
                  f" {self.web.base}" if self.web.enabled else "未开", "已连接" if client else "未开")
         if client:
             await client.start()

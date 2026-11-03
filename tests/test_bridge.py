@@ -142,7 +142,7 @@ def test_hide_and_delete(tmp_path, monkeypatch):
 
 
 def test_desktop_resume(tmp_path, monkeypatch):
-    """“接着桌面”接上最近的桌面端对话；案头自己开的、临时文件夹、家目录里的不算；回编号换一段。"""
+    """“接着桌面”接上最近的桌面端对话；远窗自己开的、临时文件夹、家目录里的不算；回编号换一段。"""
     from types import SimpleNamespace as NS
     from anzhuo import app as app_mod
     from anzhuo.sessions import Session
@@ -154,7 +154,7 @@ def test_desktop_resume(tmp_path, monkeypatch):
 
     infos = [
         info("router", home, "分派", 900),
-        info("mine", str(tmp_path / "课"), "案头开的", 800),
+        info("mine", str(tmp_path / "课"), "远窗开的", 800),
         info("scratch", str(tmp_path / "scratch" / "1"), "临时", 700),
         info("desk-a", str(tmp_path / "后端"), "远程开发工具", 600),
         info("desk-b", str(tmp_path / "课"), "做第二课", 500),
@@ -164,7 +164,7 @@ def test_desktop_resume(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        b.registry.add(Session(num=b.registry.reserve_num(), name="案头开的", cwd=str(tmp_path / "课"), claude_id="mine"))
+        b.registry.add(Session(num=b.registry.reserve_num(), name="远窗开的", cwd=str(tmp_path / "课"), claude_id="mine"))
         await b.on_raw(msg("接着桌面"))
         s = b.registry.get(b.registry.current)
         assert (s.claude_id, s.from_desktop) == ("desk-a", True)
@@ -567,7 +567,7 @@ def test_notify_routing(tmp_path, monkeypatch):
         ok["n"] = 0                                                     # 推送没发到
         await b._submit(s, "又查", web("又查"))
         await asyncio.sleep(0.2)
-        assert len(dt.sent) == 1 and "在案头看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
+        assert len(dt.sent) == 1 and "在远窗看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
         dt.sent.clear()
         await b.on_raw(msg("#1 钉钉里问"))                              # 钉钉里说的：完整报告回钉钉
         await asyncio.sleep(0.2)

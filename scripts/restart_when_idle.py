@@ -1,8 +1,8 @@
-"""等所有对话都空闲了再重启案头。
+"""等所有对话都空闲了再重启远窗。
 
-用案头来改案头自己的代码时，跑着的那个对话就在案头里面，直接重启会把它自己打断（也会打断别的对话）。
+用远窗来改远窗自己的代码时，跑着的那个对话就在远窗里面，直接重启会把它自己打断（也会打断别的对话）。
 所以改完后后台跑本脚本：每 5 秒看一次对话登记，连续 90 秒没有“在做/排队”（留出发报告的时间），
-再请 launchd 重启案头；开了钉钉的话，重启好后在钉钉里告诉你一声。
+再请 launchd 重启远窗；开了钉钉的话，重启好后在钉钉里告诉你一声。
 
 用法（在仓库根）：.venv/bin/python scripts/restart_when_idle.py [--rename 编号 新名字] &
 """
@@ -73,7 +73,7 @@ def main() -> None:
     cfg = load_config()
     if cfg.dingtalk_enabled and cfg.allowed_user_ids:
         asyncio.run(DingTalk(cfg.client_id, read_secret(cfg.client_id)).send_markdown(
-            cfg.allowed_user_ids[0], "案头已更新", "案头已换上新版本。"))
+            cfg.allowed_user_ids[0], "远窗已更新", "远窗已换上新版本。"))
 
 
 if __name__ == "__main__":

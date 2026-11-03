@@ -1,4 +1,4 @@
-"""案头网页：账号密码登录、过程页、新对话的文件夹解析，以及“没登记的地址一律不转发”。"""
+"""远窗网页：账号密码登录、过程页、新对话的文件夹解析，以及“没登记的地址一律不转发”。"""
 import asyncio
 import re
 import time
@@ -46,7 +46,7 @@ def test_login_pages(tmp_path):
             assert (await c.get(f"/_x/t/{tid}/img/5")).status == 404
             assert (await c.get("/", allow_redirects=False)).headers["Location"] == "/_x/"
             assert "开发" in await (await c.get("/_x/history")).text()
-            # 登录后，没登记的地址一律 404：案头不转发任何别的服务
+            # 登录后，没登记的地址一律 404：远窗不转发任何别的服务
             for path in ("/teacher.html", "/api/teacher/classes", "/workspace/a/course.json", "/studio-preview.html"):
                 assert (await c.get(path)).status == 404, path
             # 登录后跳转只认本站路径，不能借登录页跳到外站
@@ -161,7 +161,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
             assert [{k: v for k, v in l.items() if k != "reset_at"} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
-            assert "案头" in await (await c.get("/_x/")).text()
+            assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
             assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True}
@@ -229,7 +229,7 @@ def test_chat_api(tmp_path, monkeypatch):
 
 
 def test_files_delivered_and_uploaded(tmp_path):
-    """交给你的文件：复制到案头自己的文件夹、过程页和对话里能下载（原文件名）；网页传上来的文件存进收件箱。"""
+    """交给你的文件：复制到远窗自己的文件夹、过程页和对话里能下载（原文件名）；网页传上来的文件存进收件箱。"""
     import base64 as b64
     from types import SimpleNamespace as NS
 
@@ -265,7 +265,7 @@ def test_files_delivered_and_uploaded(tmp_path):
             r = await c.get(f"/dl/{tid}/0", headers={"Range": "bytes=0-3"})
             assert r.status == 206 and await r.read() == b"%PDF"
             assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
-            r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的案头能返回）
+            r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的远窗能返回）
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
             data = "data:application/pdf;base64," + b64.b64encode(b"hello").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "看看这个", "files": [{"name": "../合同.pdf", "data": data}]})).json()
@@ -399,6 +399,10 @@ def test_manage_and_search(tmp_path):
             assert [x["num"] for x in s["deleted"]] == [1] and not s["title"]
             s = await (await c.get("/_x/api/search", params={"q": "带伞"})).json()
             assert s["said"][0]["num"] == 2 and "带伞" in s["said"][0]["snippet"]
+            reg.get(2).awaiting, reg.get(2).awaiting_kind = "要不要做？", "decide"
+            r = await (await post(3, "dismiss")).json()
+            assert not r["ok"]                                              # 在做的没有可撤的状态
+            assert (await (await post(2, "dismiss")).json())["ok"] and not reg.get(2).awaiting and not reg.get(2).awaiting_kind
             await post(1, "restore")
             assert not reg.get(1).hidden
             s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
@@ -418,6 +422,7 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
     assert opts["gpt"] == "GPT-6.1 Sol"
+    assert opts["fable"] == "Claude Fable 5.1"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"

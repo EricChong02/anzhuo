@@ -26,7 +26,7 @@ class Config:
     web_base: str = ""  # 网页的访问地址（http://127.0.0.1:8765，或你放在反向代理后面的外网地址）；空 = 不开网页
     web_port: int = 8765  # 网页只听本机这个端口
     web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串，非 macOS 存 web_hash.json（anzhuo passwd）
-    watch_host: str = ""  # 可选：外网服务器的 ssh 别名，那边每分钟查案头在不在线，掉线发手机通知（scripts/server_watch.py）
+    watch_host: str = ""  # 可选：外网服务器的 ssh 别名，那边每分钟查远窗在不在线，掉线发手机通知（scripts/server_watch.py）
     dingtalk_quiet: bool = True  # 钉钉只发结果（做完/等你定/出错、回答）；开工、收到、插话、工作台这些过程只在网页里看
     # ---- 文件夹 ----
     folders: dict[str, str] = field(default_factory=dict)  # 短名 → 路径；网页新对话的菜单和“新开 短名：…”都用它

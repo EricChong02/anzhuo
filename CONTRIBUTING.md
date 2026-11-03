@@ -11,7 +11,7 @@ uv sync                          # 装依赖（Python 3.13+）
 ```
 
 - 界面在 `src/anzhuo/static/app.html`（单文件，没有构建步骤），改完刷新浏览器就能看到。
-- 改 Python 之后重启 `anzhuo run`；如果案头是用 launchd 常驻的，用 `scripts/install_launchd.sh` 重启。
+- 改 Python 之后重启 `anzhuo run`；如果远窗是用 launchd 常驻的，用 `scripts/install_launchd.sh` 重启。
 - 想了解代码怎么分工，读 `docs/架构.md`。
 
 ## 提 PR 前
@@ -23,4 +23,4 @@ uv sync                          # 装依赖（Python 3.13+）
 
 ## 范围
 
-案头想保持“个人在自己电脑上用”的体量：不做多人共用的服务、不做账号体系。想让别人也能用，请各自部署各自的一份。
+远窗想保持“个人在自己电脑上用”的体量：不做多人共用的服务、不做账号体系。想让别人也能用，请各自部署各自的一份。

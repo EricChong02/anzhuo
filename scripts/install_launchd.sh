@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 让案头开机自动运行、崩了自动重启。再次运行会用新代码重启它。
+# 让远窗开机自动运行、崩了自动重启。再次运行会用新代码重启它。
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LABEL=local.anzhuo
@@ -26,4 +26,4 @@ cat > "$PLIST" <<PL
 PL
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null && sleep 3 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-echo "案头已启动并设为开机自启。日志：$LOGDIR"
+echo "远窗已启动并设为开机自启。日志：$LOGDIR"

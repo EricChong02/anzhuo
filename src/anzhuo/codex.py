@@ -145,7 +145,7 @@ class CodexConn:
             log.exception("回答 Codex 的请求失败：%s", method)
             result = None
         if result is None:
-            await self._send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "案头不处理这个请求"}})
+            await self._send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "远窗不处理这个请求"}})
         else:
             await self._send({"jsonrpc": "2.0", "id": rid, "result": result})
 
@@ -154,7 +154,7 @@ class CodexConn:
         return lines[-1] if lines else "没有更多信息"
 
     async def open_thread(self, thread_id: str | None, instructions: str) -> str:
-        # untrusted：除了只读的命令，跑之前都来问一声 —— 案头自动放行，只把危险的（删、推、改库……）交给你点头
+        # untrusted：除了只读的命令，跑之前都来问一声 —— 远窗自动放行，只把危险的（删、推、改库……）交给你点头
         common = {"cwd": self.cwd, "sandbox": "workspace-write", "approvalPolicy": "untrusted",
                   "config": {"sandbox_workspace_write": {"network_access": True}}}
         if thread_id:

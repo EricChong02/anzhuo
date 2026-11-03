@@ -1,4 +1,4 @@
-"""案头：在手机或网页上给电脑里的 Claude Code / Codex 派活、收结果。
+"""远窗：在手机或网页上给电脑里的 Claude Code / Codex 派活、收结果。
 
   anzhuo run      常驻运行（开机自启用这个）
   anzhuo check    核对配置、密码、Claude 登录，以及钉钉（如果开了）
@@ -70,7 +70,7 @@ def check() -> int:
         print("钉钉：没开（配置里没有 client_id），只用网页")
         if not cfg.web_base:
             ok = False
-            print("  网页和钉钉都没开，案头没有入口：至少开一个")
+            print("  网页和钉钉都没开，远窗没有入口：至少开一个")
     print(f"Claude：{_claude_logged_in()}")
     print(f"数据目录：{DATA_DIR}")
     return 0 if ok else 1
@@ -97,7 +97,7 @@ def passwd() -> int:
     first_table = next((k for k, ln in enumerate(lines) if ln.startswith("[")), len(lines))
     lines.insert(first_table, f'web_user = "{user}"  # 网页登录账号；密码指纹在{"钥匙串" if sys.platform == "darwin" else "web_hash.json"}')
     CONFIG_PATH.write_text("\n".join(lines) + "\n")
-    print("已设置：账号写进配置，密码指纹存好。案头重启后生效。")
+    print("已设置：账号写进配置，密码指纹存好。远窗重启后生效。")
     return 0
 
 
@@ -131,7 +131,7 @@ def run() -> int:
     from .dingtalk import DingTalk, NoDingTalk
     cfg = load_config()
     if not cfg.dingtalk_enabled and not cfg.web_base:
-        print("网页和钉钉都没开，案头没有入口。把配置里的 web = false 去掉，或填上钉钉的 client_id。", file=sys.stderr)
+        print("网页和钉钉都没开，远窗没有入口。把配置里的 web = false 去掉，或填上钉钉的 client_id。", file=sys.stderr)
         return 2
     if cfg.dingtalk_enabled and not cfg.allowed_user_ids:
         print("钉钉开着，但配置里还没有 allowed_user_ids，先运行 anzhuo whoami 拿到你的钉钉 ID。", file=sys.stderr)
@@ -145,7 +145,7 @@ def run() -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="anzhuo", description="案头：在手机或网页上给电脑里的 Claude Code / Codex 派活")
+    ap = argparse.ArgumentParser(prog="anzhuo", description="远窗：在手机或网页上给电脑里的 Claude Code / Codex 派活")
     ap.add_argument("command", choices=["run", "check", "passwd", "whoami"])
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()

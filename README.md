@@ -1,10 +1,10 @@
-<h1 align="center">案头 · Anzhuo</h1>
+<h1 align="center">远窗 · Yuanchuang</h1>
 
 <p align="center"><b>家里的 Mac 连着 Claude / GPT 干活，你在任何设备上打开浏览器，就能可视化地指挥它。</b><br>
 手机、iPad、任意一台电脑都行——这些设备<b>不需要代理，也不用装任何软件</b>。你只需要自备一台服务器做中转。</p>
 
 <p align="center">
-  <img src="docs/images/desk-decision.png" height="236" alt="电脑浏览器里的案头：左边对话列表，右边是它提出的三个方案">
+  <img src="docs/images/desk-decision.png" height="236" alt="电脑浏览器里的远窗：左边对话列表，右边是它提出的三个方案">
   &nbsp;
   <img src="docs/images/ipad-decision.png" height="236" alt="iPad 横屏：同一套界面">
   &nbsp;
@@ -19,7 +19,7 @@
 
 Claude Code、Codex 这类 AI 编程助手，一个任务动辄做十几分钟。真正卡住它的，往往只是一句“选 A 还是 B”或者一次“可以删这个文件吗”。人一离开电脑，它就停在那里等。
 
-**案头把“等你”这件事搬到你手边的任何设备上。** 它是一个跑在你自己电脑上的小程序：
+**远窗把“等你”这件事搬到你手边的任何设备上。** 它是一个跑在你自己电脑上的小程序（原名“案头”，仓库、命令和配置目录仍叫 `anzhuo`，老用户升级不用改任何设置）：
 
 - 你在任何设备上说一句话，家里电脑里的 Claude Code / Codex 就去做；
 - 做的过程看得见：第几步、做了多久、改了哪些文件；
@@ -33,9 +33,9 @@ Claude Code、Codex 这类 AI 编程助手，一个任务动辄做十几分钟�
 
 | | 谁来做 | 说明 |
 |---|---|---|
-| ① **家里一台 Mac，连得上 Claude / GPT** | 你，一次性 | 在这台 Mac 上装好案头和 Claude Code（想用 GPT 就装 ChatGPT 桌面版）。**只有这台 Mac 需要能连上 AI**——需要代理的话，配在它身上就行 |
-| ② **一台自己的服务器做中转** | 你，一次性 | 案头不提供任何中转服务，作者自己的服务器也不对外开放。选一台你的设备不用代理就能访问的服务器；仓库里有一键脚本，装好后电脑**不用开放任何端口** |
-| ③ **任何设备，打开浏览器** | 随时 | 手机、iPad、任意一台电脑：输入你的网址、登录，就是案头。**这些设备不需要代理、不需要装任何软件** |
+| ① **家里一台 Mac，连得上 Claude / GPT** | 你，一次性 | 在这台 Mac 上装好远窗和 Claude Code（想用 GPT 就装 ChatGPT 桌面版）。**只有这台 Mac 需要能连上 AI**——需要代理的话，配在它身上就行 |
+| ② **一台自己的服务器做中转** | 你，一次性 | 远窗不提供任何中转服务，作者自己的服务器也不对外开放。选一台你的设备不用代理就能访问的服务器；仓库里有一键脚本，装好后电脑**不用开放任何端口** |
+| ③ **任何设备，打开浏览器** | 随时 | 手机、iPad、任意一台电脑：输入你的网址、登录，就是远窗。**这些设备不需要代理、不需要装任何软件** |
 
 AI 在家里那台 Mac 上干活，你在哪都能看着它、指挥它。
 
@@ -59,12 +59,12 @@ AI 在家里那台 Mac 上干活，你在哪都能看着它、指挥它。
 | **两个入口** | 网页（默认，手机电脑通用）；钉钉机器人（可选，适合想在聊天软件里指挥） |
 
 <p align="center">
-  <img src="docs/images/desk-decision.png" width="860" alt="电脑上的案头：左边对话列表，右边是它提出的三个方案和可点的选项">
+  <img src="docs/images/desk-decision.png" width="860" alt="电脑上的远窗：左边对话列表，右边是它提出的三个方案和可点的选项">
 </p>
 
 ## 先看一眼：3 分钟演示（不连 AI，不花钱）
 
-只想知道它长什么样？演示模式会起一个带虚构对话的案头，**不连 Claude、不碰你的文件夹和钥匙串**：
+只想知道它长什么样？演示模式会起一个带虚构对话的远窗，**不连 Claude、不碰你的文件夹和钥匙串**：
 
 ```bash
 git clone https://github.com/EricChong02/anzhuo.git
@@ -82,7 +82,7 @@ git clone https://github.com/EricChong02/anzhuo.git && cd anzhuo
 uv sync                                                    # 1. 装依赖
 mkdir -p ~/.config/anzhuo
 cp config.example.toml ~/.config/anzhuo/config.toml        # 2. 放好配置（默认就能用，不用改）
-scripts/claude_login.sh                                    # 3. 给案头用的 Claude Code 登录一次（浏览器里点授权）
+scripts/claude_login.sh                                    # 3. 给远窗用的 Claude Code 登录一次（浏览器里点授权）
 .venv/bin/anzhuo passwd                                    # 4. 设置网页登录的账号和密码
 .venv/bin/anzhuo check                                     # 5. 自检：配置、密码、Claude 登录是否都好了
 .venv/bin/anzhuo run                                       # 6. 运行，然后浏览器打开 http://127.0.0.1:8765
@@ -94,7 +94,7 @@ scripts/claude_login.sh                                    # 3. 给案头用的 
 uv sync                                                     & rem 1. 装依赖
 mkdir "%USERPROFILE%\.config\anzhuo"
 copy config.example.toml "%USERPROFILE%\.config\anzhuo\config.toml"    & rem 2. 放好配置（默认就能用）
-.venv\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe auth login   & rem 3. 给案头的 Claude Code 登录一次（浏览器授权）
+.venv\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe auth login   & rem 3. 给远窗的 Claude Code 登录一次（浏览器授权）
 anzhuo.cmd passwd                                           & rem 4. 网页账号密码（指纹存 web_hash.json）
 anzhuo.cmd check                                            & rem 5. 自检
 anzhuo.cmd run                                              & rem 6. 运行，浏览器打开 http://127.0.0.1:8765
@@ -112,9 +112,9 @@ scripts/install_launchd.sh
 
 ## 在任何设备上用
 
-案头只听电脑本机的端口（`127.0.0.1`），要从别的设备访问，得有一条通路。
+远窗只听电脑本机的端口（`127.0.0.1`），要从别的设备访问，得有一条通路。
 
-> **这条通路要你自己准备。案头不提供任何中转服务器，作者自己的服务器也不对外开放使用。** 推荐用你自己的一台服务器；也可以用不需要服务器的方案，但它们要求你的每台设备装客户端，各有取舍。
+> **这条通路要你自己准备。远窗不提供任何中转服务器，作者自己的服务器也不对外开放使用。** 推荐用你自己的一台服务器；也可以用不需要服务器的方案，但它们要求你的每台设备装客户端，各有取舍。
 
 1. **自己的服务器 + SSH 反向隧道（推荐）**：需要一台有公网 IP 的服务器和一个域名。仓库里有现成的一键脚本——电脑主动连出去，服务器上的 nginx 提供 HTTPS，**你的手机、iPad、任何电脑都只是打开一个网址**，不需要代理、不需要装软件；能用 HTTPS，所以手机通知和“添加到主屏幕当 App”都能用。作者本人长期这样用（用的是作者自己的服务器，别人用不了，请用你自己的）。
 2. **Tailscale Serve**：不用服务器，但每台要访问的设备都得装 Tailscale 并保持连接。
@@ -124,13 +124,13 @@ scripts/install_launchd.sh
 
 ## 要在钉钉里指挥？（可选）
 
-不填钉钉配置，案头就是纯网页版。想在钉钉里也能说话、收结果、点按钮，按 **[钉钉接入](docs/钉钉接入.md)** 建一个企业内部机器人（Stream 模式，不需要公网回调地址）。
+不填钉钉配置，远窗就是纯网页版。想在钉钉里也能说话、收结果、点按钮，按 **[钉钉接入](docs/钉钉接入.md)** 建一个企业内部机器人（Stream 模式，不需要公网回调地址）。
 
 ## 先看这几句再用：安全
 
 - 对话是以“跳过权限确认”的方式运行的（不然远程干不了活），**谁拿到你的网页登录，谁就能指挥这台电脑**。请设一个强密码，从外网访问时务必用 HTTPS。
 - 只有 Bash 命令会被拦下来问你；文件的直接编辑不拦。它不是沙箱，**别当作能挡住恶意操作的防线**。
-- 案头默认**不替你预先授权任何事**：提交、推送、部署都会问你。想让它少问，在配置里自己写（`extra_instructions` / `review_policy`），并清楚后果。
+- 远窗默认**不替你预先授权任何事**：提交、推送、部署都会问你。想让它少问，在配置里自己写（`extra_instructions` / `review_policy`），并清楚后果。
 
 完整说明见 **[安全说明](docs/安全说明.md)**。
 
@@ -154,7 +154,7 @@ scripts/install_launchd.sh
 - **平台**：macOS 是作者开发、验证的平台（钥匙串、launchd、`caffeinate` 都是 macOS 的东西）。本仓库在 macOS 之外做了 **Windows 适配**（网页密码指纹存 `web_hash.json`、`anzhuo.cmd` 启动器、自带 tzdata 时区库）；钉钉密钥和手机推送私钥仍只存 macOS 钥匙串，所以**钉钉入口和手机通知目前要 macOS**。Linux 未验证，欢迎贡献。
 - **界面语言**：界面和提示是中文。
 - **个人使用**：设计成“你自己在自己的电脑上用”。不要把它做成多人共用的服务——那样可能违反 Claude / ChatGPT 订阅条款，使用前请自己看一遍最新条款。
-- **与官方的关系**：案头是第三方个人项目，和 Anthropic、OpenAI、钉钉没有关系；它调用的是官方的 Claude Agent SDK 和 Codex。
+- **与官方的关系**：远窗是第三方个人项目，和 Anthropic、OpenAI、钉钉没有关系；它调用的是官方的 Claude Agent SDK 和 Codex。
 
 ## 许可证
 

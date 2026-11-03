@@ -162,7 +162,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
 
 
 def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
-    """把案头记下的每轮记录（过程页编号、文件、图片）按先后对到最近几轮回复上。"""
+    """把远窗记下的每轮记录（过程页编号、文件、图片）按先后对到最近几轮回复上。"""
     replies = [it for it in items if it["who"] == "claude"]
     if replies and all(it.get("ts") for it in replies):
         # 按时间对：回复写在哪一轮的起止时间里就是哪一轮的（正在做的那轮还没记录，按顺序对会整体错一位）
