@@ -830,7 +830,10 @@ class Bridge:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
-            kind = "dev" if _looks_like_project(cwd) else "simple"
+            kind = "simple"
+            if _looks_like_project(cwd) and not model and not inline_overrides(text)[0]:
+                from . import router
+                kind = await router.classify_kind(text) or "dev"   # 在代码仓里也只有较复杂的开发才上 Opus；判断失败按开发算
         auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto)
         said_model, said_effort = inline_overrides(text)

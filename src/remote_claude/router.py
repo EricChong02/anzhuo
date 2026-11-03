@@ -36,8 +36,14 @@ SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工
 有对话“正在做”或几分钟前刚做完时，用户的话多半是说给它的：讨论它在做的东西、对它发来的卡片/报告/截图的反馈、抱怨、追问、出主意，都选 continue 它。拿不准是 reply 还是 continue 时，选 continue。
 标着“在等你回答”的对话刚问了用户问题；用户的话像是在回答它（选方案、同意、补充意见），就 continue 它，即使它不是当前对话。
 如果给了“你刚才直接回答用户的”，而这条消息是在接着那段话说（追问、纠正、补充，比如“她老公不是老师”“那如果是…呢”），就选 reply，结合前文接着回答；那段话要用到文件或动手做事时才选 new。
-选 new 时再给 kind：开发类工作（写代码、改程序、做功能、调试、做课件或课程页面，不限哪个项目）写 "dev"；
-简单任务（查资料、整理文件、问答、写一段文字、算东西）写 "simple"。其他情况 kind 写 null。"""
+选 new 时再给 kind：只有较复杂的开发才写 "dev"——新做一个功能或页面、跨多个文件的改动、重构、架构设计、难查的 bug、做课件或整门课程页面；
+其余都写 "simple"：查资料、整理文件、问答、写一段文字、算东西，以及小开发（改样式或文案、调个参数或配置、改一两处小 bug、写个小脚本、跑命令、看代码解释代码、单文件小改动）。凡是“加一个功能”“前后端都要改”这类，哪怕话很短也写 "dev"。其他情况 kind 写 null。"""
+
+KIND_SYSTEM = """判断用户这件事该用哪档模型。只输出一个词，不要别的文字：
+dev：较复杂的开发——新做功能或页面、跨多个文件的改动、重构、架构设计、难查的 bug、做课件或整门课程页面。
+simple：其余所有事——查资料、整理文件、问答、写文字，以及小开发（改样式或文案、调参数或配置、改一两处小 bug、写小脚本、跑命令、看代码解释代码、单文件小改动）。
+凡是“加一个功能”“做一个页面”“前后端都要改”“重构”“设计方案”“做课件、给课件加内容”，都算 dev；只有一两处小改动才算 simple。
+例子——simple：“把按钮颜色改成蓝色”“把超时从30秒改成60秒”“修一下错别字”“这个报错怎么回事”“这个函数干嘛的”；dev：“给小E加个定时重试机制”“给课件加一页二次函数互动演示”“重构路由模块”。"""
 
 
 @dataclass
@@ -120,3 +126,23 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
     r = _parse("".join(out), {s.num for s in sessions})
     log.info("自动判断：%s", r)
     return r
+
+
+async def classify_kind(text: str, timeout: float = 15) -> str | None:
+    """只判断这件事是复杂开发（dev）还是简单任务（simple），挑模型用；出错、超时返回 None，由调用方按老规矩。"""
+    options = ClaudeAgentOptions(model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=KIND_SYSTEM, tools=[], max_turns=1,
+                                 setting_sources=[], cwd=str(Path.home()), extra_args={"no-session-persistence": None})
+    out = []
+
+    async def run():
+        async for msg in query(prompt=text[:1500], options=options):
+            if isinstance(msg, AssistantMessage):
+                out.extend(b.text for b in msg.content if isinstance(b, TextBlock))
+
+    try:
+        await asyncio.wait_for(run(), timeout)
+    except Exception:  # noqa: BLE001
+        log.warning("判断任务轻重失败", exc_info=True)
+        return None
+    word = "".join(out).strip().lower()
+    return word if word in ("dev", "simple") else None

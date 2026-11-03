@@ -269,7 +269,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .seg button.on{background:var(--accsoft);color:var(--acc);font-weight:500}
 /* 新对话页输入框在屏幕中间，上方放不下整张菜单，改成往下展开 */
 @media (min-width:601px){.newv .mmenu{bottom:auto;top:calc(100% + 10px)}} .mmenu{max-height:calc(100dvh - 140px);overflow:auto}
-@media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(10px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:var(--r3)}}
+@media (max-width:600px){.mmenu{position:fixed;left:10px;right:10px;width:auto;bottom:calc(26px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;padding:8px;border-radius:var(--r3)}}
 .send{width:38px;height:38px;border-radius:50%;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;flex:none}
 .send:disabled{background:var(--line);color:var(--mute)}
 .send .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff}
@@ -804,9 +804,11 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
   --ink:#34434f;--mute:#67757f;--faint:#909ca6;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
 @media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;
   --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
-.dock{background:linear-gradient(to bottom,transparent,var(--dock) 26px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+/* 磨砂和淡出放在垫底的伪元素上：dock 自己不能带 mask / backdrop-filter，否则往上弹的模型菜单会被切掉、position:fixed 也会被它“框住” */
+.dock{isolation:isolate}
+.dock::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
   -webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px)}
-.newv .dock{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
+.newv .dock::before{display:none}
 .composer:focus-within{background:rgba(255,255,255,.80)}
 @media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
 /* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边 */
@@ -814,6 +816,9 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 @media (prefers-color-scheme:dark){:root{--headbg:rgba(38,48,58,.74)}}
 .head{background:var(--headbg);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
   -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent)}
+/* 模型菜单：背景几乎不透，后面的字不再透出来 */
+.mmenu{background:rgba(238,242,244,.97)}
+@media (prefers-color-scheme:dark){.mmenu{background:rgba(32,40,48,.98)}}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
