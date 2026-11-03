@@ -1069,9 +1069,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not d:
             ours = {s.claude_id for s in sessions if s.claude_id and not s.from_desktop}
             cfg = getattr(self.bridge, "cfg", None)
-            scratch = str(Path(cfg.scratch_root).expanduser()) + "/" if cfg else ""
-            infos = [x for x in infos if x.session_id not in ours and x.cwd and x.cwd != str(Path.home())
-                     and not (scratch and (x.cwd + "/").startswith(scratch))][:30]
+            scratch = Path(cfg.scratch_root).expanduser() if cfg else None
+            infos = [x for x in infos if x.session_id not in ours and x.cwd and Path(x.cwd) != Path.home()
+                     and not (scratch and Path(x.cwd).is_relative_to(scratch))][:30]
         out = [{"id": x.session_id,
                 "title": (x.custom_title or x.summary or x.first_prompt or "（没标题）").replace("\n", " ")[:60],
                 "at": x.last_modified, "num": mine.get(x.session_id),
