@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表
 CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收起（问个天气、查个词，不必在列表里挂一周）
 
-# 案头给每个对话追加的固定要求。这几条是案头与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
+# 远窗给每个对话追加的固定要求。这几条是远窗与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
 # 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
 RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
 做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
@@ -70,7 +70,7 @@ class Session:
     seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
     awaiting: str = ""  # 上一轮最后在等你回答（问了什么）；你回了话就清掉
     last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），列表和通知里用
-    from_desktop: bool = False  # 接上的是桌面端开的对话（不是案头新开的）
+    from_desktop: bool = False  # 接上的是桌面端开的对话（不是远窗新开的）
     engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
     codex_file_undo: str = ""
     codex_records: list[str] = field(default_factory=list)  # 分叉继承的轮次记录编号，附件仍用原记录
@@ -406,8 +406,8 @@ class Runner:
                     await self._run(s, job, turn)
                 except FolderBlocked as e:
                     turn.is_error = True
-                    turn.error = (f"打不开 {e}。下载、桌面、文稿这几个文件夹受 macOS 隐私保护，案头在后台头一次用时，"
-                                  "Mac 会弹窗等人点“允许”，没人点就卡住。回到电脑前给案头授权一次就好（做法见说明的“文件夹权限”）。")
+                    turn.error = (f"打不开 {e}。下载、桌面、文稿这几个文件夹受 macOS 隐私保护，远窗在后台头一次用时，"
+                                  "Mac 会弹窗等人点“允许”，没人点就卡住。回到电脑前给远窗授权一次就好（做法见说明的“文件夹权限”）。")
                 except Exception as e:  # noqa: BLE001 - 任何失败都要报给用户
                     log.exception("对话 #%s 运行失败", num)
                     turn.is_error = True

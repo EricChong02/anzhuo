@@ -81,7 +81,7 @@ def parse_incoming(d: dict) -> Incoming:
 
 
 class NoDingTalk:
-    """没开钉钉时的空实现：案头里所有“发给钉钉”的调用都什么也不做，网页和手机通知照常工作。"""
+    """没开钉钉时的空实现：远窗里所有“发给钉钉”的调用都什么也不做，网页和手机通知照常工作。"""
     secret = ""
 
     async def check(self) -> None:

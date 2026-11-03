@@ -52,7 +52,7 @@ def search(keyword: str, roots: list[str], skip_names: list[str], max_depth: int
     hits: list[tuple[int, int, str, Path]] = []
     for root in roots:
         base = _expand(root)
-        if not base.is_dir() or not readable(base):  # 没授权的受保护文件夹跳过，免得案头自己卡住
+        if not base.is_dir() or not readable(base):  # 没授权的受保护文件夹跳过，免得远窗自己卡住
             continue
         stack = [(base, 0)]
         while stack:

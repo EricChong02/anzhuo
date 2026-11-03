@@ -1,4 +1,4 @@
-<h1 align="center">案头 · Anzhuo</h1>
+<h1 align="center">远窗 · Yuanchuang</h1>
 
 <p align="center"><b>A Mac at home runs Claude / GPT. You steer it from any device with a browser.</b><br>
 Phone, iPad or any computer — those devices need <b>no proxy and no installed software</b>. You only bring your own relay server.</p>
@@ -17,7 +17,7 @@ Phone, iPad or any computer — those devices need <b>no proxy and no installed 
 
 AI coding agents often work for ten minutes and then stop on a tiny question: *"A or B?"*, *"may I delete this file?"*. If you are away from your desk, they simply wait.
 
-**Anzhuo (案头, "on the desk") moves that waiting to your phone.** It is a small Python service that runs on your own Mac:
+**Yuanchuang (远窗, "a window from afar"; formerly 案头 / Anzhuo — the repo, the `anzhuo` command and config paths keep that name) moves that waiting to your phone.** It is a small Python service that runs on your own Mac:
 
 - You send a message from any device → the Claude Code / Codex session on your Mac starts working.
 - You see live progress: current step, a step progress bar, elapsed time, which files changed.
@@ -67,15 +67,15 @@ scripts/install_launchd.sh              # optional: start at login, restart on c
 
 ## What you need: three conditions
 
-1. **A Mac at home that can reach Claude / GPT.** Install Anzhuo and Claude Code on it. *Only this Mac* needs access to the AI — if it needs a proxy, set that up on this Mac.
-2. **A relay server of your own.** Anzhuo provides no relay service and the author's server is not available to anyone else. The repo ships one-shot scripts (SSH reverse tunnel + nginx + Let's Encrypt), so your Mac opens no inbound ports. Tailscale Serve and Cloudflare Tunnel also work without a server, but every client device must install Tailscale / depend on Cloudflare reachability (see [`docs/外网访问.md`](docs/外网访问.md)).
+1. **A Mac at home that can reach Claude / GPT.** Install Yuanchuang and Claude Code on it. *Only this Mac* needs access to the AI — if it needs a proxy, set that up on this Mac.
+2. **A relay server of your own.** Yuanchuang provides no relay service and the author's server is not available to anyone else. The repo ships one-shot scripts (SSH reverse tunnel + nginx + Let's Encrypt), so your Mac opens no inbound ports. Tailscale Serve and Cloudflare Tunnel also work without a server, but every client device must install Tailscale / depend on Cloudflare reachability (see [`docs/外网访问.md`](docs/外网访问.md)).
 3. **Any device with a browser.** Phone, iPad, any computer: open your URL, log in. These devices need **no proxy and no installed software**.
 
 ## Security in four lines
 
 1. Conversations run in "bypass permissions" mode so remote work is possible: **whoever logs in to the web UI controls your computer.** Use a strong password and HTTPS.
 2. Only Bash commands are screened (regex rules + your approval). File edits are not. It is a seat belt, **not a sandbox**.
-3. Anzhuo pre-authorizes nothing: commits, pushes and deploys ask you unless *you* say otherwise in the config (`extra_instructions`, `review_policy`).
+3. Yuanchuang pre-authorizes nothing: commits, pushes and deploys ask you unless *you* say otherwise in the config (`extra_instructions`, `review_policy`).
 4. Personal use only. Do not turn it into a shared service — that may violate the Claude / ChatGPT terms.
 
-Anzhuo is an independent project, not affiliated with Anthropic, OpenAI or DingTalk. MIT licensed.
+Yuanchuang is an independent project, not affiliated with Anthropic, OpenAI or DingTalk. MIT licensed.

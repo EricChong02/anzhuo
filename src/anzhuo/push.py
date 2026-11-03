@@ -1,4 +1,4 @@
-"""手机通知（Web Push）：案头加到 iPhone/iPad 主屏幕后，对话做完、等你回答、出错时直接弹系统通知。
+"""手机通知（Web Push）：远窗加到 iPhone/iPad 主屏幕后，对话做完、等你回答、出错时直接弹系统通知。
 签名用的 VAPID 私钥存在钥匙串 anzhuo.webpush（第一次用时生成）；各台设备的订阅存在 push.json。"""
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class Push:
 
     async def send(self, title: str, body: str, num: int | None = None) -> int:
         """给每台开了通知的设备发一条；设备已注销（404/410）的顺手删掉。出错只记日志，不影响别的。
-        返回发到了几台（0 = 一台都没发到，案头改用钉钉说一句）。"""
+        返回发到了几台（0 = 一台都没发到，远窗改用钉钉说一句）。"""
         if not self.subs:
             return 0
         from pywebpush import WebPushException, webpush

@@ -355,7 +355,7 @@ def test_tidy_scratch_and_purge(tmp_path):
     for n in ("old", "inuse"):
         os.utime(root / n / "a.txt", (now - 61 * 86400,) * 2); os.utime(root / n, (now - 61 * 86400,) * 2)
     assert cleanup.tidy_scratch(root, {str(root / "inuse")}, now, trash) == ["old"]
-    assert (trash / "案头临时-old" / "a.txt").exists() and (root / "inuse").exists() and (root / "fresh").exists()
+    assert (trash / "远窗临时-old" / "a.txt").exists() and (root / "inuse").exists() and (root / "fresh").exists()
     reg = Registry(tmp_path / "r.json")
     reg.add(Session(num=1, name="a", cwd="/", hidden=True, hidden_at=now - 31 * 86400))
     reg.add(Session(num=2, name="b", cwd="/", hidden=True, hidden_at=now - 5 * 86400))

@@ -29,7 +29,7 @@ def set_timezone(name: str) -> None:
     global TZ
     TZ = ZoneInfo(name) if name else local_zone()
 ACTIVE = {'dispatching', 'submitted', 'running'}
-MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'gpt'}
+MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt'}
 
 def next_slot(task: dict, now: float) -> float | None:
     if task['kind'] == 'once': return None
@@ -56,12 +56,12 @@ class Schedules:
                     raise ValueError()
                 self.tasks = tasks
             except (OSError, ValueError, KeyError, TypeError):
-                self.load_error = '定时任务文件无法读取，原文件已保留；请修复后重启案头'
+                self.load_error = '定时任务文件无法读取，原文件已保留；请修复后重启远窗'
                 return
         changed = False
         for task in self.tasks.values():
             if task.get('state') in ACTIVE:
-                task.update(state='uncertain', enabled=False, error='案头在上次执行期间重启，请查看对应对话后决定是否重新安排')
+                task.update(state='uncertain', enabled=False, error='远窗在上次执行期间重启，请查看对应对话后决定是否重新安排')
                 changed = True
         if changed: self.save()
 
