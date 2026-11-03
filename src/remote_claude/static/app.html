@@ -304,6 +304,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .blist .bo:hover{background:var(--line)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blist .bo .tx{min-width:0;display:flex;flex-direction:column} .blist .bo small{color:var(--faint);font-size:var(--t1)}
 .amenu .browse .bbtns{display:flex;gap:8px} .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
 .newv .dock{position:static;padding:0}
@@ -2335,7 +2336,7 @@ function browseSheet(start, done) {
   let at = /^(\/|~)/.test(start || '') ? start : '', up = '', show = '';
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
-    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill" id="bhis">历史对话</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
   el.querySelector('.box').classList.add('browse');
   const draw = async () => {
     try {
@@ -2344,13 +2345,35 @@ function browseSheet(start, done) {
       at = d.raw; up = d.parent; show = d.show;
       $('#bpath').textContent = d.show;
       $('#bup').style.visibility = up ? 'visible' : 'hidden';
+      $('#bok').style.display = $('#bhis').style.display = '';
       $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}">${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
       document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => { at = at.replace(/\/$/, '') + '/' + b.dataset.n; draw(); });
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
   };
+  // 历史对话：这个文件夹里 Claude Code 已有的对话（终端 / IDE / 桌面端开的），点一下接进来接着聊；已接过的回到原来那个
+  const showSessions = async dir => {
+    $('#bpath').textContent = dir;
+    $('#bup').style.visibility = 'hidden'; $('#bok').style.display = $('#bhis').style.display = 'none';
+    const back = `<button class="bo" id="bback">← 返回文件夹</button>`;
+    const wire = () => { const x = $('#bback'); if (x) x.onclick = () => draw(); };
+    $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
+    try {
+      const d = await api('cc-sessions?path=' + encodeURIComponent(dir));
+      if (d.error) throw new Error(d.error);
+      if (!d.sessions.length) { $('#blist').innerHTML = back + '<div class="bempty">这个文件夹还没有 Claude Code 对话</div>'; wire(); return; }
+      $('#blist').innerHTML = back + d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-name="${esc(s.title.slice(0, 16))}"><span class="tx"><b>${esc(s.title)}</b><small>${s.num ? "已在远窗 · " : ""}${esc(ago(s.at / 1000))}</small></span></button>`).join('');
+      wire();
+      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = async () => {
+        const r = await api('resume-cc', {path: dir, session_id: b.dataset.sid, name: b.dataset.name}).catch(() => ({error: '没接上，再试一次'}));
+        if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
+        el.remove(); openSession(r.num); loadSessions();
+      });
+    } catch (e) { $('#blist').innerHTML = back + '<div class="bempty">读不到对话记录</div>'; wire(); }
+  };
   $('#bx').onclick = () => el.remove();
   $('#bup').onclick = () => { if (up) { at = up; draw(); } };
+  $('#bhis').onclick = () => showSessions(at);
   $('#bok').onclick = () => { el.remove(); done(at, show); };
   draw();
 }
