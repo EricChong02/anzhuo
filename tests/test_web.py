@@ -784,28 +784,38 @@ def test_browse_lists_only_visible_dirs_and_needs_login(tmp_path):
 
 
 def test_resume_claude_code_history(tmp_path, monkeypatch):
-    """接上文件夹里已有的 Claude Code 对话：只接这个文件夹里真有的；接过的（含收起的）回到原来那个，不重复开；写接口校验同源。"""
+    """电脑端对话：不分文件夹列出时去掉远窗自己开的、临时文件夹和家目录里的；只接这个文件夹里真有的；接过的（含收起的）回到原来那个，不重复开；写接口校验同源。"""
     from types import SimpleNamespace as NS
     from anzhuo.sessions import Registry, Session
 
     proj = tmp_path / "proj"
     proj.mkdir()
     sid_a, sid_b = "aaaaaaaa-1111-2222-3333-444444444444", "bbbbbbbb-1111-2222-3333-444444444444"
-    infos = [NS(session_id=sid_a, custom_title="", summary="修登录\n报错", first_prompt="", last_modified=1_700_000_000_000),
-             NS(session_id=sid_b, custom_title="周报", summary="", first_prompt="", last_modified=1_700_000_100_000)]
-    monkeypatch.setattr(Web, "_cc_list", staticmethod(lambda d, limit: infos if Path(d) == proj else []))
+    scratch = tmp_path / "scratch"
+    sid_own, sid_tmp, sid_home = ("dddddddd-0000-0000-0000-00000000000" + c for c in "123")
+    infos = [NS(session_id=sid_a, custom_title="", summary="修登录\n报错", first_prompt="", last_modified=1_700_000_000_000, cwd=str(proj)),
+             NS(session_id=sid_b, custom_title="周报", summary="", first_prompt="", last_modified=1_700_000_100_000, cwd=str(proj))]
+    sid_live = "eeeeeeee-1111-2222-3333-444444444444"
+    live = [NS(session_id=sid_live, custom_title="电脑上刚写过", summary="", first_prompt="", last_modified=int(time.time() * 1000) - 30_000, cwd=str(proj))]
+    others = [NS(session_id=sid_own, custom_title="远窗自己开的", summary="", first_prompt="", last_modified=1, cwd=str(proj)),
+              NS(session_id=sid_tmp, custom_title="临时", summary="", first_prompt="", last_modified=1, cwd=str(scratch / "20261103-1")),
+              NS(session_id=sid_home, custom_title="家目录", summary="", first_prompt="", last_modified=1, cwd=str(Path.home()))]
+    monkeypatch.setattr(Web, "_cc_list", staticmethod(lambda d, limit: infos + others if d is None else infos + live if Path(d) == proj else []))
 
     async def go():
         reg = Registry(tmp_path / "sessions.json")
-        old = reg.add(Session(num=reg.reserve_num(), name="早接过的", cwd=str(proj), claude_id=sid_b, hidden=True, hidden_at=time.time()))
+        old = reg.add(Session(num=reg.reserve_num(), name="早接过的", cwd=str(proj), claude_id=sid_b, hidden=True, hidden_at=time.time(), from_desktop=True))
+        reg.add(Session(num=reg.reserve_num(), name="远窗开的", cwd=str(proj), claude_id=sid_own))
         w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
-        w.bridge = NS(registry=reg)
+        w.bridge = NS(registry=reg, cfg=NS(scratch_root=str(scratch)))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
             await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/cc-sessions")).json()               # 电脑端对话：不分文件夹
+            assert [(x["id"], x["cwd"], x["num"]) for x in d["sessions"]] == [(sid_a, str(proj), None), (sid_b, str(proj), old.num)]
             d = await (await c.get("/_x/api/cc-sessions", params={"path": str(proj)})).json()
-            assert [(x["id"], x["title"], x["num"]) for x in d["sessions"]] == [(sid_a, "修登录 报错", None), (sid_b, "周报", old.num)]
+            assert [(x["id"], x["title"], x["num"]) for x in d["sessions"]] == [(sid_a, "修登录 报错", None), (sid_b, "周报", old.num), (sid_live, "电脑上刚写过", None)]
             resume = lambda sid, path=str(proj), **kw: c.post("/_x/api/resume-cc", json={"path": path, "session_id": sid, "name": "接着"}, **kw)
             w.base = "https://x.example"                                                       # 外网地址才校验同源
             assert (await resume(sid_a, headers={"Origin": "https://evil.example"})).status == 403
@@ -818,7 +828,11 @@ def test_resume_claude_code_history(tmp_path, monkeypatch):
             assert (await (await resume(sid_a)).json())["num"] == r["num"]                  # 再接一次不重复开
             r = await (await resume(sid_b)).json()
             assert r["num"] == old.num and r["existing"] and not old.hidden                 # 收起的找回来
-            assert len(reg.sessions) == 2
+            r = await (await resume(sid_live)).json()
+            assert r["warn"] and 25 <= r["ago"] <= 60 and len(reg.sessions) == 3              # 电脑上可能还开着：先提醒，不接
+            r = await (await c.post("/_x/api/resume-cc", json={"path": str(proj), "session_id": sid_live, "force": True})).json()
+            assert reg.get(r["num"]).claude_id == sid_live                                       # 确认关掉了再接
+            assert len(reg.sessions) == 4
         finally:
             await c.close()
     asyncio.run(go())

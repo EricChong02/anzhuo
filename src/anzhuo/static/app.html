@@ -303,7 +303,8 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .blist .bo{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px;border-radius:var(--r1);color:var(--ink)}
 .blist .bo svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .blist .bo b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.blist .bo .tx{min-width:0;display:flex;flex-direction:column} .blist .bo small{color:var(--faint);font-size:var(--t1)}
+.dwarn{padding:14px 10px 4px} .dwarn b{font-weight:500;color:var(--amber)} .dwarn p{margin:6px 0 14px;color:var(--mute);line-height:1.6}
+.blist .bo .tx{min-width:0;display:flex;flex-direction:column} .blist .bo small{color:var(--faint);font-size:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bsec{padding:8px 10px 4px;color:var(--mute);font-size:var(--t2)}
 .amenu .browse .bbtns .pill{flex:1;height:44px;padding:0 14px;justify-content:center}
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
@@ -2242,6 +2243,7 @@ function wireComposer(sendFn, onSent, onOpening) {
 
 const WHERE_ICON = {
   folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
 };
 function agoDays(t) {
@@ -2280,7 +2282,7 @@ async function browseSheet(start, done) {
   let at = looksPath(start) ? start : '', parent = '', up = '';
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
-    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill" id="bhis">历史对话</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
+    <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
   el.querySelector('.box').classList.add('browse');
   const draw = async () => {
     try {
@@ -2289,7 +2291,7 @@ async function browseSheet(start, done) {
       up = d.parent || (d.drive_root ? '__drives__' : '');
       $('#bpath').textContent = d.show;
       $('#bup').style.visibility = up ? 'visible' : 'hidden';
-      $('#bok').style.display = $('#bhis').style.display = d.drive_level ? 'none' : '';
+      $('#bok').style.display = d.drive_level ? 'none' : '';
       $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}" ${d.absolute ? 'data-abs="1"' : ''}>${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
       document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
@@ -2300,30 +2302,42 @@ async function browseSheet(start, done) {
       });
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
   };
-  const showSessions = async dir => {
-    $('#bpath').textContent = dir;
-    $('#bup').style.visibility = 'hidden'; $('#bok').style.display = $('#bhis').style.display = 'none';
-    const back = `<button class="bo" id="bback">← 返回文件夹</button>`;
-    const wire = () => { const x = $('#bback'); if (x) x.onclick = () => draw(); };
-    $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
-    try {
-      const d = await api('cc-sessions?path=' + encodeURIComponent(dir));
-      if (d.error) throw new Error(d.error);
-      if (!d.sessions.length) { $('#blist').innerHTML = back + '<div class="bempty">这个文件夹还没有 Claude Code 对话</div>'; wire(); return; }
-      $('#blist').innerHTML = back + d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-name="${esc(s.title.slice(0, 16))}"><span class="tx"><b>${esc(s.title)}</b><small>${s.num ? "已在远窗 · " : ""}${esc(ago(s.at / 1000))}</small></span></button>`).join('');
-      wire();
-      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = async () => {
-        const r = await api('resume-cc', {path: dir, session_id: b.dataset.sid, name: b.dataset.name}).catch(() => ({error: '没接上，再试一次'}));
-        if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
-        el.remove(); openSession(r.num); loadSessions();
-      });
-    } catch (e) { $('#blist').innerHTML = back + '<div class="bempty">读不到对话记录</div>'; wire(); }
-  };
   $('#bx').onclick = () => el.remove();
   $('#bup').onclick = () => { at = up; draw(); };
-  $('#bhis').onclick = () => { $('#bup').style.visibility = 'hidden'; showSessions(at); };
   $('#bok').onclick = () => { el.remove(); done(at); };
   draw();
+}
+
+// 电脑端对话：你在电脑上（终端 / IDE / 桌面端）开的 Claude Code 对话，不分文件夹按时间列，点一下接进来接着聊；接过的回到原来那个
+// 只写文件夹名；Claude 桌面端自己的临时工作区（一长串编号）写成“Claude 桌面端”
+const deskDir = p => /[\\/]Claude[\\/]scratch-workspaces[\\/]/.test(p || '') ? 'Claude 桌面端' : (p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+function deskSheet() {
+  const el = sheet(`<div class="bhead"><b>电脑端对话</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
+    <div class="blist" id="blist"><div class="bempty">读取中…</div></div>`);
+  el.querySelector('.box').classList.add('browse');
+  $('#bx').onclick = () => el.remove();
+  const load = async () => {
+    $('#blist').innerHTML = '<div class="bempty">读取中…</div>';
+    try {
+      const d = await api('cc-sessions');
+      if (d.error) throw new Error(d.error);
+      if (!d.sessions.length) { $('#blist').innerHTML = '<div class="bempty">电脑上还没有 Claude Code 对话</div>'; return; }
+      $('#blist').innerHTML = d.sessions.map(s => `<button class="bo" data-sid="${esc(s.id)}" data-cwd="${esc(s.cwd)}" data-name="${esc(s.title.slice(0, 16))}">${WHERE_ICON.desk}<span class="tx"><b>${esc(s.title)}</b><small>${s.num ? '已在远窗 · ' : ''}${esc(deskDir(s.cwd))} · ${esc(ago(s.at / 1000))}</small></span></button>`).join('');
+      document.querySelectorAll('#blist .bo[data-sid]').forEach(b => b.onclick = () => take(b.dataset, false));
+    } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到对话记录</div>'; }
+  };
+  // 记录几分钟内还在被写：电脑上那个窗口可能还开着，两边接着用会各说各的，先问一句
+  const take = async (x, force) => {
+    const r = await api('resume-cc', {path: x.cwd, session_id: x.sid, name: x.name, force}).catch(() => ({error: '没接上，再试一次'}));
+    if (r.warn) {
+      $('#blist').innerHTML = `<div class="dwarn"><b>电脑上可能还开着</b><p>这段对话${r.ago < 60 ? '刚刚' : ` ${Math.floor(r.ago / 60)} 分钟前`}还在电脑上写过。两边同时用会各说各的，先把电脑上那个窗口关掉再接。</p>
+        <div class="bbtns"><button class="pill" id="dno">返回</button><button class="pill on" id="dyes">已关掉，接上</button></div></div>`;
+      $('#dno').onclick = () => load(); $('#dyes').onclick = () => take(x, true); return;
+    }
+    if (r.error || !r.num) { toast(r.error || '没接上，再试一次'); return; }
+    el.remove(); openSession(r.num); loadSessions();
+  };
+  load();
 }
 
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认是上次用的文件夹，要换才点开
@@ -2343,15 +2357,17 @@ function openNew(fromPop, preset) {
     $('#wbar').innerHTML = `<button class="pill on" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
           <span class="tx"><b>${esc(o.t)}</b><small>${esc(o.d)}</small></span></button>`).join('')}
+          <button class="wo" id="wdesk">${WHERE_ICON.desk}<span class="tx"><b>电脑端对话</b><small>接着电脑上开的 Claude Code 对话</small></span></button>
           <button class="wo" id="wbrowse">${WHERE_ICON.folder}<span class="tx"><b>浏览文件夹…</b><small>一层层点进去选</small></span></button>
           <form class="wcustom" id="wcustom"><input id="wtype" placeholder="其他文件夹：粘贴路径，或写文件夹名里的几个字" autocomplete="off"></form></div>` : '');
     if (menu) placeWhereMenu();
     $('#wp').onclick = e => { e.stopPropagation(); menu = !menu; draw(); };
-    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); if (c.id === 'wbrowse') return; pick = c.dataset.v; menu = false; draw(); });
+    document.querySelectorAll('.wo').forEach(c => c.onclick = e => { e.stopPropagation(); if (c.id === 'wbrowse' || c.id === 'wdesk') return; pick = c.dataset.v; menu = false; draw(); });
     if ($('#wcustom')) {
       $('#wcustom').onclick = e => e.stopPropagation();
       $('#wcustom').onsubmit = e => { e.preventDefault(); const v = $('#wtype').value.trim(); if (v) { pick = v; menu = false; draw(); $('#ta').focus(); } };
     }
+    if ($('#wdesk')) $('#wdesk').onclick = e => { e.stopPropagation(); menu = false; draw(); deskSheet(); };
     if ($('#wbrowse')) $('#wbrowse').onclick = e => { e.stopPropagation(); browseSheet(pick, v => { pick = v; menu = false; draw(); $('#ta').focus(); }); };
   };
   draw();

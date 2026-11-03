@@ -55,6 +55,7 @@ def check_password(password: str, stored: str) -> bool:
     except ValueError:
         return False
 
+DESK_FRESH = 300  # 电脑端对话的记录在这么多秒内被写过，就当电脑上可能还开着
 PREFIX = "/_x"  # 远窗自己的页面都在这个前缀下面
 def display_model(model_id: str) -> str:
     """统一网页名称，保留未知型号；兼容早先保存的 GPT（实际型号）。"""
@@ -915,24 +916,33 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "dirs": dirs, "drive_root": at_root and bool(base.drive)})
 
     @staticmethod
-    def _cc_list(d: Path, limit: int | None) -> list:
+    def _cc_list(d: Path | None, limit: int | None) -> list:
         from claude_agent_sdk import list_sessions
-        return list_sessions(str(d), limit, 0, False)
+        return list_sessions(str(d) if d else None, limit, 0, False)
 
     async def _api_cc_sessions(self, request: web.Request) -> web.Response:
-        """某个文件夹里 Claude Code 已有的对话（接着聊用）：读 ~/.claude/projects 的记录，不碰文件内容。"""
+        """电脑端（终端 / IDE / 桌面端）开的 Claude Code 对话，接着聊用：读 ~/.claude/projects 的记录，不碰文件内容。
+        不带 path 列所有文件夹最近的，规则同钉钉的“接着桌面”：远窗自己开的、临时文件夹和家目录里的不算；带 path 只列那个文件夹的。"""
         raw = request.query.get("path", "").strip()
         d = Path(raw).expanduser() if raw else None
-        if not d or not d.is_absolute() or not d.is_dir():
+        if d and (not d.is_absolute() or not d.is_dir()):
             return web.json_response({"error": "先选一个文件夹"}, status=400)
         try:
-            infos = await asyncio.to_thread(self._cc_list, d, 30)
+            infos = await asyncio.to_thread(self._cc_list, d, 30 if d else 150)
         except Exception as e:  # noqa: BLE001 - SDK 读记录失败就算了，不让网页 500
             return web.json_response({"error": f"读不到对话记录：{e}"}, status=400)
-        mine = {s.claude_id: s.num for s in self.bridge.registry.sessions.values() if s.claude_id} if self.bridge else {}
+        sessions = self.bridge.registry.sessions.values() if self.bridge else []
+        mine = {s.claude_id: s.num for s in sessions if s.claude_id}
+        if not d:
+            ours = {s.claude_id for s in sessions if s.claude_id and not s.from_desktop}
+            cfg = getattr(self.bridge, "cfg", None)
+            scratch = Path(cfg.scratch_root).expanduser() if cfg else None
+            infos = [x for x in infos if x.session_id not in ours and x.cwd and Path(x.cwd) != Path.home()
+                     and not (scratch and Path(x.cwd).is_relative_to(scratch))][:30]
         out = [{"id": x.session_id,
                 "title": (x.custom_title or x.summary or x.first_prompt or "（没标题）").replace("\n", " ")[:60],
-                "at": x.last_modified, "num": mine.get(x.session_id)} for x in infos]
+                "at": x.last_modified, "num": mine.get(x.session_id),
+                "cwd": x.cwd or (str(d) if d else "")} for x in infos]
         return web.json_response({"sessions": out})
 
     async def _api_resume_cc(self, request: web.Request) -> web.Response:
@@ -945,7 +955,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         path, sid = str(d.get("path", "")).strip(), str(d.get("session_id", "")).strip()
         name = str(d.get("name", "")).strip()[:16] or "接着聊"
         folder = Path(path).expanduser() if path else None
-        if not folder or not folder.is_absolute() or not folder.is_dir() or not re.fullmatch(r"[0-9A-Za-z-]{8,64}", sid):
+        if not folder or not folder.is_absolute() or not re.fullmatch(r"[0-9A-Za-z-]{8,64}", sid):
             return web.json_response({"error": "参数不完整"}, status=400)
         if s := next((v for v in b.registry.sessions.values() if v.claude_id == sid), None):
             if s.hidden:
@@ -953,12 +963,18 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 s.updated = max(s.updated, time.time() - 60)
                 b.registry.save()
             return web.json_response({"num": s.num, "name": s.name, "existing": True})
+        if not folder.is_dir():
+            return web.json_response({"error": "这段对话的文件夹已经不在了"}, status=400)
         try:
-            ids = {x.session_id for x in await asyncio.to_thread(self._cc_list, folder, None)}
+            found = {x.session_id: x for x in await asyncio.to_thread(self._cc_list, folder, None)}
         except Exception:  # noqa: BLE001
-            ids = set()
-        if sid not in ids:   # 只接这个文件夹里真有的对话
+            found = {}
+        if sid not in found:   # 只接这个文件夹里真有的对话
             return web.json_response({"error": "这个文件夹里没有这段对话"}, status=400)
+        # 几分钟内还有人写这段记录：电脑上那个窗口多半还开着。两边各自记着自己的上下文，接着用会分叉，先提醒一句
+        idle = time.time() - (found[sid].last_modified or 0) / 1000
+        if idle < DESK_FRESH and not d.get("force"):
+            return web.json_response({"warn": True, "ago": max(0, int(idle))})
         s = b.registry.add(Session(num=b.registry.reserve_num(), name=name,
                                    cwd=str(folder), claude_id=sid, from_desktop=True))
         return web.json_response({"num": s.num, "name": s.name})
