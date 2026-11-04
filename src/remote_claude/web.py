@@ -2019,11 +2019,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     # ---------- 管理页（只有 admin）：账号与登录、额度消耗 ----------
     async def _admin_page(self, request: web.Request) -> web.Response:
-        return web.Response(text=(Path(__file__).parent / "static" / "admin.html").read_text(),
-                            content_type="text/html", headers={"Cache-Control": "no-store"})
+        raise web.HTTPFound(f"{PREFIX}/#admin")   # 管理是主界面里的一个视图
 
     async def _api_admin(self, request: web.Request) -> web.Response:
         b = self.bridge
+        if not getattr(b.runner, "limits_gpt", None):   # GPT 额度平时只在有 GPT 对话时才读；管理页总要看得到
+            try:
+                await b.runner.refresh_gpt_usage()
+            except Exception:  # noqa: BLE001
+                log.debug("读 GPT 额度失败", exc_info=True)
         days = max(7, min(90, int(request.query.get("days") or 30)))
         names = {n: s.name for n, s in b.registry.sessions.items()}
         rows = usage.load(self.usage_path, time.time() - (days + 1) * 86400)

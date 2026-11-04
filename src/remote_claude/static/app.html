@@ -836,12 +836,89 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 /* 模型菜单：背景几乎不透，后面的字不再透出来 */
 .mmenu{background:rgba(238,242,244,.97)}
 @media (prefers-color-scheme:dark){.mmenu{background:rgba(32,40,48,.98)}}
+
+/* ═══ 管理（只有 admin 看得到）：用量、账号 ═══
+   和对话页同一套：磨砂板、扁平旋钮按钮、圆体数字，不加说明小字。图表两色：主账号墨蓝、user 琥珀（已过色盲校验） */
+.adm{flex:1;overflow:auto;padding:6px 20px calc(48px + env(safe-area-inset-bottom));--s1:#4a76b2;--s2:#b5762a}
+@media (prefers-color-scheme:dark){.adm{--s1:#5d8bd1;--s2:#c27d2a}}
+.adm .col{gap:14px}
+.adm-tabs{display:flex;gap:2px;padding:3px;border-radius:var(--rf);background:var(--knob-in);flex:none}
+.adm-tabs button{height:30px;padding:0 14px;border-radius:var(--rf);font-size:var(--t2);color:var(--mute)}
+.adm-tabs button.on{background:var(--plate-hi);color:var(--ink);font-weight:500}
+.adm-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 6px -4px;font-size:var(--t2);color:var(--mute)}
+.plate{background:var(--plate);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);border-radius:20px;padding:16px 18px}
+.num{font-family:var(--fd);font-variant-numeric:tabular-nums}
+/* 额度：一块板一家，5 小时 / 本周两行 */
+.aq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.aq h3{margin:0 0 12px;font-size:var(--t3);font-weight:500}
+.aq-row+.aq-row{margin-top:14px}
+.aq-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t2);color:var(--mute)}
+.aq-top b{font-size:var(--t5);font-weight:400;color:var(--ink)}
+.aq-row .qb{height:4px;margin-top:6px} .aq-row .qr{margin-top:5px}
+.aq-row.hot .aq-top b{color:var(--amber)} .aq-row.hot .qb i{background:var(--amber)}
+.aq-row.critical .aq-top b{color:var(--red)} .aq-row.critical .qb i{background:var(--red)}
+.aq-empty{color:var(--faint);font-size:var(--t2)}
+/* 消耗：大数 + 各账号 + 每天的柱子 */
+.au-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.au-big b{display:block;font-size:40px;font-weight:300;line-height:1.1;letter-spacing:.01em}
+.au-big span{font-size:var(--t2);color:var(--mute)}
+.au-split{display:flex;gap:18px;flex-wrap:wrap}
+.au-split div{font-size:var(--t2);color:var(--mute)} .au-split b{display:block;font-size:var(--t4);font-weight:400;color:var(--ink)}
+.sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
+.au-chart{position:relative;margin-top:18px}
+.au-chart svg{display:block;width:100%;height:200px;overflow:visible;stroke:none}
+.au-chart text{fill:var(--faint);font-size:11px;font-family:var(--fd);font-variant-numeric:tabular-nums}
+.au-chart .gl{stroke:var(--line);stroke-width:1}
+.au-chart .hit{cursor:pointer} .au-chart .cur{fill:var(--knob-in)}
+.au-tip{position:absolute;z-index:3;pointer-events:none;transform:translate(-50%,calc(-100% - 10px));min-width:150px;padding:10px 12px;border-radius:var(--r2);
+  background:var(--pop);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--rim),0 12px 30px -12px rgba(40,60,80,.3);font-size:var(--t2);line-height:1.6;white-space:nowrap}
+.au-tip b{font-weight:500} .au-tip .r{display:flex;justify-content:space-between;gap:14px;color:var(--mute)} .au-tip .r span:last-child{color:var(--ink)}
+/* 每个对话：一行一个，右边金额，下面一道细线是占比 */
+.ac-list{display:flex;flex-direction:column;gap:2px;padding:8px}
+.ac{display:grid;grid-template-columns:1fr auto;gap:2px 14px;align-items:baseline;width:100%;text-align:left;padding:10px 10px 12px;border-radius:14px}
+@media (hover:hover){.ac[data-n]:hover{background:var(--plate-hi)}}
+.ac .nm{font-size:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.ac .nm span{overflow:hidden;text-overflow:ellipsis}
+.ac .v{font-size:var(--t3);text-align:right}
+.ac .st{font-size:var(--t1);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac .pc{font-size:var(--t1);color:var(--faint);text-align:right}
+.ac .bar{grid-column:1/-1;height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:6px}
+.ac .bar i{display:block;height:100%;border-radius:var(--rf)}
+.ac-empty{padding:28px 0;text-align:center;color:var(--faint);font-size:var(--t2)}
+/* 账号 */
+.aa{display:flex;flex-direction:column;gap:14px}
+.aa-hd{display:flex;align-items:center;gap:12px}
+.aa-av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--knob);font-family:var(--fd);font-size:var(--t4);color:var(--mute)}
+.aa-av.u{background:rgba(181,118,42,.12);color:#9a6420}
+@media (prefers-color-scheme:dark){.aa-av.u{background:rgba(194,125,42,.16);color:#d9a35e}}
+.aa-hd .tx{flex:1;min-width:0} .aa-hd b{display:flex;align-items:center;gap:8px;font-size:var(--t4);font-weight:500}
+.aa-hd small{display:block;font-size:var(--t2);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aa-tag{font-size:var(--t1);font-weight:400;padding:1px 8px;border-radius:var(--rf);background:var(--knob-in);color:var(--mute)}
+.aa-line{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--t2);color:var(--mute)}
+.aa-acts{display:flex;gap:8px;flex-wrap:wrap}
+.aa-acts .pill.bad,.aa-dev .pill.bad{color:var(--red)}
+.aa-devs{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.aa-dev{display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px}
+.aa-dev>svg{width:20px;height:20px;color:var(--mute)}
+.aa-dev .tx{flex:1;min-width:0} .aa-dev b{display:flex;align-items:center;gap:6px;font-size:var(--t3);font-weight:400}
+.aa-dev small{display:block;font-size:var(--t1);color:var(--mute)}
+.aa-dev .me{font-size:var(--t1);color:var(--acc);background:var(--accsoft);border-radius:var(--rf);padding:0 7px}
+.aa-dev .pill{height:30px;padding:0 12px}
+.aa.off .aa-hd,.aa.off .aa-devs{opacity:.55}
+.pwbox{display:flex;flex-direction:column;gap:6px;padding:8px}
+.pwbox b{font-size:var(--t4);font-weight:500;padding:4px 4px 2px}
+.au-tip{background:rgba(238,242,244,.97)}
+@media (prefers-color-scheme:dark){.au-tip{background:rgba(32,40,48,.97)}}
+@media (max-width:600px){.adm{padding:6px 12px calc(48px + env(safe-area-inset-bottom))} .au-big b{font-size:34px}
+  .aq-grid{grid-template-columns:1fr 1fr;gap:10px} .aq-grid .aq:nth-child(3){grid-column:1/-1}
+  .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}
+  .au-split{gap:14px}}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><span class="mk"><svg class="l" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mblc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbls" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#c3d1dd"/><stop offset=".55" stop-color="#dde5eb"/><stop offset="1" stop-color="#eef2f4"/></linearGradient><radialGradient id="mblg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#3a66a3" stop-opacity=".9"/><stop offset=".42" stop-color="#5179b0" stop-opacity=".45"/><stop offset=".66" stop-color="#5179b0" stop-opacity=".17"/><stop offset=".84" stop-color="#5179b0" stop-opacity=".05"/><stop offset="1" stop-color="#5179b0" stop-opacity="0"/></radialGradient><linearGradient id="mblp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".50"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient><filter id="mblb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mblc)"><rect width="512" height="512" fill="url(#mbls)"/><rect width="512" height="512" fill="url(#mblg)"/><rect width="512" height="512" fill="url(#mblp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".8" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#2c5594" opacity=".6" filter="url(#mblb)"/><circle cx="384" cy="128" r="24" fill="#f7fbff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".95" stroke-width="6"/></svg><svg class="d" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mbdc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbds" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#26323f"/><stop offset=".55" stop-color="#18212b"/><stop offset="1" stop-color="#10161d"/></linearGradient><radialGradient id="mbdg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#6f9be0" stop-opacity=".85"/><stop offset=".42" stop-color="#4f7fc6" stop-opacity=".45"/><stop offset=".66" stop-color="#4f7fc6" stop-opacity=".17"/><stop offset=".84" stop-color="#4f7fc6" stop-opacity=".05"/><stop offset="1" stop-color="#4f7fc6" stop-opacity="0"/></radialGradient><linearGradient id="mbdp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient><filter id="mbdb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mbdc)"><rect width="512" height="512" fill="url(#mbds)"/><rect width="512" height="512" fill="url(#mbdg)"/><rect width="512" height="512" fill="url(#mbdp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".2" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#7aa6ea" opacity=".6" filter="url(#mbdb)"/><circle cx="384" cy="128" r="24" fill="#eef4ff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="6"/></svg></span><b>远窗</b><div class="conn" id="conn" role="status" aria-live="polite"><i></i><span class="cd">我的 Mac</span><span class="cs">连接中…</span></div><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
     <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话和课：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
-    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry adm-only" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><div id="courses"></div><div id="list"></div>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry adm-only" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><button class="item schedule-entry adm-only" id="adminBtn"><svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></svg><span class="nm">管理</span></button><div id="courses"></div><div id="list"></div>
       <button id="logoutBtn" hidden></button>
     </div>
     <div class="quota" id="quota" hidden></div>
@@ -1186,6 +1263,7 @@ function courseLib() {
 }
 function renderSide() {
   renderCourses();
+  $('#adminBtn').classList.toggle('sel', !!$('#adm'));
   if (query) return renderSearch();
   const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
       <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
@@ -1344,6 +1422,7 @@ async function scheduleForm(task = {}) {
   };
 }
 $('#schedulesBtn').onclick = openSchedules;
+$('#adminBtn').onclick = () => openAdmin();
 
 function rowMenu(num) {
   const s = sessions.find(x => x.num === num); if (!s) return;
@@ -1474,7 +1553,7 @@ function headStatus() {
 // 历史只留一层：列表 → 某个对话。已经在对话（或新对话页）里再切到别的，就替换当前这一层，返回一次就回到列表
 function navTo(state, hash) {
   const st = history.state;
-  if (st && (st.s || st.n)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
+  if (st && (st.s || st.n || st.a)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
 }
 function openSession(num, fromPop) {
   partialText = ''; setTimeout(connectEvents);
@@ -1746,11 +1825,10 @@ async function logoutHere(all) {
 }
 $('#moreBtn').onclick = () => {
   const admin = me.role !== 'user';
-  const el = sheet((admin ? `<button data-a="m"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>管理 · 账号与额度消耗</button>
-    <button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>` : '') + `
+  const el = sheet((admin ? `<button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>` : '') + `
     <button data-a="d"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg>登录的设备 · 退出登录</button>`);
   if (admin) { el.querySelector('[data-a=h]').onclick = () => { location.href = '/_x/history'; };
-              el.querySelector('[data-a=m]').onclick = () => { location.href = '/_x/admin'; }; }
+}
   el.querySelector('[data-a=d]').onclick = () => { el.remove(); $('#logoutBtn').onclick(); };
 };
 $('#logoutBtn').onclick = async () => {
@@ -1776,7 +1854,7 @@ $('#logoutBtn').onclick = async () => {
 
 addEventListener('popstate', e => { const lb = document.querySelectorAll('.lightbox'); if (lb.length) { lb.forEach(x => x.remove()); e.stopImmediatePropagation(); } });
 
-addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
+addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else if (e.state && e.state.a) openAdmin(e.state.a, true); else goList(); });
 
 // 进行中用了多久：按秒走，每秒自己跳（不用等服务器）
 const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`; };
@@ -2456,6 +2534,176 @@ function deskSheet() {
   load();
 }
 
+// ═══ 管理（只有 admin）：用量、账号。是主区里的一个视图，和对话页一样进出 ═══
+let admTab = 'usage', admDays = 30, admData = null;
+const ADM_ICON = {
+  phone: '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg>',
+  desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+};
+const ownerName = o => o === 'admin' ? '主账号' : o;
+const usd = v => !v ? '$0' : v >= 100 ? '$' + Math.round(v) : v >= 10 ? '$' + v.toFixed(1) : v >= 1 ? '$' + v.toFixed(2) : '$' + v.toFixed(3);
+const tokn = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : String(v || 0);
+const admOwners = d => [...new Set(['admin', ...d.accounts.map(a => a.owner)])];
+const ownerColor = (d, o) => admOwners(d).indexOf(o) % 2 ? 'var(--s2)' : 'var(--s1)';
+function openAdmin(tab, fromPop) {
+  if (me.role === 'user') return goList();
+  if (sel) presence(false);
+  sel = null; admTab = tab || admTab;
+  if (!fromPop) navTo({a: admTab}, '#admin');
+  $('#app').classList.add('in');
+  $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>管理</b></div>
+      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button></div></div>
+    <div class="adm" id="adm"><div class="col" id="admCol"></div></div>`;
+  $('#back').onclick = () => history.state && history.state.a ? history.back() : goList();
+  $('#admTabs').onclick = e => { const b = e.target.closest('button'); if (!b || b.dataset.t === admTab) return; admTab = b.dataset.t; history.replaceState({a: admTab}, '', '#admin'); drawAdmin(); };
+  renderSide(); drawAdmin(); loadAdmin();
+}
+async function loadAdmin() {
+  try {
+    const r = await fetch('/_x/api/admin?days=' + admDays);
+    if (r.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/#admin'); return; }
+    if (!r.ok) throw new Error();
+    admData = await r.json();
+  } catch (e) { if (!admData && $('#admCol')) $('#admCol').innerHTML = '<div class="ac-empty">没读到，下拉或稍后再试</div>'; return; }
+  drawAdmin();
+}
+async function admAct(body) {
+  const r = await api('admin', body).catch(() => null);
+  toast(r && r.ok ? '好了' : (r && r.error) || '没成功，再试一次');
+  await loadAdmin();
+}
+function drawAdmin() {
+  const col = $('#admCol'); if (!col) return;
+  document.querySelectorAll('#admTabs button').forEach(b => { b.classList.toggle('on', b.dataset.t === admTab); b.setAttribute('aria-selected', b.dataset.t === admTab); });
+  if (!admData) { col.innerHTML = '<div class="ac-empty">读取中…</div>'; return; }
+  if (admTab === 'accounts') return drawAccounts(col, admData);
+  drawUsage(col, admData);
+}
+
+// ── 用量 ──
+function aqRow(name, pct, reset) {
+  const cls = pct == null ? '' : pct > 90 ? 'critical' : pct >= 80 ? 'hot' : '';
+  return `<div class="aq-row ${cls}"><div class="aq-top"><span>${esc(name)}</span><b class="num">${pct == null ? '—' : Math.round(pct) + '%'}</b></div>
+    <div class="qb"><i style="width:${Math.max(pct ? 2 : 0, Math.min(100, pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)}</div>` : ''}</div>`;
+}
+function quotaPlate(title, ls) {
+  const order = ['5 小时', '本周'], rows = order.map(n => ls.find(l => l.name === n)).filter(Boolean);
+  return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, quotaReset(l).relative)).join('')
+    : `<div class="aq-row">${aqRow('本周', null, '')}</div>`}</div>`;
+}
+function drawUsage(col, d) {
+  const u = d.usage, os = admOwners(d);
+  const fenced = d.accounts.filter(a => a.quota);
+  const quotas = quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt)
+    + fenced.map(a => `<div class="plate aq"><h3>${esc(a.name)}</h3>${aqRow(`本周 · 上限 ${Math.round(a.quota.share * 100)}%`, a.quota.calibrating ? null : a.quota.pct,
+        a.quota.reset_at ? quotaReset({name: '本周', reset_at: a.quota.reset_at}).relative : '')}</div>`).join('');
+  const turns = u.days.reduce((s, x) => s + x.turns, 0), toks = u.days.reduce((s, x) => s + x.tokens, 0);
+  const split = os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, turns: 0};
+    return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${usd(r.cost)}</b></div>`; }).join('');
+  const convs = u.conversations;
+  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotas}</div>
+    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${[7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n} 天</button>`).join('')}</div></div>
+    <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${usd(u.total_cost)}</b><span>${turns} 轮 · ${tokn(toks)} tokens</span></div>
+      <div class="au-split">${split}</div></div>
+      <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天消耗"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
+    <div class="adm-h"><span>对话</span><span>${convs.length ? convs.length + ' 个' : ''}</span></div>
+    <div class="plate ac-list">${convs.length ? convs.map(c => {
+      const gpt = c.engine === 'codex', mine = c.owner === 'admin' && sessions.some(s => s.num === c.num);
+      const bits = [ownerName(c.owner), ...c.models.map(m => m.replace(/^claude-/, '').replace(/-\d+(-\d+)?$/, '')), c.turns + ' 轮', ago(c.last)];
+      return `<button class="ac" ${mine ? `data-n="${c.num}"` : 'tabindex="-1"'}>
+        <span class="nm">${gpt ? engTag('codex') : ''}<span>${esc(c.name)}</span></span><span class="v num">${gpt ? tokn(c.tokens) : usd(c.cost)}</span>
+        <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${gpt ? 'tokens' : c.share + '%'}</span>
+        <span class="bar"><i style="width:${gpt ? 0 : Math.max(1, c.share)}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
+    }).join('') : '<div class="ac-empty">还没有记录</div>'}</div>`;
+  $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = +b.dataset.d; loadAdmin(); };
+  col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
+  drawChart(d);
+}
+// 每天一根柱子，按账号叠（主账号在下）；段与段之间留 2px 缝，只有顶端是圆角；悬停 / 点一下看当天
+function drawChart(d) {
+  const svg = $('#auSvg'); if (!svg) return;
+  const days = d.usage.days, os = admOwners(d);
+  const W = Math.max(280, svg.clientWidth || 600), H = 200, L = 40, R = 4, T = 8, B = 24;
+  const tot = x => os.reduce((s, o) => s + (x.by_owner[o] || 0), 0);
+  const max = Math.max(0.01, ...days.map(tot));
+  const step = (() => { const raw = max / 3, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= raw); })();
+  const top = step * Math.ceil(max / step), y = v => T + (H - T - B) * (1 - v / top);
+  const slot = (W - L - R) / days.length, bw = Math.max(3, Math.min(22, slot * .62));
+  let g = '';
+  for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`;
+  g += `<rect class="cur" id="auCur" x="0" y="${T}" width="${slot}" height="${H - T - B}" rx="6" opacity="0"/>`;
+  const every = Math.ceil(days.length / (W < 500 ? 5 : 10));
+  days.forEach((x, i) => {
+    const bx = L + slot * i + (slot - bw) / 2, parts = os.map(o => x.by_owner[o] || 0);
+    const last = parts.reduce((k, v, j) => v > 0 ? j : k, -1);
+    let base = 0;
+    parts.forEach((v, k) => {
+      if (v <= 0) return;
+      const y1 = y(base + v), h = Math.max(1.5, y(base) - y1 - (base > 0 ? 2 : 0)), r = k === last ? Math.min(4, h, bw / 2) : 0;
+      g += r ? `<path d="M${bx},${y1 + h}V${y1 + r}Q${bx},${y1} ${bx + r},${y1}H${bx + bw - r}Q${bx + bw},${y1} ${bx + bw},${y1 + r}V${y1 + h}Z" fill="${ownerColor(d, os[k])}"/>`
+        : `<rect x="${bx}" y="${y1}" width="${bw}" height="${h}" fill="${ownerColor(d, os[k])}"/>`;
+      base += v;
+    });
+    if ((days.length - 1 - i) % every === 0) g += `<text x="${bx + bw / 2}" y="${H - 6}" text-anchor="middle">${x.day.replace(/^0/, '').replace('-', '/')}</text>`;
+  });
+  days.forEach((x, i) => { g += `<rect class="hit" data-i="${i}" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>`; });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = g;
+  const tip = $('#auTip'), cur = $('#auCur');
+  const show = e => {
+    const t = e.target.closest && e.target.closest('.hit');
+    if (!t) { tip.hidden = true; cur.setAttribute('opacity', 0); return; }
+    const i = +t.dataset.i, x = days[i];
+    cur.setAttribute('x', L + slot * i); cur.setAttribute('opacity', 1);
+    tip.innerHTML = `<b>${x.day.replace('-', '月').replace(/^0/, '')}日</b>　<span class="num">${usd(tot(x))}</span>` + os.map(o => `<div class="r"><span><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}</span><span class="num">${usd(x.by_owner[o] || 0)}</span></div>`).join('')
+      + `<div class="r"><span>轮数</span><span class="num">${x.turns}</span></div>` + (x.gpt_tokens ? `<div class="r"><span>Codex</span><span class="num">${tokn(x.gpt_tokens)}</span></div>` : '')
+      + (x.week_pct != null ? `<div class="r"><span>周额度</span><span class="num">${Math.round(x.week_pct)}%</span></div>` : '');
+    tip.hidden = false;
+    const k = svg.getBoundingClientRect().width / W, cx = (L + slot * (i + .5)) * k, w = svg.getBoundingClientRect().width;
+    tip.style.left = Math.max(80, Math.min(w - 80, cx)) + 'px'; tip.style.top = Math.max(60, y(tot(x)) * k) + 'px';
+  };
+  svg.onpointermove = show; svg.onclick = show; svg.onpointerleave = () => { tip.hidden = true; cur.setAttribute('opacity', 0); };
+}
+addEventListener('resize', () => { if ($('#auSvg') && admData) drawChart(admData); });
+
+// ── 账号 ──
+function drawAccounts(col, d) {
+  col.innerHTML = d.accounts.map(a => {
+    const user = a.role !== 'admin', others = a.devices.filter(x => !x.me);
+    return `<div class="plate aa ${a.disabled ? 'off' : ''}" data-a="${esc(a.name)}">
+      <div class="aa-hd"><span class="aa-av ${user ? 'u' : ''}">${esc(a.name.slice(0, 1).toUpperCase())}</span>
+        <div class="tx"><b>${esc(a.name)}${a.disabled ? '<span class="aa-tag">已停用</span>' : ''}</b><small>${user ? esc(a.root) : '全部权限'}</small></div></div>
+      ${user && a.quota ? `<div class="aa-line"><span>周上限</span><div class="adm-tabs">${[10, 20, 30, 50].map(p => `<button data-act="share" data-v="${p}" class="${Math.round(a.quota.share * 100) === p ? 'on' : ''}">${p}%</button>`).join('')}</div></div>` : ''}
+      <div class="aa-devs">${a.devices.map(x => `<div class="aa-dev">${/iPhone|安卓/.test(x.name) ? ADM_ICON.phone : ADM_ICON.desk}
+          <div class="tx"><b>${esc(x.name)}${x.me ? '<span class="me">这台</span>' : ''}</b><small>${x.me ? '正在用' : x.seen ? ago2(x.seen) : '—'}${x.ip ? ' · ' + esc(x.ip) : ''}</small></div>
+          ${x.me ? '' : `<button class="pill bad" data-act="logout" data-id="${x.id}">退出</button>`}</div>`).join('') || '<div class="aa-dev"><small>没有登录着的设备</small></div>'}</div>
+      <div class="aa-acts"><button class="pill" data-act="pw">改密码</button>${others.length > 1 ? '<button class="pill bad" data-act="logout_all">全部退出</button>' : ''}
+        ${user ? `<button class="pill ${a.disabled ? '' : 'bad'}" data-act="${a.disabled ? 'enable' : 'disable'}">${a.disabled ? '启用' : '停用'}</button>` : ''}</div></div>`;
+  }).join('');
+  col.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const account = b.closest('[data-a]').dataset.a, act = b.dataset.act;
+    if (act === 'pw') return pwSheet(account);
+    if (act === 'share') return admAct({action: 'share', account, value: +b.dataset.v / 100});
+    if (act === 'disable') return confirmSheet(`停用 ${account}？`, '停用', () => admAct({action: 'disable', account}));
+    if (act === 'logout_all') return confirmSheet(`退出 ${account} 的其他设备？`, '全部退出', () => admAct({action: 'logout_all', account}));
+    b.disabled = true;
+    admAct({action: act, account, id: b.dataset.id});
+  };
+}
+function confirmSheet(title, ok, go) {
+  const el = sheet(`<div class="t">${esc(title)}</div><button class="del" data-ok>${esc(ok)}</button><button data-no>取消</button>`);
+  el.querySelector('[data-ok]').onclick = () => { el.remove(); go(); };
+  el.querySelector('[data-no]').onclick = () => el.remove();
+}
+function pwSheet(account) {
+  const el = sheet(`<div class="pwbox"><b>${esc(account)} 的新密码</b><input type="password" autocomplete="new-password" placeholder="至少 6 位" id="pwIn">
+    <button class="on" id="pwOk">保存</button><button id="pwNo">取消</button></div>`);
+  const inp = el.querySelector('#pwIn'); setTimeout(() => inp.focus(), 50);
+  const save = () => { if (inp.value.length < 6) { inp.focus(); return toast('至少 6 位'); } el.remove(); admAct({action: 'password', account, value: inp.value}); };
+  el.querySelector('#pwOk').onclick = save; inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+  el.querySelector('#pwNo').onclick = () => el.remove();
+}
+
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认小E 自动判断，要改才点开
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
@@ -2535,6 +2783,7 @@ if (window.visualViewport) {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
   if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
+  else if (location.hash === '#admin') { history.replaceState(null, '', location.pathname); openAdmin(); }
   // 实时推送连着时只偶尔兜底刷新；断了（换网络、锁屏回来）退回每几秒问一次
   connectEvents();
   setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
