@@ -203,3 +203,27 @@ def test_claude_usage_is_cumulative_so_record_delta(tmp_path):
     rows = [{"t": 1, "cost": 1, "limits": {"seven_day": 10}}, {"t": 2, "cost": 2, "limits": {"seven_day": 12}},
             {"t": 3, "cost": 2, "limits": {"seven_day": 14}}, {"t": 4, "cost": 5, "limits": {"seven_day": 1}}]
     assert usage.rate(rows, 0) == 1.0
+
+
+def test_local_spend_feeds_rate(tmp_path):
+    """本机 Claude Code 记录：一条回复分几行写只算一次，只读新写的部分；换算比例的分母用本机全部消耗。"""
+    from datetime import datetime, timezone
+    from remote_claude.localspend import LocalSpend
+    now = time.time()
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
+    line = lambda t, mid, out: json.dumps({"type": "assistant", "timestamp": iso(t), "message": {
+        "id": mid, "model": "claude-opus-5-5", "usage": {"input_tokens": 0, "output_tokens": out}}}) + "\n"
+    f = tmp_path / "proj" / "a.jsonl"
+    f.parent.mkdir()
+    f.write_text(line(now - 3000, "m1", 100_000) + line(now - 3000, "m1", 100_000) + '{"type":"user"}\n')   # $2，写了两行
+    sp = LocalSpend(tmp_path / "ls.json", tmp_path / "proj")
+    assert sp.scan(now) == 1 and abs(sp.between(now - 4000, now) - 2.0) < 1e-9
+    with f.open("a") as h:
+        h.write(line(now - 1000, "m2", 200_000) + line(now - 900, "m1", 100_000)[:20])   # $4；最后半行没写完
+    assert sp.scan(now) == 1 and abs(sp.between(now - 4000, now) - 6.0) < 1e-9
+    sp.save()
+    assert LocalSpend(tmp_path / "ls.json", tmp_path / "proj").scan(now) == 0   # 记得读到哪了
+    # 远窗只记了 $1，但这段时间本机一共花了 $6，周额度涨了 3% → 每美元 0.5%
+    sp.snap(10, now - 3500)
+    rows = [{"t": now - 500, "cost": 1.0, "limits": {"seven_day": 13}}]
+    assert usage.rate(rows, 0, sp) == 0.5 and usage.rate(rows, 0) is None

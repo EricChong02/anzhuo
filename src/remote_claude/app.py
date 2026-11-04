@@ -14,6 +14,7 @@ from pathlib import Path
 import dingtalk_stream
 from claude_agent_sdk import list_sessions
 
+from .localspend import LocalSpend
 from . import cards, folders, report, router, translate, usage
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, save_web_hash, web_accounts
@@ -126,6 +127,7 @@ class Bridge:
         self.runner.auto_review = cfg.auto_review
         self.runner.auto_title = True
         self.runner.on_usage = self._usage
+        self.spend = LocalSpend(data_dir / "localspend.json")   # 本机全部 Claude Code 的消耗：换算周额度 % 用
         try:
             if n := usage.migrate(data_dir / "usage.jsonl"):
                 log.info("消耗记录：%d 行累计值改成每轮的", n)
@@ -980,11 +982,24 @@ class Bridge:
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
+    async def _spend_loop(self) -> None:
+        """每 10 分钟读本机 Claude Code 记录新写的部分（第一次要读几 GB，放后台线程）。"""
+        while True:
+            try:
+                n = await asyncio.to_thread(self.spend.scan)
+                await asyncio.to_thread(self.spend.save)
+                log.debug("本机消耗：新读 %d 条", n)
+            except Exception:  # noqa: BLE001
+                log.warning("读本机 Claude Code 消耗失败", exc_info=True)
+            await asyncio.sleep(600)
+
     async def _gpt_usage_loop(self) -> None:
         """额度：Claude 的每 10 分钟读一次（重启后不用等第一轮做完，侧栏一打开就有）；有 GPT 对话时 GPT 的也读。"""
         while True:
             try:
                 await self.runner.refresh_usage(force=True)
+                if week := self.runner.limits.get("seven_day"):
+                    self.spend.snap(round(week[0] * 100, 1))   # 刚读到的本周额度 %，换算比例用
             except Exception:  # noqa: BLE001
                 log.debug("读 Claude 额度失败", exc_info=True)
             if any(s.engine == "codex" for s in self.registry.visible()):
@@ -1057,6 +1072,7 @@ class Bridge:
         subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
+        asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等

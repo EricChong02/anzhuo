@@ -208,30 +208,35 @@ def reset_epoch(text: str | None, now: float | None = None) -> float | None:
     return min(cands, key=lambda t: abs(t - now)) if cands else None
 
 
-def rate(rows: list[dict], since: float) -> float | None:
+def rate(rows: list[dict], since: float, spend=None) -> float | None:
     """“每 1 美元（标价折算）约等于主账号周额度的百分之几”。
-    用远窗每轮做完时记下的周额度 %：相邻两轮之间周 % 涨了多少 ÷ 后一轮花了多少，跨过重置（周 % 变小）的那一段不算；
-    since 之后的全部累加（看几周的，比只看本周稳）。你在别处（claude.ai、电脑上的 Claude Code）用的也算在周 % 里，
-    所以推出来偏大：换算出的百分比偏保守（宁可多算）。数据太少（不到 2 美元、周 % 没涨过 1）返回 None。"""
-    rs = sorted((r for r in rows if r.get("t", 0) >= since and r.get("engine") != "codex"
-                 and (r.get("limits") or {}).get("seven_day") is not None), key=lambda r: r["t"])
+    周额度 % 的读数：远窗每轮做完时记的，加上 spend（localspend.LocalSpend）里定时读额度记的。相邻两次读数之间
+    周 % 涨了多少 ÷ 这段时间花了多少，累加 since 之后的（看几周的，比只看本周稳）；跨过重置（周 % 变小）的那段不算。
+    “花了多少”：有 spend 用本机全部 Claude Code 的消耗（远窗的 + 电脑上直接用的），没有就只算远窗这一轮的。
+    claude.ai 网页版、App 的用量看不到，仍会让比例偏大一点（换算出的百分比偏保守）。数据太少返回 None。"""
+    pts = [(r["t"], r["limits"]["seven_day"], float(r.get("cost") or 0)) for r in rows
+           if r.get("t", 0) >= since and r.get("engine") != "codex" and (r.get("limits") or {}).get("seven_day") is not None]
+    if spend is not None:
+        pts += [(t, p, 0.0) for t, p in spend.snaps if t >= since]
+    pts.sort()
     dp = dc = 0.0
-    for a, b in zip(rs, rs[1:]):
-        d = b["limits"]["seven_day"] - a["limits"]["seven_day"]
-        if d >= 0:
-            dp += d
-            dc += float(b.get("cost") or 0)
+    for (ta, pa, _), (tb, pb, cb) in zip(pts, pts[1:]):
+        if pb < pa:
+            continue
+        c = max(cb, spend.between(ta, tb)) if spend is not None else cb
+        dp += pb - pa
+        dc += c
     return dp / dc if dc >= 2 and dp >= 1 else None
 
 
 def quota(rows: list[dict], owner: str, share: float, week_reset: float | None, saved_rate: float | None,
-          now: float | None = None) -> dict:
+          now: float | None = None, spend=None) -> dict:
     """受限账号本周用了自己额度的百分之几。额度 = 主账号周额度 × share，和主账号同一时间重置。
     pct 是相对它自己的额度（100 = 用完）；used 是折算成主账号周额度的百分比。"""
     now = now or time.time()
     reset = week_reset if week_reset and week_reset > now else None
     start = (reset - WEEK) if reset else now - WEEK
-    r = rate(rows, start - 3 * WEEK) or saved_rate
+    r = rate(rows, start - 3 * WEEK, spend) or saved_rate
     cost = sum(float(x.get("cost") or 0) for x in rows
                if x.get("t", 0) >= start and x.get("owner") == owner and x.get("engine") != "codex")
     used = cost * r if r else 0.0
