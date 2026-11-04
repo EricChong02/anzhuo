@@ -44,6 +44,7 @@ class Turn:
     agents: dict = field(default_factory=dict)  # 派出去的助手（子代理、后台命令）：task_id → {name, t0, t1, status, last}
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
     last_at: float = 0.0  # 最近一次有动静（新的一步、一段话、助手进展）：网页据此提示“好一会儿没动静了”
+    usage: dict = field(default_factory=dict)  # 这一轮的消耗：Claude {cost, models}；Codex {codex: 会话累计 token}
     via: str = ""  # 这一轮是从哪说的：web / dingtalk / feedback（钉钉里说的，结果照旧全发回钉钉）
 
 

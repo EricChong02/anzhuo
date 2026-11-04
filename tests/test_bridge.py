@@ -693,7 +693,7 @@ def test_notify_routing(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         ok = {"n": 1}
 
-        async def fake_push(title, body, num=None):
+        async def fake_push(title, body, num=None, only=None):
             pushes.append(body)
             return ok["n"]
         b.web.push.send = fake_push

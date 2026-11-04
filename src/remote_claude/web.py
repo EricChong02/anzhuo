@@ -23,7 +23,7 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
-from . import thread, translate
+from . import thread, translate, usage
 from .brand import LOGIN_CSS, MARK
 from .push import Push
 from .speech import Speech
@@ -58,6 +58,19 @@ def check_password(password: str, stored: str) -> bool:
 
 DESK_FRESH = 300  # 电脑端对话的记录在这么多秒内被写过，就当电脑上可能还开着
 PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
+PUBLIC = (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
+          f"{PREFIX}/health")
+# 受限账号（role = user）能用的页面和接口；别的（历史记录、试课、定时、浏览文件夹、接电脑端对话、管理页）一律不给
+USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/api/push", f"{PREFIX}/api/logout",
+               f"{PREFIX}/api/devices", f"{PREFIX}/api/devices/logout", f"{PREFIX}/api/sessions", f"{PREFIX}/api/events",
+               f"{PREFIX}/api/uimg/{{num}}/{{uuid}}/{{k}}", f"{PREFIX}/api/thread/{{num}}", f"{PREFIX}/api/manage/{{num}}",
+               f"{PREFIX}/api/speech/{{num}}", f"{PREFIX}/api/speech/release", f"{PREFIX}/api/audio/{{key}}",
+               f"{PREFIX}/audio/{{key}}.mp3", f"{PREFIX}/api/search", f"{PREFIX}/api/send", f"{PREFIX}/api/settings/{{num}}",
+               f"{PREFIX}/api/compact/{{num}}", f"{PREFIX}/api/confirm/{{num}}", f"{PREFIX}/api/stop/{{num}}",
+               f"{PREFIX}/api/rewind/{{num}}", f"{PREFIX}/api/fork/{{num}}", f"{PREFIX}/api/unqueue/{{num}}",
+               f"{PREFIX}/api/presence", f"{PREFIX}/t/{{tid}}", f"{PREFIX}/t/{{tid}}/img/{{i}}", f"{PREFIX}/t/{{tid}}/file/{{i}}",
+               "/dl/{tid}/{i}", "/dl/{tid}/{i}/pages", "/dl/{tid}/{i}/p/{name}"}
+
 CATS = ("做课", "平台", "案头", "杂事")
 
 
@@ -202,8 +215,12 @@ ul{{padding-left:20px;margin:4px 0}} li::marker{{color:var(--faint)}}
 
 class Web:
     def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = "",
-                 user: str = "", pw_hash: str = "", watch_host: str = ""):
-        self.user, self.pw_hash = user, pw_hash
+                 user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
+                 save_hash=None):
+        # 账号：名字 → {role: admin / user, root: user 的工作文件夹, hash: 密码指纹}。老写法（user + pw_hash）当作唯一的 admin
+        self.accounts = dict(accounts) if accounts else ({user: {"role": "admin", "root": "", "hash": pw_hash}} if user else {})
+        self.save_hash = save_hash  # 管理页改密码时存指纹（默认存钥匙串）
+        self.usage_path = data_dir / "usage.jsonl"
         self.fails: dict[str, list[float]] = {}
         self.all_fails: list[float] = []
         self.base = base.rstrip("/")
@@ -247,7 +264,8 @@ class Web:
             d = json.loads(self.store_path.read_text())
         except (OSError, json.JSONDecodeError):
             d = {}
-        return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {})}
+        return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {}), "disabled": d.get("disabled", []),
+                "shares": d.get("shares", {}), "rate": d.get("rate")}
 
     def _save(self) -> None:
         now = time.time()
@@ -263,9 +281,49 @@ class Web:
         """某个页面的固定网址（没登录会先到登录页，登完回到这里）。"""
         return f"{self.base}{target}"
 
+    def _acct_of(self, sid: str) -> str:
+        """这台设备登的是哪个账号（这个功能之前登录的都算 admin）。"""
+        return self.store.get("devices", {}).get(sid, {}).get("account") or self._admin()
+
+    def _admin(self) -> str:
+        return next((n for n, a in self.accounts.items() if a.get("role") == "admin"), "admin")
+
+    # 老写法：只有一个账号（admin）时直接读写它的名字和密码指纹
+    @property
+    def user(self) -> str:
+        return self._admin()
+
+    @user.setter
+    def user(self, name: str) -> None:
+        old = self.accounts.pop(self._admin(), {"role": "admin", "root": "", "hash": ""})
+        self.accounts[name] = old
+
+    @property
+    def pw_hash(self) -> str:
+        return (self.accounts.get(self._admin()) or {}).get("hash", "")
+
+    @pw_hash.setter
+    def pw_hash(self, digest: str) -> None:
+        self.accounts.setdefault(self._admin(), {"role": "admin", "root": ""})["hash"] = digest
+
+    def role(self, acct: str) -> str:
+        return (self.accounts.get(acct) or {}).get("role", "user")
+
+    def root_of(self, acct: str) -> str:
+        return (self.accounts.get(acct) or {}).get("root", "") if self.role(acct) != "admin" else ""
+
+    def owner_key(self, acct: str) -> str:
+        """对话登记里记的归属：admin 账号的一律记 "admin"（钉钉开的也是），别的账号记账号名。"""
+        return "admin" if self.role(acct) == "admin" else acct
+
     def _logged_in(self, request: web.Request) -> bool:
         sid = request.cookies.get(COOKIE, "")
         ok = bool(sid) and self.store["sessions"].get(sid, 0) > time.time()
+        acct = self._acct_of(sid) if ok else ""
+        if ok and (acct not in self.accounts or acct in self.store.get("disabled", [])):
+            ok = False   # 账号被停用或删掉了：这台设备进不来
+        if ok:
+            request["acct"], request["owner"] = acct, self.owner_key(acct)
         if ok:   # 记一下这台设备最近什么时候用过（5 分钟记一次，不每次写盘）
             dev = self.store.setdefault("devices", {}).setdefault(sid, {"created": time.time()})
             if time.time() - dev.get("seen", 0) > 300:
@@ -300,7 +358,7 @@ class Web:
 <form class="login" method="post" action="{PREFIX}/login">
 {MARK}<h1>远窗</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
-<input name="username" placeholder="账号" autocomplete="username" inputmode="numeric" required>
+<input name="username" placeholder="账号" autocomplete="username" autocapitalize="off" required>
 <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
 <button>登录</button></form>"""
         return self._page("登录 · 远窗", body, status)
@@ -317,8 +375,9 @@ class Web:
         ip = self._client_ip(request)
         if wait := self._locked(ip):
             return self._login_form(nxt, f"错太多次了，{max(1, wait // 60)} 分钟后再试。", 429)
-        ok = (self.pw_hash and hmac.compare_digest(str(form.get("username", "")).strip(), self.user)
-              and check_password(str(form.get("password", "")), self.pw_hash))
+        name = str(form.get("username", "")).strip()
+        acct = self.accounts.get(name) if name not in self.store.get("disabled", []) else None
+        ok = bool(acct and acct.get("hash") and check_password(str(form.get("password", "")), acct["hash"]))
         if not ok:
             now = time.time()
             self.fails.setdefault(ip, []).append(now)
@@ -328,7 +387,7 @@ class Web:
         self.fails.pop(ip, None)
         sid = secrets.token_urlsafe(32)
         self.store["sessions"][sid] = time.time() + SESSION_DAYS * 86400
-        self.store.setdefault("devices", {})[sid] = {"created": time.time(), "seen": time.time(), "ip": ip,
+        self.store.setdefault("devices", {})[sid] = {"created": time.time(), "seen": time.time(), "ip": ip, "account": name,
                                                      "ua": request.headers.get("User-Agent", "")[:300]}
         self._save()
         resp = web.HTTPFound(nxt)
@@ -352,19 +411,29 @@ class Web:
     async def _api_devices(self, request: web.Request) -> web.Response:
         """登录着的设备：哪台、最近什么时候用过、从哪个网络来，当前这台标出来。"""
         me = request.cookies.get(COOKIE, "")
+        return web.json_response({"devices": self._device_rows(me, request["acct"])})
+
+    def _device_rows(self, me: str, acct: str | None) -> list[dict]:
+        """登录着的设备（acct=None 列所有账号的，管理页用）。"""
         now = time.time()
         rows = []
         for sid, exp in self.store["sessions"].items():
-            if exp <= now:
+            if exp <= now or (acct is not None and self._acct_of(sid) != acct):
                 continue
             d = self.store.get("devices", {}).get(sid, {})
             ip = d.get("ip", "")
             rows.append({"id": self._device_id(sid), "name": self._device_name(d.get("ua", "")), "me": sid == me,
                          "seen": d.get("seen") or d.get("created") or 0, "created": d.get("created") or 0,
                          "ip": ".".join(ip.split(".")[:2] + ["*", "*"]) if ip.count(".") == 3 else ip,
-                         "push": bool(d.get("endpoint"))})
+                         "push": bool(d.get("endpoint")), "account": self._acct_of(sid)})
         rows.sort(key=lambda r: (not r["me"], -r["seen"]))
-        return web.json_response({"devices": rows})
+        return rows
+
+    def _drop_device(self, sid: str) -> None:
+        dev = self.store.get("devices", {}).pop(sid, {})
+        self.store["sessions"].pop(sid, None)
+        if dev.get("endpoint"):
+            self.push.remove(dev["endpoint"])
 
     async def _api_device_logout(self, request: web.Request) -> web.Response:
         """退出某一台（不能用来退出自己这台，那个走“退出登录”）。"""
@@ -373,11 +442,8 @@ class Web:
         want = str((await request.json()).get("id") or "")
         me = request.cookies.get(COOKIE, "")
         for sid in list(self.store["sessions"]):
-            if self._device_id(sid) == want and sid != me:
-                dev = self.store.get("devices", {}).pop(sid, {})
-                self.store["sessions"].pop(sid, None)
-                if dev.get("endpoint"):
-                    self.push.remove(dev["endpoint"])
+            if self._device_id(sid) == want and sid != me and self._acct_of(sid) == request["acct"]:
+                self._drop_device(sid)
                 self._save()
                 return web.json_response({"ok": True})
         return web.json_response({"ok": False}, status=404)
@@ -387,11 +453,9 @@ class Web:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         data = await request.json()
-        if data.get("all"):
-            self.store["sessions"] = {}
-            self.store["devices"] = {}
-            self.push.subs = []
-            self.push._save()
+        if data.get("all"):   # 只退这个账号的所有设备
+            for sid in [k for k in self.store["sessions"] if self._acct_of(k) == request["acct"]]:
+                self._drop_device(sid)
         else:
             self.store["sessions"].pop(request.cookies.get(COOKIE, ""), None)
             if data.get("endpoint"):
@@ -400,6 +464,38 @@ class Web:
         resp = web.json_response({"ok": True})
         resp.del_cookie(COOKIE, path="/")
         return resp
+
+    async def notify(self, owner: str, title: str, body: str, num: int | None = None) -> int:
+        """手机通知只发给这个对话所属账号登录的设备。没对上设备的老订阅算 admin 的。"""
+        mine, others = set(), set()
+        for sid, d in self.store.get("devices", {}).items():
+            if d.get("endpoint"):
+                (mine if self.owner_key(self._acct_of(sid)) == owner else others).add(d["endpoint"])
+        targets = [x["endpoint"] for x in self.push.subs
+                   if x["endpoint"] in mine or (owner == "admin" and x["endpoint"] not in others)]
+        return await self.push.send(title, body, num, only=set(targets))
+
+    def quota(self, acct: str) -> dict | None:
+        """受限账号本周额度用了多少（admin 不限，返回 None）。顺手把推出来的换算比例存下，数据少的时候接着用。"""
+        if self.role(acct) == "admin":
+            return None
+        limits = getattr(getattr(self.bridge, "runner", None), "limits", {}) or {}
+        week = limits.get("seven_day")
+        share = float(self.store.get("shares", {}).get(acct, (self.accounts.get(acct) or {}).get("share", usage.DEFAULT_SHARE)))
+        q = usage.quota(usage.load(self.usage_path, time.time() - 8 * 86400), self.owner_key(acct), share,
+                        usage.reset_epoch(week[1]) if week else None, self.store.get("rate"))
+        if q["rate"] and q["rate"] != self.store.get("rate"):
+            self.store["rate"] = q["rate"]
+            self._save()
+        q["reset"] = time.strftime("%-m月%-d日 %H:%M", time.localtime(q["reset_at"])) if q["reset_at"] else ""
+        return q
+
+    def over_quota(self, acct: str) -> str:
+        """额度用完了返回一句说明，没用完返回空。"""
+        q = self.quota(acct)
+        if not q or q["pct"] < 100:
+            return ""
+        return "本周额度已用完" + (f"，{q['reset']} 重置后再继续。" if q["reset"] else "，重置后再继续。")
 
     # ---------- 本地朗读 ----------
     async def _speech_context(self, app):
@@ -447,18 +543,18 @@ class Web:
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)})
 
-    def _speech_allowed(self, key: str):
+    def _speech_allowed(self, key: str, request: web.Request):
         try:
             m = self.speech.meta(key)
             session = self.bridge.registry.get(m["num"])
-            if not session or session.hidden:
+            if not session or session.hidden or session.owner != request.get("owner", "admin"):
                 raise web.HTTPNotFound()
         except (ValueError, KeyError):
             raise web.HTTPNotFound() from None
 
     async def _api_audio(self, request: web.Request) -> web.Response:
         key = request.match_info["key"]
-        self._speech_allowed(key)
+        self._speech_allowed(key, request)
         if request.method == "POST":
             if not self._same_origin(request):
                 raise web.HTTPForbidden()
@@ -471,7 +567,7 @@ class Web:
 
     async def _audio(self, request: web.Request) -> web.StreamResponse:
         key = request.match_info["key"]
-        self._speech_allowed(key)
+        self._speech_allowed(key, request)
         d = self.speech.directory(key)
         state = self.speech.status(key)
         if state["state"] == "error":
@@ -634,6 +730,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         for num, rs in sorted(convs.items(), key=lambda kv: -max(map(last, kv[1])))[:60]:
             rs.sort(key=last, reverse=True)
             s = reg.get(num) if reg else None
+            if s and s.owner != "admin":
+                continue
             name = s.name if s else re.sub(r"^#\d+\s*", "", rs[0].get("label", "")) or f"#{num}"
             bits = [category(s, folders)] if s else []
             bits += [f"{len(rs)} 轮", time.strftime("%m-%d %H:%M", time.localtime(last(rs[0]))), rs[0].get("title", "")]
@@ -902,7 +1000,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b = self.bridge
         now = time.time()
         rows = []
-        for s in [x for x in b.registry.sessions.values() if not x.hidden]:
+        owner = request.get("owner", "admin")
+        fenced = owner != "admin"
+        for s in [x for x in b.registry.sessions.values() if not x.hidden and x.owner == owner]:
             turn = b.runner.turns.get(s.num)
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
@@ -932,29 +1032,27 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
-        return web.json_response({"sessions": rows, "drafts": self._drafts(), "courses": await self._course_cards(rows),
-                                  "folders": list(b.cfg.folders), "current": b.registry.current, "models": model_options(),
-                                  "limits": self._limits(b.runner.limits),
-                                  "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
-                                  "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible())})
+        acct = request.get("acct", "")
+        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
+        return web.json_response({"sessions": rows, "drafts": [] if fenced else self._drafts(),
+                                  "courses": [] if fenced else await self._course_cards(rows), "me": me,
+                                  "folders": [] if fenced else list(b.cfg.folders),
+                                  "current": None if fenced else b.registry.current,
+                                  "models": [m for m in model_options() if not fenced or m[0] != "gpt"],
+                                  "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
+                                  "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
+
+    def _my_limits(self, acct: str) -> list[dict]:
+        """受限账号只看自己的额度：用了自己那份的百分之几、几点重置。"""
+        q = self.quota(acct)
+        if not q:
+            return []
+        return [{"name": "本周", "pct": round(q["pct"]), "reset": q["reset"], "reset_at": q["reset_at"]}]
 
     @staticmethod
     def _limits(d: dict) -> list[dict]:
-        def epoch(text):
-            m = re.fullmatch(r"(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})", text or "")
-            if not m:
-                return None
-            now = time.time()
-            year = time.localtime(now).tm_year
-            candidates = []
-            for y in (year - 1, year, year + 1):
-                try:
-                    from datetime import datetime
-                    date = datetime(y, *map(int, m.groups()))
-                    candidates.append(date.timestamp())
-                except ValueError:
-                    pass
-            return min(candidates, key=lambda t: abs(t - now)) if candidates else None
+        epoch = usage.reset_epoch
         return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or "", "reset_at": epoch(r)} for k, (u, r) in d.items()]
 
     async def _api_manage(self, request: web.Request) -> web.Response:
@@ -1119,7 +1217,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return web.json_response({"q": q, "title": [], "said": [], "deleted": []})
         ql, now = q.lower(), time.time()
         out: dict[str, list] = {"title": [], "said": [], "deleted": []}
-        for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+        owner = request.get("owner", "admin")
+        for s in sorted((x for x in b.registry.sessions.values() if x.owner == owner), key=lambda x: -x.updated):
             row = {"num": s.num, "name": s.name, "category": category(s, b.cfg.folders), "updated": s.updated,
                    "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
             if ql in s.name.lower():
@@ -1265,11 +1364,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         origin = request.headers.get("Origin")
         return origin is None or origin == self.base or not self.base.startswith("https://")
 
-    async def _save_files(self, data: dict) -> list[str]:
+    def _inbox(self, request: web.Request) -> Path:
+        """网页传上来的附件放哪：admin 放小E 自己的收件箱；受限账号放进它自己的文件夹（不然它读不到）。"""
+        root = self.root_of(request.get("acct", ""))
+        return Path(root).expanduser() / "收到的附件" if root else self.store_path.parent / "inbox" / "web"
+
+    async def _save_files(self, data: dict, folder: Path | None = None) -> list[str]:
         """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
         files = data.get("files") or []
         paths = []
-        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder = folder or Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
         for i, f in enumerate(files):
             name = Path(str(f.get("name") or "file")).name.replace("/", "_")[:120] or "file"
@@ -1278,9 +1382,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             paths.append(str(p))
         return paths
 
-    async def _save_images(self, data: dict) -> list[str]:
+    async def _save_images(self, data: dict, folder: Path | None = None) -> list[str]:
         paths = []
-        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder = folder or Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
         for i, url in enumerate(data.get("images") or []):
             head, _, b64 = str(url).partition(",")
@@ -1313,7 +1417,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return await request.json(), []
         reader = await request.multipart()
         data, saved = None, []
-        folder = self.store_path.parent / "inbox" / "web"
+        folder = self._inbox(request)
         try:
             async for part in reader:
                 if part.name == "message" and data is None and not saved:
@@ -1349,6 +1453,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             raise web.HTTPForbidden()
         data, streamed_files = await self._read_send(request)
         text = str(data.get("text") or "").strip()
+        acct = request.get("acct", "")
+        if self.role(acct) != "admin":
+            return await self._send_fenced(request, acct, data, text, streamed_files)
         from .schedules import parse_request
         try:
             plan = parse_request(text)
@@ -1400,6 +1507,36 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         before = b.registry.next_num
         await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind, model=model, effort=effort)
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
+
+    async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str]) -> web.Response:
+        """受限账号说话：只能在自己的对话里接着说，或在自己的文件夹里新开；不分派、不排定时、不用 GPT。"""
+        b = self.bridge
+        if why := self.over_quota(acct):
+            return web.json_response({"ok": False, "error": why}, status=429)
+        inbox = self._inbox(request)
+        images = await self._save_images(data, inbox)
+        uploaded = streamed + await self._save_files(data, inbox)
+        if uploaded:
+            text = (text + "\n\n" if text else "") + "\n".join(f"（附件已存到：{p}）" for p in uploaded)
+        if not text and not images:
+            return web.json_response({"ok": False, "error": "没写内容"}, status=400)
+        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
+                       local_images=images, via="web")
+        owner = self.owner_key(acct)
+        if num := data.get("num"):
+            if not b.registry.mine(int(num), owner):
+                raise web.HTTPNotFound()
+            busy = int(num) in b.runner.turns
+            await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
+            return web.json_response({"ok": True, "injected": busy})
+        root = Path(self.root_of(acct)).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        model, effort = self._model_effort(data)
+        before = b.registry.reserve_num()
+        b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
+        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" else model, effort=effort,
+                       owner=owner, root=str(root))
+        return web.json_response({"ok": True, "num": before})
 
     @staticmethod
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
@@ -1564,6 +1701,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except ValueError:
             data = {}
         num = int(data.get("num") or 0)
+        if num and not self.bridge.registry.mine(num, request.get("owner", "admin")):
+            return web.json_response({"ok": False}, status=404)
         if num and data.get("visible"):
             self.watch[num] = time.time()
         else:
@@ -1589,7 +1728,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             ids = [r["id"] for r in records]
             kept = ids[:ids.index(to) + 1] if to else []
             now = time.time()
-            s = Session(num=b.registry.reserve_num(), name=p.name[:8] + "·分叉", cwd=p.cwd,
+            s = Session(num=b.registry.reserve_num(), name=p.name[:8] + "·分叉", cwd=p.cwd, owner=p.owner, root=p.root,
                         add_dirs=list(p.add_dirs), engine="codex", model=p.model, effort=p.effort,
                         codex_id=p.codex_id if to else None, codex_records=kept, codex_cut_turn=cut,
                         fork_from=p.num, forking=bool(to), rewind_at=to,
@@ -1604,7 +1743,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return web.json_response({"ok": False, "error": "找不到那条回复了（可能在压缩之前）"})
         now = time.time()
         s = Session(num=b.registry.reserve_num(), name=(p.name[:8] + "·分叉"), cwd=p.cwd, add_dirs=list(p.add_dirs),
-                    claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
+                    owner=p.owner, root=p.root, claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
                     worked=p.worked, seen=now, updated=now, fork_from=p.num, forking=bool(to), rewind_at=to,
                     rewind_note=f"从 #{p.num}「{p.name}」分叉")
         b.registry.add(s)
@@ -1774,11 +1913,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             out.pop()
         return web.json_response({"ok": True, "text": job.text.split("\n\n（附件已存到")[0]})
 
-    def _sig_sessions(self) -> str:
+    def _sig_sessions(self, owner: str = "admin") -> str:
         """对话列表的“指纹”：谁在做、做到第几步、等不等你、更新时间；变了就叫网页刷新列表。"""
         b = self.bridge
         out = []
         for s in b.registry.sessions.values():
+            if s.owner != owner:
+                continue
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
                         bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category, s.limit_until,
@@ -1808,6 +1949,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
         网页收到就当场更新，不用每几秒问一次。每 15 秒发个空行保活（阿里云那边 120 秒没动静会断）。"""
         num = int(request.query.get("num") or 0)
+        owner = request.get("owner", "admin")
+        if num and not self.bridge.registry.mine(num, owner):
+            num = 0
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store",
                                            "X-Accel-Buffering": "no"})
         await resp.prepare(request)
@@ -1815,7 +1959,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         beat = time.time()
         try:
             while True:
-                sig_s = self._sig_sessions()
+                sig_s = self._sig_sessions(owner)
                 if sig_s != last_s:
                     if last_s is not None:
                         await resp.write(b"event: s\ndata: 1\n\n")
@@ -1873,14 +2017,97 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         stopped = await self.bridge.runner.stop(int(request.match_info["num"]))
         return web.json_response({"ok": True, "stopped": stopped})
 
+    # ---------- 管理页（只有 admin）：账号与登录、额度消耗 ----------
+    async def _admin_page(self, request: web.Request) -> web.Response:
+        return web.Response(text=(Path(__file__).parent / "static" / "admin.html").read_text(),
+                            content_type="text/html", headers={"Cache-Control": "no-store"})
+
+    async def _api_admin(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        days = max(7, min(90, int(request.query.get("days") or 30)))
+        names = {n: s.name for n, s in b.registry.sessions.items()}
+        rows = usage.load(self.usage_path, time.time() - (days + 1) * 86400)
+        me = request.cookies.get(COOKIE, "")
+        accts = []
+        for name, a in self.accounts.items():
+            accts.append({"name": name, "role": a.get("role"), "root": display(Path(a["root"]).expanduser()) if a.get("root") else "",
+                          "disabled": name in self.store.get("disabled", []), "me": name == request["acct"],
+                          "owner": self.owner_key(name), "quota": self.quota(name),
+                          "devices": [d for d in self._device_rows(me, None) if d["account"] == name]})
+        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days),
+                                  "limits": self._limits(b.runner.limits),
+                                  "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "rate": self.store.get("rate")})
+
+    async def _api_admin_act(self, request: web.Request) -> web.Response:
+        """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        d = await request.json()
+        act, name = d.get("action"), str(d.get("account") or "")
+        if name not in self.accounts:
+            return web.json_response({"ok": False, "error": "没有这个账号"}, status=404)
+        if act == "password":
+            pw = str(d.get("value") or "")
+            if len(pw) < 6:
+                return web.json_response({"ok": False, "error": "密码至少 6 位"})
+            digest = hash_password(pw)
+            if self.save_hash:
+                await asyncio.to_thread(self.save_hash, name, digest)
+            self.accounts[name]["hash"] = digest
+        elif act in ("disable", "enable"):
+            if self.role(name) == "admin":
+                return web.json_response({"ok": False, "error": "管理员账号不能停用"})
+            dis = set(self.store.get("disabled", []))
+            dis.add(name) if act == "disable" else dis.discard(name)
+            self.store["disabled"] = sorted(dis)
+        elif act == "share":
+            if self.role(name) == "admin":
+                return web.json_response({"ok": False, "error": "管理员不限额度"})
+            try:
+                share = float(d.get("value"))
+            except (TypeError, ValueError):
+                return web.json_response({"ok": False, "error": "比例不对"})
+            if not 0 < share <= 1:
+                return web.json_response({"ok": False, "error": "比例要在 1% 到 100% 之间"})
+            self.store.setdefault("shares", {})[name] = share
+        elif act == "logout":
+            want = str(d.get("id") or "")
+            me = request.cookies.get(COOKIE, "")
+            for sid in list(self.store["sessions"]):
+                if self._device_id(sid) == want and sid != me and self._acct_of(sid) == name:
+                    self._drop_device(sid)
+        elif act == "logout_all":
+            me = request.cookies.get(COOKIE, "")
+            for sid in [k for k in self.store["sessions"] if self._acct_of(k) == name and k != me]:
+                self._drop_device(sid)
+        else:
+            raise web.HTTPBadRequest()
+        self._save()
+        return web.json_response({"ok": True})
+
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
-                            f"{PREFIX}/health"):
+        if request.path in PUBLIC:
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
+        if "acct" not in request:   # 测试里直接放行登录的：当作 admin
+            request["acct"], request["owner"] = self._admin(), "admin"
+        owner, admin = request["owner"], self.role(request["acct"]) == "admin"
+        route = request.match_info.route.resource.canonical if request.match_info.route.resource else ""
+        if not admin and route not in USER_ROUTES:
+            raise web.HTTPForbidden(text="这个账号用不了这里")
+        if route.startswith(f"{PREFIX}/admin") or route.startswith(f"{PREFIX}/api/admin"):
+            if not admin:
+                raise web.HTTPForbidden(text="只有管理员能看")
+        # 带对话编号的：只能是自己账号的对话（别人的当作没有）
+        raw = request.match_info.get("num") or (request.match_info.get("tid") or "").split("-")[0]
+        if raw.isdigit() and self.bridge is not None and hasattr(self.bridge, "registry"):
+            s = self.bridge.registry.get(int(raw))
+            if (s and s.owner != owner) or (not s and not admin):
+                raise web.HTTPNotFound()
         return await handler(request)
 
     def app(self) -> web.Application:
@@ -1930,6 +2157,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
         app.router.add_post(f"{PREFIX}/api/presence", self._api_presence)
         app.router.add_get(f"{PREFIX}/api/course", self._api_course)
+        app.router.add_get(f"{PREFIX}/admin", self._admin_page)
+        app.router.add_get(f"{PREFIX}/api/admin", self._api_admin)
+        app.router.add_post(f"{PREFIX}/api/admin", self._api_admin_act)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)

@@ -41,6 +41,15 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
 
+# 受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提小E 自己怎么重启
+APPEND_USER = "".join(ln + "\n" for ln in APPEND.splitlines() if "generate_images" not in ln and "remote-claude" not in ln) + (
+    "只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
+# 受限对话能用的工具；别的（定时、远程触发、工作树、Monitor 等）一律拦下
+USER_TOOLS = {"Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS", "Bash", "BashOutput", "KillShell",
+              "KillBash", "TaskOutput", "TaskStop", "WebFetch", "WebSearch", "TodoWrite", "Task", "Agent", "ExitPlanMode",
+              "AskUserQuestion", "ToolSearch", "mcp__xiaoe__send_images", "mcp__xiaoe__send_files", "mcp__xiaoe__update_plan"}
+PATH_KEYS = ("file_path", "notebook_path", "path")
+
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -86,6 +95,9 @@ class Session:
     fork_from: int = 0  # 从哪个对话分叉出来的（编号）
     forking: bool = False  # 分叉出来还没说第一句：下一句从 rewind_at 那条接着、另起一个 Claude 对话（原对话不动）
     feedback: dict = field(default_factory=dict)  # 最近一次试课反馈在哪一屏：{course, section, screen, where}，回复里的试课链接直接跳回那屏
+    owner: str = "admin"  # 哪个网页账号的对话；钉钉里的都算 admin。两个账号互相看不到对方的对话
+    root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
+    codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
 
     @property
     def label(self) -> str:
@@ -125,18 +137,24 @@ class Registry:
 
     def add(self, s: Session) -> Session:
         self.sessions[s.num] = s
-        self.current = s.num
+        if s.owner == "admin":   # “当前对话”是钉钉里直接说话交给谁，只算主账号的
+            self.current = s.num
         self.save()
         return s
 
     def get(self, num: int | None) -> Session | None:
         return self.sessions.get(num) if num is not None else None
 
-    def visible(self) -> list[Session]:
-        """没被收起的对话：没删、7 天内动过（只聊天的 1 天）；正在做、排队、在等你的总算在内。"""
+    def mine(self, num: int | None, owner: str = "admin") -> Session | None:
+        """这个账号的对话（别的账号的当作没有）。"""
+        s = self.get(num)
+        return s if s and s.owner == owner else None
+
+    def visible(self, owner: str | None = "admin") -> list[Session]:
+        """没被收起的对话：没删、7 天内动过（只聊天的 1 天）；正在做、排队、在等你的总算在内。owner=None 不分账号。"""
         now = time.time()
         return [s for s in self.sessions.values()
-                if not s.hidden and (s.pinned or s.status in ("running", "queued")
+                if (owner is None or s.owner == owner) and not s.hidden and (s.pinned or s.status in ("running", "queued")
                                      or (s.awaiting_kind == "decide" and now - s.updated < STALE)
                                      or now - s.updated < (CHAT_STALE if s.worked is False else STALE))]
 
@@ -183,6 +201,7 @@ class Runner:
         self._usage_at = 0.0
         self.default_effort = default_effort or user_setting("effortLevel") or ""
         self.auto_review = True
+        self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
     def busy(self, num: int) -> bool:
@@ -352,6 +371,58 @@ class Runner:
             return {"hookSpecificOutput": out}
         return hook
 
+    def _fence(self, s: Session):
+        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
+        root = Path(s.root).expanduser().resolve()
+
+        def inside(raw: str) -> bool:
+            p = Path(str(raw)).expanduser()
+            p = (p if p.is_absolute() else Path(s.cwd) / p).resolve()
+            return p == root or p.is_relative_to(root)
+
+        async def hook(data, tool_use_id, context):
+            name = str(data.get("tool_name") or "")
+            args = data.get("tool_input") or {}
+            why = ""
+            if name not in USER_TOOLS:
+                why = f"这个工具（{name}）在这里不能用。"
+            else:
+                paths = [args[k] for k in PATH_KEYS if args.get(k)]
+                pat = str(args.get("pattern") or "") if name == "Glob" else ""
+                if pat.startswith(("/", "~")):
+                    paths.append(pat.split("*")[0] or "/")
+                if any(not inside(p) for p in paths):
+                    why = f"只能在 {display(root)} 里面读写，这个路径在外面。"
+            if not why:
+                return {}
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": why + "换成文件夹里面的做法，做不到就在回复里说明。"}}
+        return hook
+
+    def _fence_options(self, s: Session) -> dict:
+        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹、连不上本机端口），家目录里别的东西读写都拒绝。"""
+        root = Path(s.root).expanduser().resolve()
+        home = Path.home().resolve()
+        deny: list[str] = []
+        outside = [Path("/Volumes"), Path("/Users/Shared")]
+        if root.is_relative_to(home):   # 从文件夹往上到家目录，每一层的兄弟都挡掉
+            cur = root
+            while cur != home:
+                try:
+                    outside += [p for p in cur.parent.iterdir() if p.name != cur.name]
+                except OSError:
+                    pass
+                cur = cur.parent
+        else:
+            outside.append(home)
+        for p in outside:
+            for tool in ("Read", "Edit"):
+                deny += [f"{tool}(/{p})", f"{tool}(/{p}/**)"]
+        return {
+            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False},
+            "settings": json.dumps({"permissions": {"deny": deny}}),
+        }
+
     async def stop(self, num: int) -> bool:
         q = self.queues.get(num)
         while q and not q.empty():
@@ -428,6 +499,11 @@ class Runner:
                         s.worked = False   # 新开的对话头一轮只聊了天
                     self.registry.save()
             await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
+            if self.on_usage and turn.usage:
+                try:
+                    self.on_usage(s, turn)
+                except Exception:  # noqa: BLE001 - 记不上消耗不影响报告
+                    log.exception("记消耗失败")
             job.finished = True
             if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
                 asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
@@ -612,6 +688,13 @@ class Runner:
             return await _codex_run(self, s, job, turn)
         if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
             raise FolderBlocked("、".join(display(p) for p in stuck))
+        fenced = bool(s.root)
+        if fenced:   # 受限账号：文件夹、引擎都固定，就算登记里被改过也按这里来
+            s.cwd, s.add_dirs = str(Path(s.root).expanduser()), []
+            Path(s.cwd).mkdir(parents=True, exist_ok=True)
+        hooks = [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]
+        if fenced:
+            hooks.insert(0, HookMatcher(matcher=None, hooks=[self._fence(s)], timeout=60))
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
@@ -621,9 +704,11 @@ class Runner:
             resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
             fork_session=bool(s.forking and s.claude_id),   # 分叉：从原对话那条接着，但另起一个对话编号，原对话不受影响
             enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
-            setting_sources=["user", "project", "local"],
+            # 受限对话不读你的全局设置（里面有私人说明、插件、MCP 连接）
+            setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
-            system_prompt={"type": "preset", "preset": "claude_code", "append": APPEND},
+            system_prompt={"type": "preset", "preset": "claude_code",
+                           "append": APPEND_USER.format(root=display(Path(s.root).expanduser())) if fenced else APPEND},
             mcp_servers={"xiaoe": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
@@ -631,7 +716,8 @@ class Runner:
             thinking={"type": "adaptive", "display": "summarized"},
             include_partial_messages=True,  # 回复边写边出（网页实时看）  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
             # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
-            hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]},
+            hooks={"PreToolUse": hooks},
+            **(self._fence_options(s) if fenced else {}),
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:
@@ -693,6 +779,9 @@ class Runner:
                                 turn.commands.append(str(b.input.get("command", ""))[:200])
                 elif isinstance(msg, ResultMessage):
                     turn.accepting = False
+                    # 这一轮的消耗：CLI 报的是这个进程累计的（一轮一个进程），取最后一次
+                    if msg.model_usage or msg.total_cost_usd:
+                        turn.usage = {"cost": float(msg.total_cost_usd or 0), "models": dict(msg.model_usage or {})}
                     if msg.session_id:
                         s.claude_id = msg.session_id
                         s.rewind_at = s.rewind_note = ""   # 已经从那条接着说了，回到这里落定
@@ -864,6 +953,10 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             turn.plan = [{"text": str(x.get("step", ""))[:60], "status": st.get(x.get("status"), "pending")} for x in (prm.get("plan") or [])[:20]]
         elif method == "thread/tokenUsage/updated":
             u = prm.get("tokenUsage") or {}
+            if total := (u.get("total") or {}).get("totalTokens"):
+                tot = u["total"]
+                turn.usage = {"codex": {"input": int(tot.get("inputTokens") or 0), "cached": int(tot.get("cachedInputTokens") or 0),
+                                        "output": int(tot.get("outputTokens") or 0), "total": int(total)}}
             win, last = u.get("modelContextWindow"), (u.get("last") or {}).get("totalTokens")
             if win and last:
                 turn.context_pct = s.context_pct = min(100.0, 100.0 * last / win)

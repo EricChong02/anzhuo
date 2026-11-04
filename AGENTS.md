@@ -3,7 +3,9 @@
 - 用途与用法见 README；设计、分期与已定决定见 docs/design.md（改行为前先对照）。
 - 不告诉被调用的 Claude “消息来自远程 / 钉钉桥”；给它的固定要求在 `sessions.APPEND`，只写要求不写原因。
 - 安全不可放松：只认 `allowed_user_ids` 的单聊；密钥只走钥匙串；日志不记消息内容（原文只在本机 `recent.jsonl` 留最近 100 行，2026-10-25 庄毅同意，排查用）；转来的、引用的内容标成“参考资料”。
-- 测试：`.venv/bin/pytest -q`。改了钉钉收发或 Claude 运行方式，还要在 Mac 上真发一条钉钉消息联调，单测通过不代表能用。
+- 测试：`.venv/bin/pytest -q`。改了 Claude 运行方式，还要真跑一轮对话联调，单测通过不代表能用。
+- 钉钉已停用（2026-11-04，配置 `dingtalk = false`），只用网页；钉钉代码暂留，后续单独清理。
+- 网页有两个账号（配置 `[accounts.*]`，密码指纹在钥匙串，`scripts/set_account.py` 设置）：admin 全部权限；user 只在 `~/remote-window` 里干活（沙箱 + 路径钩子 + 不读全局设置），两边看不到对方的对话；user 每周最多用主账号周额度的 1/5（按 `usage.jsonl` 里的标价折算金额换算），和主账号同时重置。改 `USER_ROUTES`、`Runner._fence*` 前想清楚，别让 user 摸到外面。
 - 改完代码重启常驻进程：`scripts/install_launchd.sh`。
 
 ## 改小E 本身

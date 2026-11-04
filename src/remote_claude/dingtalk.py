@@ -191,3 +191,32 @@ class DingTalk:
 
     async def update_card(self, out_id: str, data: dict) -> None:
         await asyncio.to_thread(self._update_card, out_id, data)
+
+
+class NoDingTalk:
+    """钉钉停用（配置 dingtalk = false）：什么都不发，提醒只走网页和手机通知。"""
+    secret = ""
+
+    async def check(self) -> None:
+        return None
+
+    async def send_markdown(self, user_id: str, title: str, text: str) -> None:
+        return None
+
+    async def send_text(self, user_id: str, text: str) -> None:
+        return None
+
+    async def send_image(self, user_id: str, path: Path) -> None:
+        return None
+
+    async def send_file(self, user_id: str, path: Path) -> None:
+        return None
+
+    async def download(self, code: str, dest: Path) -> Path:
+        raise RuntimeError("钉钉已停用")
+
+    async def create_card(self, user_id: str, out_id: str, data: dict) -> None:
+        return None
+
+    async def update_card(self, out_id: str, data: dict) -> None:
+        return None

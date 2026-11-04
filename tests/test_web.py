@@ -193,7 +193,7 @@ def test_chat_api(tmp_path, monkeypatch):
         def __init__(self):
             s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？", claude_id="sid6")
             s7 = Session(num=7, name="清理", cwd=str(tmp_path))
-            self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda: [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
+            self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda owner="admin": [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
                                current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
@@ -407,7 +407,7 @@ def test_course_feedback(tmp_path):
 
     class B:
         user_id, sent, new = "me", [], []
-        registry = NS(visible=lambda: [s6, s7], get=lambda n: None, next_num=8)
+        registry = NS(visible=lambda owner="admin": [s6, s7], get=lambda n: None, next_num=8)
 
         def record(self, *a, **k):
             pass
@@ -585,7 +585,7 @@ def test_fork(tmp_path, monkeypatch):
     p = Session(num=6, name="大数据第二节磨课", cwd=str(tmp_path), claude_id="sid6", model="m", worked=True)
     sessions = {6: p}
     nums = iter([9, 10])
-    reg = NS(sessions=sessions, get=sessions.get, visible=lambda: list(sessions.values()), save=lambda: None,
+    reg = NS(sessions=sessions, get=sessions.get, visible=lambda owner="admin": list(sessions.values()), save=lambda: None,
              reserve_num=lambda: next(nums), add=lambda s: sessions.setdefault(s.num, s))
     monkeypatch.setattr(th, "full_messages", lambda sid, cwd, times=None: sid)
     monkeypatch.setattr(th, "history", lambda msgs, limit=300, times=None: [

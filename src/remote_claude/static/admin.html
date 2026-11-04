@@ -1,0 +1,230 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
+<title>管理 · 远窗</title>
+<link rel="apple-touch-icon" href="/_x/icon.png">
+<style>
+/* 和远窗主页面同一套颜色、字号、圆角 */
+:root{--bg:#fafaf9;--panel:#fff;--ink:#1c1c1e;--mute:#6b6b70;--faint:#8e8e93;--line:rgba(0,0,0,.08);
+  --acc:#2c4a74;--accsoft:rgba(44,74,116,.09);--on-acc:#fff;--amber:#9a6a05;--amber-soft:rgba(197,138,6,.10);--red:#c0392b;--green:#2f7d55;
+  --s1:#2a78d6;--s2:#eb6834;--grid:rgba(0,0,0,.07);
+  --t1:12.5px;--t2:14px;--t3:15.5px;--t4:16.5px;--t5:20px;--r1:8px;--r2:14px;--rf:999px}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--panel:#222;--ink:#ececec;--mute:#a0a0a5;--faint:#7c7c80;--line:rgba(255,255,255,.09);
+  --acc:#8fb0de;--accsoft:rgba(143,176,222,.14);--on-acc:#10203a;--amber:#f0bd4f;--amber-soft:rgba(240,189,79,.12);--red:#f08070;--green:#6fcf97;
+  --s1:#3987e5;--s2:#d95926;--grid:rgba(255,255,255,.08)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:var(--t4)/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
+svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background:color-mix(in srgb,var(--bg) 86%,transparent);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}
+.top a{display:flex;align-items:center;gap:4px;color:var(--acc);text-decoration:none;font-size:var(--t3)}
+.top b{font-size:var(--t5);font-weight:600;flex:1}
+main{max-width:920px;margin:0 auto;padding:12px 16px 56px}
+h2{font-size:var(--t2);font-weight:600;color:var(--mute);letter-spacing:.04em;margin:26px 0 10px}
+.card{background:var(--panel);border-radius:var(--r2);box-shadow:0 0 0 1px var(--line);padding:16px;margin:10px 0}
+.note{color:var(--mute);font-size:var(--t2);margin:6px 0 0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.tile{background:var(--panel);border-radius:var(--r2);box-shadow:0 0 0 1px var(--line);padding:14px 16px}
+.tile small{display:block;color:var(--mute);font-size:var(--t2)}
+.tile b{display:block;font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin:2px 0}
+.tile span{color:var(--faint);font-size:var(--t1)}
+.bar{height:8px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--acc);border-radius:var(--rf)}
+.bar.warn i{background:var(--amber)} .bar.bad i{background:var(--red)}
+.seg{display:inline-flex;background:var(--line);border-radius:var(--rf);padding:3px;gap:2px}
+.seg button{padding:4px 12px;border-radius:var(--rf);font-size:var(--t2);color:var(--mute)}
+.seg button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:var(--t2);color:var(--mute);margin:4px 0 6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:220px;overflow:visible}
+.chart text{fill:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.tip{position:absolute;pointer-events:none;background:var(--panel);box-shadow:0 0 0 1px var(--line),0 6px 20px rgba(0,0,0,.12);
+  border-radius:var(--r1);padding:8px 10px;font-size:var(--t2);line-height:1.5;white-space:nowrap;transform:translate(-50%,-100%);display:none}
+.tip b{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:var(--t2)}
+th{font-weight:500;color:var(--mute);text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.tag{display:inline-block;font-size:var(--t1);padding:1px 8px;border-radius:var(--rf);background:var(--accsoft);color:var(--acc);white-space:nowrap}
+.tag.u{background:var(--amber-soft);color:var(--amber)} .tag.off{background:var(--line);color:var(--mute)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.acct{display:flex;flex-direction:column;gap:10px}
+.acct .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.acct .hd b{font-size:var(--t4);font-weight:600}
+.acct .meta{color:var(--mute);font-size:var(--t2)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:var(--rf);font-size:var(--t2);background:var(--accsoft);color:var(--acc);min-height:34px}
+.pill:hover{filter:brightness(.97)} .pill:disabled{opacity:.5;cursor:default}
+.pill.bad{background:rgba(192,57,43,.09);color:var(--red)}
+.dev{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:var(--t2)}
+.dev .dn{flex:1;min-width:0} .dev small{display:block;color:var(--mute)}
+.me{font-size:var(--t1);color:var(--green);margin-left:6px}
+input.f{font:inherit;font-size:16px;padding:6px 12px;border-radius:var(--r1);border:1px solid #cbd5e1;background:var(--panel);color:var(--ink);min-width:0;width:160px}
+input.f:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--accsoft)}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#26282c;color:#fff;
+  padding:9px 16px;border-radius:var(--rf);font-size:var(--t2);display:none;z-index:9}
+.empty{color:var(--mute);font-size:var(--t2);padding:16px 0;text-align:center}
+@media (max-width:600px){.hide-s{display:none}}
+</style></head><body>
+<div class="top"><a href="/_x/"><svg class="ic" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>远窗</a><b>管理</b></div>
+<main>
+  <h2>额度现在</h2>
+  <div class="tiles" id="limits"></div>
+  <p class="note" id="rateNote"></p>
+
+  <h2>消耗记录</h2>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between">
+      <div class="seg" id="days"><button data-d="7">7 天</button><button data-d="30" class="on">30 天</button><button data-d="90">90 天</button></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="tiles" id="sums" style="margin:12px 0"></div>
+    <div class="chart" id="chart"><svg id="svg" role="img" aria-label="每天消耗"></svg><div class="tip" id="tip"></div></div>
+    <p class="note">按天看远窗里 Claude 的消耗，金额是按 API 标价折算的美元，只用来比较多少，不是实际扣费。订阅额度按“周额度 %”算，没有官方的每个对话占多少，所以对话之间用折算金额比较：它已经把模型贵贱（Opus 比 Sonnet 贵）、缓存折扣都算进去了，比 token 数更接近真实占用。从 11 月 4 日开始记录。</p>
+  </div>
+
+  <h2>每个对话花了多少</h2>
+  <div class="card scroll"><table id="convs"></table></div>
+
+  <h2>账号与登录</h2>
+  <div id="accts"></div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => v >= 100 ? '$' + v.toFixed(0) : v >= 1 ? '$' + v.toFixed(2) : v > 0 ? '$' + v.toFixed(3) : '$0';
+const tok = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'K' : String(v || 0);
+const ago = t => { const m = Math.floor((Date.now() / 1000 - t) / 60); return m < 2 ? '刚刚' : m < 60 ? m + ' 分钟前' : m < 1440 ? Math.floor(m / 60) + ' 小时前' : Math.floor(m / 1440) + ' 天前'; };
+const when = t => { const d = new Date(t * 1000); return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const OWNER_LABEL = {admin: '主账号'};
+const COLORS = ['var(--s1)', 'var(--s2)'];
+let DAYS = 30, data = null;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 2200); }
+async function api(body) {
+  const r = await fetch('/_x/api/admin' + (body ? '' : '?days=' + DAYS), body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+  if (r.status === 401) { location.href = '/_x/login?next=/_x/admin'; return null; }
+  if (!r.ok) throw new Error(r.status === 403 ? '只有管理员能看' : '读取失败');
+  return r.json();
+}
+function barCls(p) { return p >= 90 ? 'bar bad' : p >= 70 ? 'bar warn' : 'bar'; }
+
+function drawLimits() {
+  const out = [];
+  for (const l of data.limits) out.push(`<div class="tile"><small>Claude · ${esc(l.name)}</small><b>${l.pct}%</b><span>${l.reset ? esc(l.reset) + ' 重置' : ''}</span><div class="${barCls(l.pct)}"><i style="width:${Math.min(100, l.pct)}%"></i></div></div>`);
+  for (const a of data.accounts.filter(a => a.quota)) {
+    const q = a.quota;
+    out.push(`<div class="tile"><small>${esc(a.name)} 的周额度（主账号的 ${Math.round(q.share * 100)}%）</small><b>${q.calibrating ? '—' : Math.round(q.pct) + '%'}</b>
+      <span>${q.calibrating ? '换算还在校准，先按 0 算' : `本周 ${money(q.cost)} · 约占总额度 ${q.used.toFixed(1)}%`}</span>
+      <div class="${barCls(q.pct)}"><i style="width:${Math.min(100, q.pct)}%"></i></div></div>`);
+  }
+  for (const l of data.limits_gpt) out.push(`<div class="tile"><small>GPT · ${esc(l.name)}</small><b>${l.pct}%</b><span>${l.reset ? esc(l.reset) + ' 重置' : ''}</span><div class="${barCls(l.pct)}"><i style="width:${Math.min(100, l.pct)}%"></i></div></div>`);
+  $('#limits').innerHTML = out.join('') || '<div class="empty">还没查到额度</div>';
+  $('#rateNote').textContent = data.rate ? `换算：这周远窗每花 $1（标价折算）周额度约涨 ${data.rate.toFixed(2)}%。你在 claude.ai、电脑上用的也算在周额度里，所以这个比例偏大，受限账号的用量会算得偏保守。` : '换算比例要等远窗本周多做几轮（花到约 $2、周额度涨过 1%）才算得出来。';
+}
+
+function owners() { return [...new Set(['admin', ...data.accounts.map(a => a.owner)])]; }
+function drawSums() {
+  const u = data.usage, os = owners();
+  const tiles = [`<div class="tile"><small>${DAYS} 天合计</small><b>${money(u.total_cost)}</b><span>${u.days.reduce((s, d) => s + d.turns, 0)} 轮 · ${tok(u.days.reduce((s, d) => s + d.tokens, 0))} token</span></div>`];
+  for (const o of os) {
+    const r = u.owners.find(x => x.owner === o) || {cost: 0, turns: 0, tokens: 0, gpt_tokens: 0};
+    tiles.push(`<div class="tile"><small>${esc(OWNER_LABEL[o] || o)}</small><b>${money(r.cost)}</b><span>${r.turns} 轮 · ${tok(r.tokens)} token${r.gpt_tokens ? ' · GPT ' + tok(r.gpt_tokens) : ''}</span></div>`);
+  }
+  $('#sums').innerHTML = tiles.join('');
+  $('#legend').innerHTML = os.map((o, i) => `<span><i style="background:${COLORS[i % 2]}"></i>${esc(OWNER_LABEL[o] || o)}</span>`).join('');
+}
+
+// 每天的消耗：按账号叠起来的柱子（主账号在下），柱间留 2px 缝；悬停 / 点一下看当天明细
+function drawChart() {
+  const svg = $('#svg'), days = data.usage.days, os = owners();
+  const W = svg.clientWidth || 800, H = 220, L = 44, R = 8, T = 10, B = 26;
+  const max = Math.max(0.01, ...days.map(d => os.reduce((s, o) => s + (d.by_owner[o] || 0), 0)));
+  const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= max) return m * p; return 10 * p; })();
+  const y = v => T + (H - T - B) * (1 - v / nice), slot = (W - L - R) / days.length, bw = Math.max(3, Math.min(28, slot - 2));
+  let g = '';
+  for (let k = 0; k <= 4; k++) { const v = nice * k / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${money(v)}</text>`; }
+  const every = Math.ceil(days.length / 10);
+  days.forEach((d, i) => {
+    const x = L + slot * i + (slot - bw) / 2;
+    let base = 0;
+    const parts = os.map(o => d.by_owner[o] || 0);
+    const top = parts.reduce((s, v, k) => v > 0 ? k : s, -1);
+    parts.forEach((v, k) => {
+      if (v <= 0) return;
+      const y0 = y(base), y1 = y(base + v), h = Math.max(1, y0 - y1 - (base > 0 ? 2 : 0));
+      const yTop = y1, r = k === top ? Math.min(4, h / 2, bw / 2) : 0;
+      // 只有最上面一段是圆角（数据端），贴着基线的一端是方的
+      g += r ? `<path d="M${x},${yTop + h} V${yTop + r} Q${x},${yTop} ${x + r},${yTop} H${x + bw - r} Q${x + bw},${yTop} ${x + bw},${yTop + r} V${yTop + h} Z" fill="${COLORS[k % 2]}"/>`
+             : `<rect x="${x}" y="${yTop}" width="${bw}" height="${h}" fill="${COLORS[k % 2]}"/>`;
+      base += v;
+    });
+    if (i % every === 0 || i === days.length - 1) g += `<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${d.day}</text>`;
+    g += `<rect class="hit" data-i="${i}" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>`;
+  });
+  g += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>`;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+  const tip = $('#tip');
+  const show = e => {
+    const t = e.target.closest('.hit'); if (!t) { tip.style.display = 'none'; return; }
+    const d = days[+t.dataset.i], x = +t.getAttribute('x') + slot / 2;
+    tip.innerHTML = `<b>${d.day}</b>　${money(d.cost)} · ${d.turns} 轮<br>` + os.map(o => `${esc(OWNER_LABEL[o] || o)}：${money(d.by_owner[o] || 0)}`).join('　')
+      + `<br>${tok(d.tokens)} token${d.gpt_tokens ? ' · GPT ' + tok(d.gpt_tokens) : ''}${d.week_pct != null ? ' · 当天周额度到 ' + d.week_pct + '%' : ''}`;
+    tip.style.display = 'block';
+    const w = svg.getBoundingClientRect().width;
+    tip.style.left = Math.max(90, Math.min(w - 90, x * w / W)) + 'px'; tip.style.top = (y(Math.max(...[d.cost, 0])) * 220 / H - 6) + 'px';
+  };
+  svg.onmousemove = show; svg.onclick = show; svg.onmouseleave = () => tip.style.display = 'none';
+}
+
+function drawConvs() {
+  const cs = data.usage.conversations;
+  $('#convs').innerHTML = cs.length ? `<thead><tr><th>对话</th><th class="hide-s">账号</th><th class="n">轮</th><th class="n">金额</th><th class="n">占比</th><th class="n hide-s">token</th><th class="n hide-s">最近</th></tr></thead><tbody>`
+    + cs.map(c => `<tr><td>${esc(c.name)}${c.engine === 'codex' ? ' <span class="tag off">GPT</span>' : ''}<div class="note" style="margin:0">#${c.num} · ${esc(c.models.map(m => m.replace(/^claude-/, '')).join('、'))}</div></td>
+      <td class="hide-s"><span class="tag ${c.owner === 'admin' ? '' : 'u'}">${esc(OWNER_LABEL[c.owner] || c.owner)}</span></td>
+      <td class="n">${c.turns}</td><td class="n">${c.engine === 'codex' ? '—' : money(c.cost)}</td><td class="n">${c.engine === 'codex' ? '—' : c.share + '%'}</td>
+      <td class="n hide-s">${tok(c.tokens)}</td><td class="n hide-s">${ago(c.last)}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">这段时间还没有记录。之后每轮做完都会记一笔。</td></tr></tbody>';
+}
+
+function drawAccts() {
+  $('#accts').innerHTML = data.accounts.map(a => `<div class="card acct" data-a="${esc(a.name)}">
+    <div class="hd"><b>${esc(a.name)}</b><span class="tag ${a.role === 'admin' ? '' : 'u'}">${a.role === 'admin' ? '管理员 · 全部权限' : '受限 · 只在一个文件夹'}</span>${a.disabled ? '<span class="tag off">已停用</span>' : ''}${a.me ? '<span class="me">你正登录的账号</span>' : ''}</div>
+    ${a.root ? `<div class="meta">工作文件夹：${esc(a.root)} · 看不到主账号的对话，也读不到文件夹外面的东西</div>` : '<div class="meta">看不到受限账号的对话</div>'}
+    <div class="btns">
+      <input class="f" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password" data-pw><button class="pill" data-act="password">改密码</button>
+      ${a.role === 'admin' ? '' : `<button class="pill ${a.disabled ? '' : 'bad'}" data-act="${a.disabled ? 'enable' : 'disable'}">${a.disabled ? '启用' : '停用这个账号'}</button>`}
+    </div>
+    ${a.quota ? `<div class="btns"><span class="meta" style="align-self:center">周额度上限：主账号的</span><input class="f" style="width:80px" inputmode="numeric" value="${Math.round(a.quota.share * 100)}" data-share><span class="meta" style="align-self:center">%</span><button class="pill" data-act="share">保存</button></div>` : ''}
+    <div><div class="meta">登录的设备 · ${a.devices.length} 台${a.devices.filter(d => !d.me).length ? ` · <button class="pill bad" style="min-height:28px;padding:2px 12px" data-act="logout_all">全部退出</button>` : ''}</div>
+      ${a.devices.map(d => `<div class="dev"><div class="dn"><b>${esc(d.name)}</b>${d.me ? '<span class="me">这台</span>' : ''}<small>${d.me ? '正在用' : d.seen ? '最近用过：' + ago(d.seen) : '还没用过'}${d.ip ? ' · ' + esc(d.ip) : ''}${d.push ? ' · 开着通知' : ''}</small></div>
+        ${d.me ? '' : `<button class="pill bad" data-act="logout" data-id="${d.id}">退出</button>`}</div>`).join('') || '<div class="empty">没有登录着的设备</div>'}</div>
+  </div>`).join('');
+}
+
+$('#accts').onclick = async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const card = b.closest('[data-a]'), account = card.dataset.a, action = b.dataset.act;
+  const body = {action, account};
+  if (action === 'password') { body.value = card.querySelector('[data-pw]').value; if (body.value.length < 6) return toast('密码至少 6 位'); }
+  if (action === 'share') body.value = (+card.querySelector('[data-share]').value) / 100;
+  if (action === 'disable' && !confirm(`停用 ${account}？它登录着的设备会立刻进不来。`)) return;
+  if (action === 'logout') body.id = b.dataset.id;
+  b.disabled = true;
+  try { const r = await api(body); toast(r && r.ok ? '好了' : (r && r.error) || '没成功'); } catch (err) { toast(err.message); }
+  load();
+};
+$('#days').onclick = e => { const b = e.target.closest('button'); if (!b) return; DAYS = +b.dataset.d; document.querySelectorAll('#days button').forEach(x => x.classList.toggle('on', x === b)); load(); };
+async function load() {
+  try { data = await api(); } catch (err) { document.querySelector('main').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+  if (!data) return;
+  drawLimits(); drawSums(); drawChart(); drawConvs(); drawAccts();
+}
+addEventListener('resize', () => data && drawChart());
+load();
+</script></body></html>

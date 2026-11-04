@@ -38,10 +38,14 @@ def check() -> int:
         print(f"配置：读不到 {CONFIG_PATH}：{e}")
         return 1
     try:
+        if not cfg.dingtalk:
+            raise LookupError
         secret = read_secret(cfg.client_id)
         print("钥匙串：有钉钉密钥")
         asyncio.run(DingTalk(cfg.client_id, secret).check())
         print("钉钉：能拿到调用凭证")
+    except LookupError:
+        print("钉钉：已停用（只用网页）")
     except Exception as e:  # noqa: BLE001
         ok = False
         print(f"钉钉：{e}")
@@ -78,8 +82,11 @@ def whoami() -> int:
 
 def run() -> int:
     from .app import Bridge
-    from .dingtalk import DingTalk
+    from .dingtalk import DingTalk, NoDingTalk
     cfg = load_config()
+    if not cfg.dingtalk:
+        asyncio.run(Bridge(cfg, NoDingTalk()).run())
+        return 0
     if not cfg.allowed_user_ids:
         print("配置里还没有 allowed_user_ids，先运行 remote-claude whoami 拿到你的钉钉 ID。", file=sys.stderr)
         return 2

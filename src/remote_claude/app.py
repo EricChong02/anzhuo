@@ -14,9 +14,9 @@ from pathlib import Path
 import dingtalk_stream
 from claude_agent_sdk import list_sessions
 
-from . import cards, folders, report, router, translate
+from . import cards, folders, report, router, translate, usage
 from .commands import HELP, Cmd, parse
-from .config import DATA_DIR, Config, read_web_hash
+from .config import DATA_DIR, Config, save_web_hash, web_accounts
 from .dingtalk import DingTalk, Incoming, parse_incoming
 from .report import Turn
 from .web import Web
@@ -125,6 +125,7 @@ class Bridge:
                              self._confirm_asked)
         self.runner.auto_review = cfg.auto_review
         self.runner.auto_title = True
+        self.runner.on_usage = self._usage
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
@@ -133,7 +134,7 @@ class Bridge:
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
-                       cfg.web_user, read_web_hash(cfg.web_user) if cfg.web_base else "", cfg.watch_host)
+                       watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=save_web_hash)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -164,7 +165,7 @@ class Bridge:
 
     async def _schedule_failed(self, task: dict):
         body = f"{task['title']}：{task['error']}。计划已暂停，可在定时任务中修改。"
-        pushed = await self.web.push.send("定时任务未执行", body, task.get("target")) if self.web.enabled else 0
+        pushed = await self.web.notify("admin", "定时任务未执行", body, task.get("target")) if self.web.enabled else 0
         if not pushed:
             await self.say("定时任务未执行", body, board=False)
 
@@ -206,6 +207,11 @@ class Bridge:
         self.outgoing.setdefault(s.num, []).append({'t': time.time(), 'text': task['prompt']})
         self.runner.submit(s, job)
         return s.num
+
+    def _usage(self, s: Session, turn: Turn) -> None:
+        if rec := usage.row(s, turn, self.runner.limits):
+            usage.append(self.data_dir / "usage.jsonl", rec)
+            self.registry.save()
 
     # ---------- 发消息 ----------
     def record(self, who: str, text: str, **extra) -> None:
@@ -249,6 +255,8 @@ class Bridge:
         """在做的和排队的对话，给工作台用。"""
         items = []
         for num, s in sorted(self.registry.sessions.items()):
+            if s.owner != "admin":
+                continue
             if num in self.runner.turns:
                 items.append((s.label, num, self.runner.turns[num]))
             elif self.runner.busy(num):
@@ -379,14 +387,14 @@ class Bridge:
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
-        full = turn.via == "dingtalk" or not self.web.enabled
+        full = (turn.via == "dingtalk" or not self.web.enabled) and s.owner == "admin"
         pushed = 0
         if self.web.enabled and not viewing:
             head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
                                              s.awaiting_kind, s.limit_until if turn.is_error else 0)
-            pushed = await self.web.push.send(head, what, s.num)
+            pushed = await self.web.notify(s.owner, head, what, s.num)
         if not full:
-            if not viewing and not pushed:
+            if not viewing and not pushed and s.owner == "admin":
                 head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
                                                  s.awaiting_kind, s.limit_until if turn.is_error else 0)
                 try:
@@ -453,7 +461,9 @@ class Bridge:
             return
         self.record("确认", c["what"], num=s.num)
         if self.web.enabled:
-            asyncio.create_task(self.web.push.send(s.name, "等你确认：" + c["what"], s.num))
+            asyncio.create_task(self.web.notify(s.owner, s.name, "等你确认：" + c["what"], s.num))
+        if s.owner != "admin":
+            return
         try:
             oid = f"c{s.num}-{int(time.time() * 1000)}"
             await self.dt.create_card(self.user_id, oid, cards.confirm_data(s.label, c["what"], c["cmd"], s.num))
@@ -568,6 +578,8 @@ class Bridge:
             if self.photo_task:
                 self.photo_task.cancel()
         cmd = parse(inc.text) if inc.text else Cmd("message")
+        if getattr(cmd, "num", None) and cmd.kind != "pick" and not self.registry.mine(cmd.num):
+            cmd.num = -1   # 别的账号的对话：钉钉里当作没有
         if cmd.kind == "pick" and self.pending:
             return await self._pick(cmd.num)
         if cmd.kind == "pick":
@@ -826,7 +838,8 @@ class Bridge:
         await self.say("接着桌面", "\n\n".join(lines))
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
-                     kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+                     kind: str | None = None, model: str | None = None, effort: str | None = None,
+                     owner: str = "admin", root: str = "") -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
@@ -835,8 +848,10 @@ class Bridge:
                 from . import router
                 kind = await router.classify_kind(text) or "dev"   # 在代码仓里也只有较复杂的开发才上 Opus；判断失败按开发算
         auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto)
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root)
         said_model, said_effort = inline_overrides(text)
+        if root and (model or said_model) == "gpt":   # 受限账号只用 Claude（Codex 不在沙箱里）
+            model = said_model = None
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None
         s.model = model or said_model or s.model
@@ -847,6 +862,8 @@ class Bridge:
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
+            if owner != "admin":
+                return
             return await self.say("开好了", f"{s.label} 开好了\n\n{meta}\n\n接下来直接说要做什么。")
         await self._submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
 
@@ -899,11 +916,12 @@ class Bridge:
             if r and r.action == "continue":
                 num = r.target
         num = num or self.registry.current
-        s = self.registry.get(num)
+        s = self.registry.get(num) if routed else self.registry.mine(num)
         if not s:
             return await self.say("先开一个对话", "还没有对话。发“新开 文件夹：要做的事”，文件夹可以写 "
                                   + "、".join(self.cfg.folders) + "，或不写。发“帮助”看全部用法。")
-        self.registry.current = s.num
+        if s.owner == "admin":
+            self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
         if said_model == "gpt" or s.engine == "codex":
@@ -1018,10 +1036,12 @@ class Bridge:
                 asyncio.create_task(bridge.on_card(callback.data))
                 return dingtalk_stream.AckMessage.STATUS_OK, {}
 
-        cred = dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret)
-        client = dingtalk_stream.DingTalkStreamClient(cred)
-        client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
-        client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
+        client = None
+        if self.cfg.dingtalk:
+            cred = dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret)
+            client = dingtalk_stream.DingTalkStreamClient(cred)
+            client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
+            client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
         if self.web.enabled:
             await self.web.start()
         # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡
@@ -1033,5 +1053,8 @@ class Bridge:
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
                 asyncio.create_task(self._auto_resume(s.num, s.limit_until))
-        log.info("小E 启动，已登记 %d 个对话", len(self.registry.sessions))
-        await client.start()
+        log.info("小E 启动，已登记 %d 个对话%s", len(self.registry.sessions), "" if client else "（钉钉已停用，只用网页）")
+        if client:
+            await client.start()
+        else:
+            await asyncio.Event().wait()

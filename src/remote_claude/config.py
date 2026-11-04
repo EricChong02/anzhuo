@@ -37,13 +37,17 @@ class Config:
     watch_host: str = ""  # 阿里云 ssh 别名：那边每分钟查小E 在不在线，掉线发手机通知（scripts/server_watch.py）；通知订阅变了同步过去
     dingtalk_quiet: bool = True  # 钉钉只发结果（做完/等你定/出错、回答）；开工、收到、插话、工作台这些过程只在网页里看
     web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串（scripts/set_web_password.py）  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
+    # 网页账号：名字 → {role: admin / user, root: user 只能在这个文件夹里干活}；密码指纹在钥匙串（scripts/set_account.py）。
+    # 没写就只有 web_user 一个 admin（老配置照旧能用）
+    accounts: dict[str, dict] = field(default_factory=dict)
+    dingtalk: bool = True  # false = 钉钉整个停用（不连接、不发消息），只用网页（2026-11-04 庄毅定）
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
     return Config(
-        client_id=raw["client_id"],
+        client_id=raw.get("client_id", ""),
         allowed_user_ids=[str(x) for x in raw.get("allowed_user_ids", [])],
         folders=dict(raw.get("folders", {})),
         search_roots=list(raw.get("search_roots", DEFAULT_SEARCH_ROOTS)),
@@ -62,6 +66,10 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         web_user=str(raw.get("web_user", "")),
         dingtalk_quiet=bool(raw.get("dingtalk_quiet", True)),
         watch_host=str(raw.get("watch_host", "")),
+        dingtalk=bool(raw.get("dingtalk", True)),
+        accounts={str(k): {"role": "admin" if v.get("role") == "admin" else "user", "root": str(v.get("root", "")),
+                           "share": float(v.get("week_share", 0.2))}
+                  for k, v in (raw.get("accounts") or {}).items()},
     )
 
 
@@ -80,6 +88,17 @@ def read_secret(client_id: str) -> str:
 
 
 WEB_KEYCHAIN = "remote-claude.web"
+
+
+def save_web_hash(user: str, digest: str) -> None:
+    subprocess.run(["security", "add-generic-password", "-U", "-s", WEB_KEYCHAIN, "-a", user, "-w", digest],
+                   check=True, capture_output=True)
+
+
+def web_accounts(cfg: Config) -> dict[str, dict]:
+    """网页账号连同密码指纹（admin 看得到全部功能；user 只在自己的文件夹里干活）。"""
+    accts = cfg.accounts or ({cfg.web_user: {"role": "admin", "root": ""}} if cfg.web_user else {})
+    return {name: {**a, "hash": read_web_hash(name)} for name, a in accts.items()}
 
 
 def read_web_hash(user: str) -> str:
