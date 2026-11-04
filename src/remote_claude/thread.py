@@ -48,6 +48,11 @@ def full_messages(session_id: str, cwd: str | None, times: dict | None = None):
         first = chain[0]
         boundary = first if first.get("logicalParentUuid") else by_uuid.get(first.get("parentUuid") or "")
         prev = by_uuid.get((boundary or {}).get("logicalParentUuid") or "")
+        if prev is None and boundary and boundary.get("logicalParentUuid"):
+            # 压缩点指向的“上一条”有时没写进记录文件（2026-11 起偶发）：改取文件里压缩点前面最近的一条正常消息
+            at = next((i for i, e in enumerate(entries) if e.get("uuid") == boundary["uuid"]), 0)
+            prev = next((e for e in reversed(entries[:at]) if e.get("type") in ("user", "assistant", "attachment")
+                         and not e.get("isSidechain") and e.get("uuid") not in seen), None)
         if not prev or prev["uuid"] in seen:
             break
         part, cur = [], prev

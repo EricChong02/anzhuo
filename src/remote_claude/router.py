@@ -27,7 +27,8 @@ SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工
   你只是分派员，不能替干活的对话回答它的事，也不要用它的口吻道歉、解释或承诺。
   问“以后能不能…”“开发完之后…”“要怎么设计”这类关于功能本身的问题，不是问指令怎么写：如果有对话在开发远窗（原名案头、小E，remote-claude），选 continue 它。
 - continue：消息是在接着某个已有对话说（追问、补充、修改意见、“继续”、“好的”、“选B”、对刚做完的事提要求等）。target 写那个对话的编号；多半是“当前对话”。
-- new：消息是一件和已有对话都不相干的新事。folder 写最合适的文件夹：优先用给出的短名；否则写用户提到的文件夹名或其中几个字；完全不涉及文件夹（查资料、算东西、闲聊）就写 null。
+- new：消息是一件和已有对话都不相干的新事。folder 写最合适的文件夹：优先用给出的短名（每个短名后面有它放什么的说明，按说明选，不要只看名字字面）；否则写用户提到的文件夹名或其中几个字；完全不涉及文件夹（查资料、算东西、闲聊）就写 null。
+  涉及具体的人、课表、排课、学生、老师、学校工作、财务、健康、个人事务的问题，这些资料在 Projects（庄毅的整个工作区），不在课程根或平台，folder 选 Projects。课程根只给做课件和课程页面用，平台只给改 CyberScope 平台代码用。
 - ask：确实拿不准是接着还是新开，或看不出是接哪个对话。
 判断主要看话题：消息和哪个已有对话的内容相关（同一个文件夹、同一门课、同一件事），就 continue 那个对话，不一定是当前对话。
 只有像是对上一条回答的直接回复（“好的”“选B”“继续”“再大一点”“为什么”这类，看不出话题），才 continue 当前对话。
@@ -56,6 +57,18 @@ class Route:
     answer: str = ""  # action 为 reply 时小E直接回的话
 
 
+FOLDER_HINTS = {
+    "课程根": "只放 CyberScope 的课件和课程页面，做课件、改课程页才选它；学生名单、课表、成绩都不在这里",
+    "平台": "CyberScope 平台的代码仓，只在改平台代码时选",
+    "Projects": "庄毅的整个工作区：人物、课表、排课、学校工作、财务、健康、个人事务、各个项目；拿不准在哪时选它",
+    "下载": "下载文件夹，只在用户说要处理下载的文件时选",
+}
+
+
+def _hint(name: str) -> str:
+    return f"{name}（{FOLDER_HINTS[name]}）" if name in FOLDER_HINTS else name
+
+
 def _context(text: str, sessions: list[Session], current: int | None, shortnames: list[str],
              chat: list[tuple[str, str]] | None = None, busy: set[int] | None = None) -> str:
     rows = []
@@ -71,7 +84,7 @@ def _context(text: str, sessions: list[Session], current: int | None, shortnames
     return (
         (f"你刚才直接回答用户的（从早到晚）：{said}\n\n" if said else "")
         + "已有对话：\n" + ("\n".join(rows) if rows else "（没有）")
-        + f"\n\n文件夹短名：{'、'.join(shortnames)}\n\n用户这条消息：\n{text[:1500]}"
+        + f"\n\n文件夹短名（括号里是放什么）：{'、'.join(_hint(n) for n in shortnames)}\n\n用户这条消息：\n{text[:1500]}"
     )
 
 
