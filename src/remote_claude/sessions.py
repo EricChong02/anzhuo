@@ -98,6 +98,7 @@ class Session:
     owner: str = "admin"  # 哪个网页账号的对话；钉钉里的都算 admin。两个账号互相看不到对方的对话
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
+    claude_usage: dict = field(default_factory=dict)  # Claude 报的这个会话累计金额和各模型 token（接着上次的会话也累计），每轮记差值
 
     @property
     def label(self) -> str:

@@ -126,6 +126,11 @@ class Bridge:
         self.runner.auto_review = cfg.auto_review
         self.runner.auto_title = True
         self.runner.on_usage = self._usage
+        try:
+            if n := usage.migrate(data_dir / "usage.jsonl"):
+                log.info("消耗记录：%d 行累计值改成每轮的", n)
+        except Exception:  # noqa: BLE001
+            log.warning("消耗记录迁移失败", exc_info=True)
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
@@ -209,7 +214,11 @@ class Bridge:
         return s.num
 
     def _usage(self, s: Session, turn: Turn) -> None:
-        if rec := usage.row(s, turn, self.runner.limits):
+        last = None
+        if s.engine != "codex" and not s.claude_usage:   # 对话里还没存累计值：用记录里这个对话最后一条的
+            last = next((r.get("cum") for r in reversed(usage.load(self.data_dir / "usage.jsonl"))
+                         if r.get("num") == s.num and r.get("cum")), None)
+        if rec := usage.row(s, turn, self.runner.limits, last=last):
             usage.append(self.data_dir / "usage.jsonl", rec)
             self.registry.save()
 

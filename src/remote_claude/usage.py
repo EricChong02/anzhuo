@@ -25,8 +25,23 @@ def _tokens(models: dict) -> dict:
     return out
 
 
-def row(s, turn, limits: dict, now: float | None = None) -> dict | None:
-    """一轮的消耗记录；这一轮没有消耗数据（比如没连上）返回 None。"""
+KEYS = ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
+
+
+def _minus(cur: dict, prev: dict) -> dict:
+    """各模型累计 token 减去上一轮的累计；这一轮没用到的模型去掉。"""
+    out = {}
+    for m, v in cur.items():
+        p = prev.get(m) or {}
+        d = {k: max(0, int(v.get(k) or 0) - int(p.get(k) or 0)) for k in KEYS}
+        if any(d.values()):
+            out[m] = d
+    return out
+
+
+def row(s, turn, limits: dict, now: float | None = None, last: dict | None = None) -> dict | None:
+    """一轮的消耗记录；这一轮没有消耗数据（比如没连上）返回 None。
+    last：这个对话上一条记录的累计值（{"cost", "tok", "models"}），对话里还没存累计值时（小E 刚升级）拿它当起点。"""
     u = turn.usage or {}
     base = {"t": round(now or turn.ended or time.time(), 1), "owner": s.owner, "num": s.num, "name": s.name,
             "engine": s.engine, "request": (turn.request or "")[:60]}
@@ -37,19 +52,59 @@ def row(s, turn, limits: dict, now: float | None = None) -> dict | None:
         if not used:
             return None
         return {**base, "model": turn.model or "gpt", "cost": 0.0, "tokens": {"total": used}}
-    models = u.get("models") or {}
-    if not models and not u.get("cost"):
+    models, cost = u.get("models") or {}, float(u.get("cost") or 0)
+    if not models and not cost:
         return None
-    tok = _tokens(models)
+    # Claude 报的金额、token 是整个会话累计的（接着上次的会话也接着累计）：这一轮 = 减去上一轮的累计。
+    # 累计变小了说明换了新会话（分叉、重开），这一轮就是全部。
+    cum = {"cost": round(cost, 4), "tok": _tokens(models), "models": models}
+    prev = s.claude_usage or last or {}
+    s.claude_usage = cum
+    tok = cum["tok"]
+    if prev and cost + 1e-6 >= float(prev.get("cost") or 0):
+        cost -= float(prev.get("cost") or 0)
+        if prev.get("models"):
+            models = _minus(models, prev["models"])
+            tok = _tokens(models)
+        else:
+            tok = {k: max(0, v - int((prev.get("tok") or {}).get(k) or 0)) for k, v in tok.items()}
+        if cost < 0.00005 and not any(tok.values()):
+            return None
     pct = {k: round(v[0] * 100, 1) for k, v in (limits or {}).items() if k in ("five_hour", "seven_day")}
-    return {**base, "model": ", ".join(models) or turn.model, "cost": round(float(u.get("cost") or 0), 4),
-            "tokens": {**tok, "total": sum(tok.values())}, "limits": pct}
+    return {**base, "model": ", ".join(models) or turn.model, "cost": round(cost, 4),
+            "tokens": {**tok, "total": sum(tok.values())}, "limits": pct, "cum": {"cost": cum["cost"], "tok": cum["tok"]}}
 
 
 def append(path: Path, rec: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def migrate(path: Path) -> int:
+    """2026-11-04 之前记的 Claude 行是会话累计值（当时当成了每轮的）：按对话顺序减成每轮的，补上 cum。只改没有 cum 的行；返回改了几行。"""
+    rows = load(path)
+    prev: dict[int, dict] = {}
+    n = 0
+    for r in sorted(rows, key=lambda x: x.get("t", 0)):
+        if r.get("engine") == "codex":
+            continue
+        if "cum" not in r:
+            raw = {"cost": float(r.get("cost") or 0), "tok": {k: int((r.get("tokens") or {}).get(k) or 0)
+                                                               for k in ("input", "output", "cache_read", "cache_write")}}
+            p = prev.get(r.get("num"))
+            if p and raw["cost"] + 1e-6 >= p["cost"]:
+                tok = {k: max(0, v - p["tok"].get(k, 0)) for k, v in raw["tok"].items()}
+                r["cost"] = round(raw["cost"] - p["cost"], 4)
+                r["tokens"] = {**tok, "total": sum(tok.values())}
+            r["cum"] = raw
+            n += 1
+        prev[r.get("num")] = r["cum"]
+    if n:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        tmp.replace(path)
+    return n
 
 
 def load(path: Path, since: float = 0) -> list[dict]:
@@ -68,8 +123,10 @@ def load(path: Path, since: float = 0) -> list[dict]:
     return out
 
 
-def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float | None = None) -> dict:
-    """管理页要的数：每天（金额、token、轮数、当天最后的本周额度 %）、每个对话、每个账号。"""
+def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float | None = None,
+            rate: float | None = None) -> dict:
+    """管理页要的数：每天（金额、token、轮数、当天最后的本周额度 %）、每个对话、每个账号。
+    rate：每 1 美元约等于主账号周额度的百分之几（见 rate()）；页面用它把金额换成“占周额度 %”。"""
     now = now or time.time()
     lt = time.localtime(now)
     today0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
@@ -78,7 +135,7 @@ def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float 
     for i in range(days):
         d0 = start + i * DAY
         daily.append({"day": time.strftime("%m-%d", time.localtime(d0)), "cost": 0.0, "tokens": 0, "turns": 0,
-                      "gpt_tokens": 0, "week_pct": None, "by_owner": {}})
+                      "gpt_tokens": 0, "week_pct": None, "by_owner": {}, "by_owner_tok": {}})
     convs: dict[int, dict] = {}
     owners: dict[str, dict] = {}
     for r in sorted(rows, key=lambda x: x.get("t", 0)):
@@ -96,6 +153,7 @@ def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float 
             d["cost"] += cost
             d["tokens"] += tok
             d["by_owner"][r.get("owner", "admin")] = d["by_owner"].get(r.get("owner", "admin"), 0) + cost
+            d["by_owner_tok"][r.get("owner", "admin")] = d["by_owner_tok"].get(r.get("owner", "admin"), 0) + tok
         if (r.get("limits") or {}).get("seven_day") is not None:
             d["week_pct"] = r["limits"]["seven_day"]
         c = convs.setdefault(r["num"], {"num": r["num"], "name": names.get(r["num"]) or r.get("name") or f"#{r['num']}",
@@ -124,7 +182,7 @@ def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float 
         d["cost"] = round(d["cost"], 4)
         d["by_owner"] = {k: round(v, 4) for k, v in d["by_owner"].items()}
     return {"days": daily, "conversations": conv_rows[:100], "owners": sorted(owners.values(), key=lambda o: o["owner"]),
-            "total_cost": round(total, 4), "since": start}
+            "total_cost": round(total, 4), "since": start, "rate": rate}
 
 
 # ---------- 受限账号的周额度 ----------
@@ -150,24 +208,20 @@ def reset_epoch(text: str | None, now: float | None = None) -> float | None:
     return min(cands, key=lambda t: abs(t - now)) if cands else None
 
 
-def rate(rows: list[dict], start: float) -> float | None:
-    """这一周里“每 1 美元（标价折算）约等于周额度的百分之几”。
-    用远窗每轮做完时记下的周额度 % 和金额推算：第一条到最后一条，周 % 涨了多少 ÷ 这期间花了多少。
-    你在别处（claude.ai、电脑上的 Claude Code）用的也算在周 % 里，所以推出来偏大，换算受限账号的用量会偏保守。
-    数据太少（不到 2 美元、周 % 没涨过 1）返回 None。"""
-    rs = [r for r in rows if r.get("t", 0) >= start and r.get("engine") != "codex"
-          and (r.get("limits") or {}).get("seven_day") is not None]
-    if len(rs) >= 2:
-        dp = rs[-1]["limits"]["seven_day"] - rs[0]["limits"]["seven_day"]
-        dc = sum(float(r.get("cost") or 0) for r in rs[1:])
-        if dc >= 2 and dp >= 1:
-            return dp / dc
-    if rs:
-        cost = sum(float(r.get("cost") or 0) for r in rows if r.get("t", 0) >= start and r.get("engine") != "codex")
-        p = rs[-1]["limits"]["seven_day"]
-        if cost >= 2 and p >= 1:
-            return p / cost
-    return None
+def rate(rows: list[dict], since: float) -> float | None:
+    """“每 1 美元（标价折算）约等于主账号周额度的百分之几”。
+    用远窗每轮做完时记下的周额度 %：相邻两轮之间周 % 涨了多少 ÷ 后一轮花了多少，跨过重置（周 % 变小）的那一段不算；
+    since 之后的全部累加（看几周的，比只看本周稳）。你在别处（claude.ai、电脑上的 Claude Code）用的也算在周 % 里，
+    所以推出来偏大：换算出的百分比偏保守（宁可多算）。数据太少（不到 2 美元、周 % 没涨过 1）返回 None。"""
+    rs = sorted((r for r in rows if r.get("t", 0) >= since and r.get("engine") != "codex"
+                 and (r.get("limits") or {}).get("seven_day") is not None), key=lambda r: r["t"])
+    dp = dc = 0.0
+    for a, b in zip(rs, rs[1:]):
+        d = b["limits"]["seven_day"] - a["limits"]["seven_day"]
+        if d >= 0:
+            dp += d
+            dc += float(b.get("cost") or 0)
+    return dp / dc if dc >= 2 and dp >= 1 else None
 
 
 def quota(rows: list[dict], owner: str, share: float, week_reset: float | None, saved_rate: float | None,
@@ -177,7 +231,7 @@ def quota(rows: list[dict], owner: str, share: float, week_reset: float | None, 
     now = now or time.time()
     reset = week_reset if week_reset and week_reset > now else None
     start = (reset - WEEK) if reset else now - WEEK
-    r = rate(rows, start) or saved_rate
+    r = rate(rows, start - 3 * WEEK) or saved_rate
     cost = sum(float(x.get("cost") or 0) for x in rows
                if x.get("t", 0) >= start and x.get("owner") == owner and x.get("engine") != "codex")
     used = cost * r if r else 0.0

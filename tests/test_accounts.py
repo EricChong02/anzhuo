@@ -178,3 +178,28 @@ def test_quota_rate_fallbacks():
     assert q["used"] == 2.0 and q["pct"] == 10.0       # 用上次存下的比例：$1 × 2%/$ = 2%，占自己 20% 额度的 10%
     old = [{"t": now - 8 * 86400, "owner": "user", "engine": "claude", "cost": 50, "limits": {"seven_day": 90}}]
     assert usage.quota(old + rows, "user", 0.2, now + 3600, 2.0, now=now)["cost"] == 1.0   # 上周的不算
+
+
+def test_claude_usage_is_cumulative_so_record_delta(tmp_path):
+    """Claude 报的金额、token 是会话累计的：每轮记差值；换了新会话（累计变小）记全部；旧记录迁移成每轮的。"""
+    s = Session(num=7, name="x", cwd="/x")
+    m = lambda i, o: {"claude-opus-5-5": {"inputTokens": i, "outputTokens": o}, "claude-haiku-5-5": {"inputTokens": 5}}
+    t = lambda c, mm: Turn(started=1, ended=time.time(), usage={"cost": c, "models": mm})
+    assert usage.row(s, t(1.0, m(100, 10), ), {})["cost"] == 1.0
+    r = usage.row(s, t(1.5, {**m(300, 30)}), {})
+    assert r["cost"] == 0.5 and r["tokens"]["total"] == 220 and r["model"] == "claude-opus-5-5"   # haiku 这轮没动
+    assert usage.row(s, t(0.2, m(50, 5)), {})["cost"] == 0.2                                       # 新会话
+    # 小E 刚升级、对话里没存累计值：用记录里上一条的 cum
+    s2 = Session(num=8, name="y", cwd="/x")
+    assert usage.row(s2, t(3.0, m(1000, 0)), {}, last={"cost": 2.0, "tok": {"input": 900}})["tokens"]["input"] == 105
+    p = tmp_path / "u.jsonl"
+    old = [{"t": 1, "num": 9, "engine": "claude", "cost": 7.0, "tokens": {"input": 10, "total": 10}},
+           {"t": 2, "num": 9, "engine": "claude", "cost": 9.5, "tokens": {"input": 25, "total": 25}},
+           {"t": 3, "num": 9, "engine": "claude", "cost": 1.0, "tokens": {"input": 4, "total": 4}}]
+    p.write_text("".join(json.dumps(x) + "\n" for x in old))
+    assert usage.migrate(p) == 3 and usage.migrate(p) == 0
+    assert [(x["cost"], x["tokens"]["total"]) for x in usage.load(p)] == [(7.0, 10), (2.5, 15), (1.0, 4)]
+    # 换算比例：相邻两轮周 % 涨了多少 ÷ 后一轮花了多少，跨重置的不算
+    rows = [{"t": 1, "cost": 1, "limits": {"seven_day": 10}}, {"t": 2, "cost": 2, "limits": {"seven_day": 12}},
+            {"t": 3, "cost": 2, "limits": {"seven_day": 14}}, {"t": 4, "cost": 5, "limits": {"seven_day": 1}}]
+    assert usage.rate(rows, 0) == 1.0

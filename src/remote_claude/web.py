@@ -265,7 +265,7 @@ class Web:
         except (OSError, json.JSONDecodeError):
             d = {}
         return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {}), "disabled": d.get("disabled", []),
-                "shares": d.get("shares", {}), "rate": d.get("rate")}
+                "shares": d.get("shares", {}), "rate2": d.get("rate2")}
 
     def _save(self) -> None:
         now = time.time()
@@ -482,10 +482,10 @@ class Web:
         limits = getattr(getattr(self.bridge, "runner", None), "limits", {}) or {}
         week = limits.get("seven_day")
         share = float(self.store.get("shares", {}).get(acct, (self.accounts.get(acct) or {}).get("share", usage.DEFAULT_SHARE)))
-        q = usage.quota(usage.load(self.usage_path, time.time() - 8 * 86400), self.owner_key(acct), share,
-                        usage.reset_epoch(week[1]) if week else None, self.store.get("rate"))
-        if q["rate"] and q["rate"] != self.store.get("rate"):
-            self.store["rate"] = q["rate"]
+        q = usage.quota(usage.load(self.usage_path, time.time() - 29 * 86400), self.owner_key(acct), share,
+                        usage.reset_epoch(week[1]) if week else None, self.store.get("rate2"))
+        if q["rate"] and q["rate"] != self.store.get("rate2"):   # rate2：2026-11-04 之前存的 rate 是按累计值算错的，不用
+            self.store["rate2"] = q["rate"]
             self._save()
         q["reset"] = time.strftime("%-m月%-d日 %H:%M", time.localtime(q["reset_at"])) if q["reset_at"] else ""
         return q
@@ -2038,10 +2038,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                           "disabled": name in self.store.get("disabled", []), "me": name == request["acct"],
                           "owner": self.owner_key(name), "quota": self.quota(name),
                           "devices": [d for d in self._device_rows(me, None) if d["account"] == name]})
-        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days),
+        week = b.runner.limits.get("seven_day")
+        reset = usage.reset_epoch(week[1]) if week else None
+        start = reset - usage.WEEK if reset and reset > time.time() else time.time() - usage.WEEK
+        rate = usage.rate(usage.load(self.usage_path, start - 3 * usage.WEEK), start - 3 * usage.WEEK) or self.store.get("rate2")
+        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, rate=rate),
                                   "limits": self._limits(b.runner.limits),
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
-                                  "rate": self.store.get("rate")})
+                                  "rate": rate})
 
     async def _api_admin_act(self, request: web.Request) -> web.Response:
         """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""

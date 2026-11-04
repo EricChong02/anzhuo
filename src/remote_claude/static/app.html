@@ -2541,7 +2541,6 @@ const ADM_ICON = {
   desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
 };
 const ownerName = o => o === 'admin' ? '主账号' : o;
-const usd = v => !v ? '$0' : v >= 100 ? '$' + Math.round(v) : v >= 10 ? '$' + v.toFixed(1) : v >= 1 ? '$' + v.toFixed(2) : '$' + v.toFixed(3);
 const tokn = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : String(v || 0);
 const admOwners = d => [...new Set(['admin', ...d.accounts.map(a => a.owner)])];
 const ownerColor = (d, o) => admOwners(d).indexOf(o) % 2 ? 'var(--s2)' : 'var(--s1)';
@@ -2591,6 +2590,10 @@ function quotaPlate(title, ls) {
   return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, quotaReset(l).relative)).join('')
     : `<div class="aq-row">${aqRow('本周', null, '')}</div>`}</div>`;
 }
+// 金额只在后台用来换算：× 每美元约合周额度的百分比 = 占主账号周额度的 %；还没校准出比例时返回 null
+function wkv(u, cost) { return u.rate == null ? null : cost * u.rate; }
+function fpct(p) { return p <= 0 ? '0%' : p < 0.1 ? '<0.1%' : p < 10 ? (Math.round(p * 10) / 10) + '%' : Math.round(p) + '%'; }
+function wk(u, cost) { const p = wkv(u, cost); return p == null ? '' : fpct(p); }
 function drawUsage(col, d) {
   const u = d.usage, os = admOwners(d);
   const fenced = d.accounts.filter(a => a.quota);
@@ -2598,22 +2601,24 @@ function drawUsage(col, d) {
     + fenced.map(a => `<div class="plate aq"><h3>${esc(a.name)}</h3>${aqRow(`本周 · 上限 ${Math.round(a.quota.share * 100)}%`, a.quota.calibrating ? null : a.quota.pct,
         a.quota.reset_at ? quotaReset({name: '本周', reset_at: a.quota.reset_at}).relative : '')}</div>`).join('');
   const turns = u.days.reduce((s, x) => s + x.turns, 0), toks = u.days.reduce((s, x) => s + x.tokens, 0);
-  const split = os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, turns: 0};
-    return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${usd(r.cost)}</b></div>`; }).join('');
+  const gptToks = u.days.reduce((s, x) => s + x.gpt_tokens, 0);
+  const split = os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, tokens: 0};
+    return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></div>`; }).join('');
   const convs = u.conversations;
   col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotas}</div>
     <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${[7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n} 天</button>`).join('')}</div></div>
-    <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${usd(u.total_cost)}</b><span>${turns} 轮 · ${tokn(toks)} tokens</span></div>
+    <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${wk(u, u.total_cost) ? '周额度 ' + wk(u, u.total_cost) + ' · ' : ''}${turns} 轮${gptToks ? ' · Codex ' + tokn(gptToks) : ''}</span></div>
       <div class="au-split">${split}</div></div>
-      <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天消耗"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
+      <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
     <div class="adm-h"><span>对话</span><span>${convs.length ? convs.length + ' 个' : ''}</span></div>
     <div class="plate ac-list">${convs.length ? convs.map(c => {
       const gpt = c.engine === 'codex', mine = c.owner === 'admin' && sessions.some(s => s.num === c.num);
-      const bits = [ownerName(c.owner), ...c.models.map(m => m.replace(/^claude-/, '').replace(/-\d+(-\d+)?$/, '')), c.turns + ' 轮', ago(c.last)];
+      const ms = c.models.map(m => m.replace(/^claude-/, '').replace(/-\d+(-\d+)?$/, '')), main = ms.filter(m => m !== 'haiku');
+      const bits = [ownerName(c.owner), ...(main.length ? main : ms), c.turns + ' 轮', ago(c.last)], p = gpt ? null : wkv(u, c.cost);
       return `<button class="ac" ${mine ? `data-n="${c.num}"` : 'tabindex="-1"'}>
-        <span class="nm">${gpt ? engTag('codex') : ''}<span>${esc(c.name)}</span></span><span class="v num">${gpt ? tokn(c.tokens) : usd(c.cost)}</span>
-        <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${gpt ? 'tokens' : c.share + '%'}</span>
-        <span class="bar"><i style="width:${gpt ? 0 : Math.max(1, c.share)}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
+        <span class="nm">${gpt ? engTag('codex') : ''}<span>${esc(c.name)}</span></span><span class="v num">${p == null ? tokn(c.tokens) : fpct(p)}</span>
+        <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${p == null ? 'tokens' : tokn(c.tokens)}</span>
+        <span class="bar"><i style="width:${p == null ? 0 : Math.max(1, Math.min(100, p))}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
     }).join('') : '<div class="ac-empty">还没有记录</div>'}</div>`;
   $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = +b.dataset.d; loadAdmin(); };
   col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
@@ -2624,17 +2629,19 @@ function drawChart(d) {
   const svg = $('#auSvg'); if (!svg) return;
   const days = d.usage.days, os = admOwners(d);
   const W = Math.max(280, svg.clientWidth || 600), H = 200, L = 40, R = 4, T = 8, B = 24;
-  const tot = x => os.reduce((s, o) => s + (x.by_owner[o] || 0), 0);
+  const byPct = d.usage.rate != null, val = (x, o) => byPct ? (x.by_owner[o] || 0) * d.usage.rate : (x.by_owner_tok[o] || 0);
+  const fmt = v => byPct ? (Math.round(v * 10) / 10) + '%' : tokn(v);
+  const tot = x => os.reduce((s, o) => s + val(x, o), 0);
   const max = Math.max(0.01, ...days.map(tot));
   const step = (() => { const raw = max / 3, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= raw); })();
   const top = step * Math.ceil(max / step), y = v => T + (H - T - B) * (1 - v / top);
   const slot = (W - L - R) / days.length, bw = Math.max(3, Math.min(22, slot * .62));
   let g = '';
-  for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`;
+  for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
   g += `<rect class="cur" id="auCur" x="0" y="${T}" width="${slot}" height="${H - T - B}" rx="6" opacity="0"/>`;
   const every = Math.ceil(days.length / (W < 500 ? 5 : 10));
   days.forEach((x, i) => {
-    const bx = L + slot * i + (slot - bw) / 2, parts = os.map(o => x.by_owner[o] || 0);
+    const bx = L + slot * i + (slot - bw) / 2, parts = os.map(o => val(x, o));
     const last = parts.reduce((k, v, j) => v > 0 ? j : k, -1);
     let base = 0;
     parts.forEach((v, k) => {
@@ -2654,9 +2661,10 @@ function drawChart(d) {
     if (!t) { tip.hidden = true; cur.setAttribute('opacity', 0); return; }
     const i = +t.dataset.i, x = days[i];
     cur.setAttribute('x', L + slot * i); cur.setAttribute('opacity', 1);
-    tip.innerHTML = `<b>${x.day.replace('-', '月').replace(/^0/, '')}日</b>　<span class="num">${usd(tot(x))}</span>` + os.map(o => `<div class="r"><span><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}</span><span class="num">${usd(x.by_owner[o] || 0)}</span></div>`).join('')
+    tip.innerHTML = `<b>${x.day.replace('-', '月').replace(/^0/, '')}日</b>　<span class="num">${byPct ? fpct(tot(x)) : tokn(tot(x))}</span>`
+      + os.map(o => `<div class="r"><span><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}</span><span class="num">${tokn(x.by_owner_tok[o] || 0)}${byPct ? ' · ' + fpct(val(x, o)) : ''}</span></div>`).join('')
       + `<div class="r"><span>轮数</span><span class="num">${x.turns}</span></div>` + (x.gpt_tokens ? `<div class="r"><span>Codex</span><span class="num">${tokn(x.gpt_tokens)}</span></div>` : '')
-      + (x.week_pct != null ? `<div class="r"><span>周额度</span><span class="num">${Math.round(x.week_pct)}%</span></div>` : '');
+      + (x.week_pct != null ? `<div class="r"><span>当天周额度</span><span class="num">${Math.round(x.week_pct)}%</span></div>` : '');
     tip.hidden = false;
     const k = svg.getBoundingClientRect().width / W, cx = (L + slot * (i + .5)) * k, w = svg.getBoundingClientRect().width;
     tip.style.left = Math.max(80, Math.min(w - 80, cx)) + 'px'; tip.style.top = Math.max(60, y(tot(x)) * k) + 'px';
