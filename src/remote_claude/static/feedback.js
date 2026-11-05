@@ -47,15 +47,12 @@
 .xe-th{display:flex;gap:6px;flex-wrap:wrap} .xe-tw{position:relative} .xe-thumb{height:44px;border-radius:8px;border:1px solid rgba(0,0,0,.1);display:block}
 .xe-row .xe-tw button{position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:0;background:#1c1c1e;color:#fff;font-size:13px;line-height:20px;padding:0}
 .xe-box.xe-over{outline:2px dashed #2c4a74;outline-offset:-6px;background:#f3f6fa}
-.xe-tip{color:#8a8a8f;font-size:13px;margin-top:6px}
 .xe-cap{position:fixed;inset:0;z-index:2147483002;cursor:crosshair;touch-action:none;user-select:none;-webkit-user-select:none;
   font:15px/1.4 -apple-system,"PingFang SC",sans-serif;background:#000}
 .xe-cap img{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 .xe-cap .xe-dim{position:absolute;inset:0;background:rgba(0,0,0,.4);pointer-events:none}
 .xe-cap .xe-sel{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.4);display:none;pointer-events:none}
 .xe-cap.xe-has .xe-dim{display:none} .xe-cap.xe-has .xe-sel{display:block}
-.xe-cap .xe-hint{position:absolute;left:50%;top:calc(16px + env(safe-area-inset-top));transform:translateX(-50%);background:rgba(28,28,30,.82);color:#fff;
-  padding:8px 14px;border-radius:999px;white-space:nowrap;pointer-events:none}
 .xe-cap .xe-ops{position:absolute;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:8px;cursor:default}
 .xe-cap .xe-ops button{height:44px;border-radius:999px;padding:0 18px;border:0;font:inherit;font-size:16px;background:rgba(255,255,255,.94);color:#1c1c1e;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .xe-cap .xe-ops .xe-use{background:#2c4a74;color:#fff;font-weight:600} .xe-cap .xe-ops .xe-use:disabled{opacity:.45}
@@ -104,7 +101,7 @@
     wait.remove();
     return new Promise(done => {
       const cap = document.createElement('div'); cap.className = 'xe-cap';
-      cap.innerHTML = `<img alt=""><div class="xe-dim"></div><div class="xe-sel"></div><div class="xe-hint">拖一个框，框住要说的地方</div>
+      cap.innerHTML = `<img alt=""><div class="xe-dim"></div><div class="xe-sel"></div>
         <div class="xe-ops"><button class="xe-no">取消</button><button class="xe-all">整屏</button><button class="xe-use" disabled>用这块</button></div>`;
       cap.querySelector('img').src = shot.toDataURL('image/png');
       document.body.appendChild(cap);
@@ -161,14 +158,13 @@
   async function open() {
     const h = await here(), q = queue();
     const sh = document.createElement('div'); sh.className = 'xe-sh';
-    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span><button class="xe-ask" title="只问不改：它对照教案说说这一屏想做什么">问问这屏</button></div>
-      ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处，会和这一处一起发：</small>${q.map((x, k) =>
+    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span><button class="xe-ask">问问这屏</button></div>
+      ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
-      <div class="xe-tip">点“加截图”框选这一屏要说的地方；自己截好的图可以直接拖进来、粘贴，或点“选图片”。最多 ${MAXIMG} 张</div>
-      <div class="xe-row"><button class="xe-shot">加截图</button><label>选图片<input type="file" accept="image/*" multiple hidden></label><span class="xe-th"></span>
-      <button class="xe-cancel">取消</button><button class="xe-later" disabled>先记下</button>
-      <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交给做课的对话'}</button></div></div>`;
+      <div class="xe-row"><button class="xe-shot">截图</button><span class="xe-th"></span>
+      <button class="xe-later" disabled>先记下</button>
+      <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交'}</button></div></div>`;
     document.body.appendChild(sh);
     const ta = sh.querySelector('textarea'), send = sh.querySelector('.xe-send'), later = sh.querySelector('.xe-later');
     let images = [];
@@ -186,7 +182,7 @@
       paint(); sync();
     };
     const sync = () => { const has = !!(ta.value.trim() || images.length); later.disabled = !has; send.disabled = !has && !queue().length;
-      send.textContent = queue().length ? `一起交（${queue().length + (has ? 1 : 0)} 处）` : '交给做课的对话'; };
+      send.textContent = queue().length ? `一起交（${queue().length + (has ? 1 : 0)} 处）` : '交'; };
     ta.oninput = sync;
     sh.querySelectorAll('.xe-q button').forEach(b => b.onclick = () => { const l = queue(); l.splice(+b.dataset.k, 1); save(KEY, l.length ? l : null); sh.remove(); refreshBtn(); open(); });
     sh.querySelector('.xe-shot').onclick = async () => {
@@ -196,7 +192,6 @@
       sh.style.display = '';
       if (url) { images.push(url); paint(); sync(); }
     };
-    sh.querySelector('input').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
     let depth = 0;
     sh.addEventListener('dragenter', e => { e.preventDefault(); if (++depth === 1) box.classList.add('xe-over'); });
     sh.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; box.classList.remove('xe-over'); } });
@@ -220,7 +215,6 @@
         sh.querySelector('.xe-send').onclick = () => sh.remove();
       } catch (err) { b.disabled = false; b.textContent = '没问出去，再点一次'; }
     };
-    sh.querySelector('.xe-cancel').onclick = () => sh.remove();
     sh.onclick = e => { if (e.target === sh) sh.remove(); };
     later.onclick = () => {
       // 截图存在本机浏览器里，太大存不下就只记文字
