@@ -2330,7 +2330,7 @@ let composerView = null;
 function composerDraft(key) {
   if (!composerDrafts.has(key)) {
     let text = '';
-    try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
+    if (key !== 'new') try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
     composerDrafts.set(key, {text, images: [], files: [], sending: false, reading: 0, error: '', progress: ''});
   }
   return composerDrafts.get(key);
@@ -2338,7 +2338,8 @@ function composerDraft(key) {
 function saveComposerText(key, text) {
   try {
     const saved = JSON.parse(localStorage.getItem('composerDrafts') || '{}');
-    if (text) saved[key] = text; else delete saved[key];
+    // 新对话不跨次保留：每次打开都是空输入框
+    if (text && key !== 'new') saved[key] = text; else delete saved[key];
     localStorage.setItem('composerDrafts', JSON.stringify(saved));
   } catch (_) {}
 }
@@ -2365,7 +2366,8 @@ function wireComposer(sendFn, onSent, onOpening) {
     thumbs.querySelectorAll('button[data-f]').forEach(b => b.onclick = () => { state.files.splice(+b.dataset.f, 1); paint(); });
   };
   composerView = {key, paint};
-  const sync = () => { state.text = ta.value; saveComposerText(key, state.text); paint(); };
+  // 发送后输入法可能补发一次 input，把旧文字写回草稿；只认当前正在显示的输入框
+  const sync = () => { if (!active()) return; state.text = ta.value; saveComposerText(key, state.text); paint(); };
   const add = async files => {
     state.reading++; refreshComposer(key);
     try {
@@ -2417,7 +2419,9 @@ function wireComposer(sendFn, onSent, onOpening) {
         state.images = state.images.filter(x => !snapshot.images.includes(x));
         state.files = state.files.filter(x => !snapshot.files.includes(x));
         saveComposerText(key, state.text);
+        if (active()) ta.value = state.text;
         if (r.num) {
+          if (key === 'new' && !state.text && !state.images.length && !state.files.length) composerDrafts.delete(key);
           state.sending = false; state.progress = ''; refreshComposer(key);
           await loadSessions();
           if (active()) openSession(r.num); else toast('新对话已创建', '查看', () => openSession(r.num));
