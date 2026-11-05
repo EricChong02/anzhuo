@@ -1390,7 +1390,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         for i, url in enumerate(data.get("images") or []):
             head, _, b64 = str(url).partition(",")
             ext = "jpg" if "jpeg" in head else "png"
-            p = folder / f"{int(time.time() * 1000)}-{i}.{ext}"
+            p = folder / f"{int(time.time() * 1000)}-{secrets.token_hex(3)}-{i}.{ext}"   # 一次反馈几处各带图：同一毫秒里也不撞名
             p.write_bytes(base64.b64decode(b64))
             paths.append(str(p))
         return paths
@@ -1565,6 +1565,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _feedback_js(self, request: web.Request) -> web.Response:
         return web.Response(text=(Path(__file__).parent / "static" / "feedback.js").read_text(),
                             content_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+    async def _shot_js(self, request: web.Request) -> web.Response:
+        """试课页“加截图”框选截取用的截图库（modern-screenshot，MIT），点了才加载。"""
+        return web.Response(text=(Path(__file__).parent / "static" / "vendor" / "modern-screenshot.js").read_text(),
+                            content_type="application/javascript", headers={"Cache-Control": "max-age=86400"})
 
     def _course_session(self, cdir: str, title: str):
         """试课反馈交给谁：在课程根里、发过这门课试课链接的对话最准；其次看对话名和标题重合多少字。挑最近动过的。"""
@@ -2133,6 +2138,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
         app.router.add_get(f"{PREFIX}/sw.js", self._sw)
         app.router.add_get(f"{PREFIX}/feedback.js", self._feedback_js)
+        app.router.add_get(f"{PREFIX}/shot.js", self._shot_js)
         app.router.add_post(f"{PREFIX}/api/feedback", self._api_feedback)
         app.router.add_get(f"{PREFIX}/health", self._health)
         app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)

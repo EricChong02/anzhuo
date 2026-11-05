@@ -30,7 +30,7 @@
 .xe-st{font-weight:500;color:#4a4a4f;max-width:46vw} .xe-st span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xe-st i{width:7px;height:7px;border-radius:50%;background:#2c4a74;flex:none;animation:xe-p 1.6s ease-in-out infinite} .xe-st.wait i{background:#b07a06;animation:none}
 .xe-st.done{background:#2c4a74;color:#fff;border-color:transparent;font-weight:600} .xe-st.done i{display:none}
-@keyframes xe-p{50%{opacity:.35}}
+@keyframes xe-p{50%{opacity:.35}} .xe-st[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.xe-st i{animation:none}}
 .xe-sh{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;
   font:16px/1.5 -apple-system,"PingFang SC",sans-serif;color:#1c1c1e}
@@ -44,13 +44,30 @@
 .xe-row label,.xe-row button{height:44px;border-radius:999px;padding:0 16px;font-family:inherit;font-size:16px;border:0;background:#f2f2ef;color:#1c1c1e;display:flex;align-items:center}
 .xe-row .xe-send{margin-left:auto;background:#2c4a74;color:#fff;font-weight:600}
 .xe-row .xe-send:disabled,.xe-row .xe-later:disabled{opacity:.45}
-.xe-thumb{height:44px;border-radius:8px;border:1px solid rgba(0,0,0,.1)}
+.xe-th{display:flex;gap:6px;flex-wrap:wrap} .xe-tw{position:relative} .xe-thumb{height:44px;border-radius:8px;border:1px solid rgba(0,0,0,.1);display:block}
+.xe-row .xe-tw button{position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:0;background:#1c1c1e;color:#fff;font-size:13px;line-height:20px;padding:0}
+.xe-box.xe-over{outline:2px dashed #2c4a74;outline-offset:-6px;background:#f3f6fa}
+.xe-tip{color:#8a8a8f;font-size:13px;margin-top:6px}
+.xe-cap{position:fixed;inset:0;z-index:2147483002;cursor:crosshair;touch-action:none;user-select:none;-webkit-user-select:none;
+  font:15px/1.4 -apple-system,"PingFang SC",sans-serif;background:#000}
+.xe-cap img{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+.xe-cap .xe-dim{position:absolute;inset:0;background:rgba(0,0,0,.4);pointer-events:none}
+.xe-cap .xe-sel{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.4);display:none;pointer-events:none}
+.xe-cap.xe-has .xe-dim{display:none} .xe-cap.xe-has .xe-sel{display:block}
+.xe-cap .xe-hint{position:absolute;left:50%;top:calc(16px + env(safe-area-inset-top));transform:translateX(-50%);background:rgba(28,28,30,.82);color:#fff;
+  padding:8px 14px;border-radius:999px;white-space:nowrap;pointer-events:none}
+.xe-cap .xe-ops{position:absolute;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:8px;cursor:default}
+.xe-cap .xe-ops button{height:44px;border-radius:999px;padding:0 18px;border:0;font:inherit;font-size:16px;background:rgba(255,255,255,.94);color:#1c1c1e;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.xe-cap .xe-ops .xe-use{background:#2c4a74;color:#fff;font-weight:600} .xe-cap .xe-ops .xe-use:disabled{opacity:.45}
+.xe-wait{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483002;background:rgba(28,28,30,.85);color:#fff;padding:12px 18px;border-radius:14px;
+  font:15px -apple-system,"PingFang SC",sans-serif}
 .xe-q{margin:0 0 12px;padding:10px 12px;border-radius:14px;background:#f6f6f3;font-size:15px}
 .xe-q div{display:flex;gap:8px;padding:3px 0} .xe-q div span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xe-q small{color:#6b6b70} .xe-q button{border:0;background:none;color:#6b6b70;font-size:18px;line-height:1;padding:0 4px}
 .xe-done{font-size:16px;margin:8px 0 4px;color:#4a4a4f}.xe-done a{color:#2c4a74}`;
   const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
+  const MAXIMG = 4;
   const shrink = file => new Promise(res => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
@@ -61,6 +78,63 @@
     };
     img.src = url;
   });
+
+  // “加截图”：把眼前这一屏画成图（截图库点了才加载），盖在页面上让你拖一个框，框里的部分加进反馈；不拖直接点“整屏”就要整屏
+  let libP = null;
+  const lib = () => libP || (libP = new Promise((ok, bad) => {
+    if (window.modernScreenshot) return ok(window.modernScreenshot);
+    const sc = document.createElement('script'); sc.src = '/_x/shot.js';
+    sc.onload = () => ok(window.modernScreenshot); sc.onerror = () => { libP = null; bad(new Error('截图工具没加载上')); };
+    document.head.appendChild(sc);
+  }));
+  async function snapshot() {
+    const ms = await lib(), w = innerWidth, h = innerHeight, k = Math.min(2, devicePixelRatio || 1);
+    const full = await ms.domToCanvas(document.documentElement, {scale: k, backgroundColor: getComputedStyle(document.body).backgroundColor || '#fff',
+      filter: n => !(n.classList && [...n.classList].some(c => c.startsWith('xe-'))), timeout: 8000});
+    // 整页可能比屏幕长：只要眼前这一块
+    const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext('2d').drawImage(full, Math.round(scrollX * k), Math.round(scrollY * k), c.width, c.height, 0, 0, c.width, c.height);
+    return c;
+  }
+  async function capture() {
+    const wait = document.createElement('div'); wait.className = 'xe-wait'; wait.textContent = '正在截这一屏…';
+    document.body.appendChild(wait);
+    let shot;
+    try { shot = await snapshot(); } catch (e) { wait.textContent = '这一屏没截下来，可以用系统截图后拖进来'; await new Promise(r => setTimeout(r, 1800)); wait.remove(); return ''; }
+    wait.remove();
+    return new Promise(done => {
+      const cap = document.createElement('div'); cap.className = 'xe-cap';
+      cap.innerHTML = `<img alt=""><div class="xe-dim"></div><div class="xe-sel"></div><div class="xe-hint">拖一个框，框住要说的地方</div>
+        <div class="xe-ops"><button class="xe-no">取消</button><button class="xe-all">整屏</button><button class="xe-use" disabled>用这块</button></div>`;
+      cap.querySelector('img').src = shot.toDataURL('image/png');
+      document.body.appendChild(cap);
+      const sel = cap.querySelector('.xe-sel'), use = cap.querySelector('.xe-use');
+      let a = null, r = null;
+      const box = (x1, y1, x2, y2) => ({x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1)});
+      const draw = () => { Object.assign(sel.style, {left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px'}); };
+      cap.addEventListener('pointerdown', e => {
+        if (e.target.closest('.xe-ops')) return;
+        a = [e.clientX, e.clientY]; r = box(...a, ...a); cap.classList.add('xe-has'); draw(); cap.setPointerCapture(e.pointerId);
+      });
+      cap.addEventListener('pointermove', e => { if (!a) return; r = box(...a, e.clientX, e.clientY); draw(); });
+      cap.addEventListener('pointerup', () => {
+        if (!a) return; a = null;
+        if (r.w < 12 || r.h < 12) { r = null; cap.classList.remove('xe-has'); use.disabled = true; } else use.disabled = false;
+      });
+      const finish = part => {
+        cap.remove();
+        if (!part) return done('');
+        const k = shot.width / innerWidth, sx = part.x * k, sy = part.y * k, sw = part.w * k, sh2 = part.h * k;
+        const z = Math.min(1, 1800 / Math.max(sw, sh2)), c = document.createElement('canvas');
+        c.width = Math.round(sw * z); c.height = Math.round(sh2 * z);
+        c.getContext('2d').drawImage(shot, sx, sy, sw, sh2, 0, 0, c.width, c.height);
+        done(c.toDataURL('image/jpeg', .88));
+      };
+      cap.querySelector('.xe-no').onclick = () => finish(null);
+      cap.querySelector('.xe-all').onclick = () => finish({x: 0, y: 0, w: innerWidth, h: innerHeight});
+      use.onclick = () => finish(r);
+    });
+  }
 
   // 现在在哪一节哪一屏
   async function here() {
@@ -91,23 +165,49 @@
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处，会和这一处一起发：</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
-      <div class="xe-row"><label>加截图<input type="file" accept="image/*" hidden></label><span class="xe-th"></span>
+      <div class="xe-tip">点“加截图”框选这一屏要说的地方；自己截好的图可以直接拖进来、粘贴，或点“选图片”。最多 ${MAXIMG} 张</div>
+      <div class="xe-row"><button class="xe-shot">加截图</button><label>选图片<input type="file" accept="image/*" multiple hidden></label><span class="xe-th"></span>
       <button class="xe-cancel">取消</button><button class="xe-later" disabled>先记下</button>
       <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交给做课的对话'}</button></div></div>`;
     document.body.appendChild(sh);
     const ta = sh.querySelector('textarea'), send = sh.querySelector('.xe-send'), later = sh.querySelector('.xe-later');
-    let image = '';
-    const sync = () => { const has = !!(ta.value.trim() || image); later.disabled = !has; send.disabled = !has && !queue().length;
+    let images = [];
+    const box = sh.querySelector('.xe-box'), th = sh.querySelector('.xe-th');
+    const paint = () => {
+      th.innerHTML = images.map((u, k) => `<span class="xe-tw"><img class="xe-thumb" src="${u}"><button data-i="${k}" aria-label="去掉这张">×</button></span>`).join('');
+      th.querySelectorAll('button').forEach(b => b.onclick = () => { images.splice(+b.dataset.i, 1); paint(); sync(); });
+    };
+    // 选的、拖进来的、粘贴的截图都走这里：压一下再放进缩略图
+    const addFiles = async files => {
+      for (const f of [...files].filter(f => f && f.type.startsWith('image/'))) {
+        if (images.length >= MAXIMG) break;
+        images.push(await shrink(f));
+      }
+      paint(); sync();
+    };
+    const sync = () => { const has = !!(ta.value.trim() || images.length); later.disabled = !has; send.disabled = !has && !queue().length;
       send.textContent = queue().length ? `一起交（${queue().length + (has ? 1 : 0)} 处）` : '交给做课的对话'; };
     ta.oninput = sync;
     sh.querySelectorAll('.xe-q button').forEach(b => b.onclick = () => { const l = queue(); l.splice(+b.dataset.k, 1); save(KEY, l.length ? l : null); sh.remove(); refreshBtn(); open(); });
-    sh.querySelector('input').onchange = async e => {
-      if (!e.target.files[0]) return;
-      image = await shrink(e.target.files[0]);
-      sh.querySelector('.xe-th').innerHTML = `<img class="xe-thumb" src="${image}">`; sync();
+    sh.querySelector('.xe-shot').onclick = async () => {
+      if (images.length >= MAXIMG) return;
+      sh.style.display = 'none';
+      const url = await capture();
+      sh.style.display = '';
+      if (url) { images.push(url); paint(); sync(); }
     };
+    sh.querySelector('input').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+    let depth = 0;
+    sh.addEventListener('dragenter', e => { e.preventDefault(); if (++depth === 1) box.classList.add('xe-over'); });
+    sh.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; box.classList.remove('xe-over'); } });
+    sh.addEventListener('dragover', e => e.preventDefault());   // 不拦的话浏览器会直接打开这张图，试课页就没了
+    sh.addEventListener('drop', e => { e.preventDefault(); depth = 0; box.classList.remove('xe-over'); addFiles(e.dataTransfer.files); });
+    sh.addEventListener('paste', e => {
+      const fs = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile());
+      if (fs.length) { e.preventDefault(); addFiles(fs); }
+    });
     const cur = () => ({section: h.section, section_no: h.section_no, section_title: h.section_title, screen: h.screen, step: h.step, steps: h.steps, step_name: h.step_name, where: h.where,
-                        text: ta.value.trim(), images: image ? [image] : []});
+                        text: ta.value.trim(), images: [...images]});
     sh.querySelector('.xe-ask').onclick = async e => {
       const b = e.currentTarget; b.disabled = true; b.textContent = '正在问…';
       try {
@@ -130,7 +230,7 @@
     };
     send.onclick = async () => {
       send.disabled = true; later.disabled = true; send.textContent = '正在交…';
-      const items = [...queue(), ...((ta.value.trim() || image) ? [cur()] : [])];
+      const items = [...queue(), ...((ta.value.trim() || images.length) ? [cur()] : [])];
       try {
         const r = await fetch('/_x/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({course: courseUrl, items})});
