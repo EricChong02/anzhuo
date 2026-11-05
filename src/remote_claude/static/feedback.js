@@ -37,7 +37,7 @@
 .xe-box{width:min(560px,100%);background:#fff;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -6px 30px rgba(0,0,0,.15);max-height:86vh;overflow:auto}
 @media (min-width:700px){.xe-sh{align-items:center}.xe-box{border-radius:20px}}
 .xe-box b{display:block;font-size:17px}.xe-where{color:#6b6b70;font-size:15px;margin:2px 0 12px;display:flex;align-items:center;gap:10px}
-.xe-where span{flex:1;min-width:0}.xe-ask{flex:none;height:32px;border-radius:999px;padding:0 12px;border:1px solid #e4e4e0;background:#fff;color:#2c4a74;font:inherit;font-size:14px}
+.xe-where span{flex:1;min-width:0}
 .xe-box textarea{width:100%;box-sizing:border-box;min-height:96px;border:1px solid rgba(0,0,0,.12);border-radius:14px;padding:10px 12px;font-family:inherit;font-size:16px;line-height:1.5;resize:vertical;outline:none}
 .xe-box textarea:focus{border-color:#2c4a74}
 .xe-row{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap}
@@ -158,7 +158,7 @@
   async function open() {
     const h = await here(), q = queue();
     const sh = document.createElement('div'); sh.className = 'xe-sh';
-    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span><button class="xe-ask">问问这屏</button></div>
+    sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span></div>
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
@@ -203,18 +203,6 @@
     });
     const cur = () => ({section: h.section, section_no: h.section_no, section_title: h.section_title, screen: h.screen, step: h.step, steps: h.steps, step_name: h.step_name, where: h.where,
                         text: ta.value.trim(), images: [...images]});
-    sh.querySelector('.xe-ask').onclick = async e => {
-      const b = e.currentTarget; b.disabled = true; b.textContent = '正在问…';
-      try {
-        const r = await fetch('/_x/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({course: courseUrl, ask: true, items: [cur()]})});
-        const d = await r.json(); if (!d.ok) throw new Error(d.error || '');
-        sh.querySelector('.xe-box').innerHTML = `<b>问「${esc(d.name)}」了</b>
-          <div class="xe-done"><a href="/_x/#s${d.num}">去看对话</a></div>
-          <div class="xe-row"><button class="xe-send">接着试课</button></div>`;
-        sh.querySelector('.xe-send').onclick = () => sh.remove();
-      } catch (err) { b.disabled = false; b.textContent = '没问出去，再点一次'; }
-    };
     sh.onclick = e => { if (e.target === sh) sh.remove(); };
     later.onclick = () => {
       // 截图存在本机浏览器里，太大存不下就只记文字
