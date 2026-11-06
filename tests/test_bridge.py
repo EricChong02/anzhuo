@@ -748,3 +748,63 @@ def test_limit_auto_resume(tmp_path, monkeypatch):
         assert runs == ["做件事", "继续"] and b.registry.get(1).limit_until == 0
 
     asyncio.run(go())
+
+
+def test_relay(tmp_path, monkeypatch):
+    """接力：长对话先写交接说明，写完开一个同文件夹、同模型的新对话；交接说明随你第一句话交给新对话。"""
+    from remote_claude.app import RELAY
+    from remote_claude.sessions import Session
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
+    seen = []
+
+    async def fake_run(self, s, job, turn):
+        seen.append((s.num, job.text))
+        if job.text == RELAY:
+            turn.final_text = "## 目标\n做封面"
+        else:
+            s.claude_id = "new"
+            turn.final_text = "好"
+
+    async def no_usage(self, force=False):
+        pass
+
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+
+    async def go():
+        b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
+        b.registry.add(Session(num=6, name="做课封面和目录", cwd=str(tmp_path), claude_id="sid", model="claude-opus-5-5",
+                               effort="high", context_tokens=300_000))
+        assert "交接说明" in b.relay(6)
+        assert "正在写" in b.relay(6)              # 点两次只写一份
+        await asyncio.sleep(0.2)
+        old = b.registry.get(6)
+        new = b.registry.get(old.relay_to)
+        assert new and new.relay_from == 6 and new.cwd == old.cwd and new.model == old.model and new.effort == "high"
+        assert new.relay_note == "## 目标\n做封面" and new.claude_id is None
+        assert "已经接力到" in b.relay(6)
+        b.runner.submit(new, __import__("remote_claude.sessions", fromlist=["Job"]).Job(text="接着做"))
+        await asyncio.sleep(0.2)
+        return new.num
+
+    n = asyncio.run(go())
+    assert seen[0] == (6, RELAY) and len(seen) == 2
+    assert seen[1][0] == n and "## 目标\n做封面" in seen[1][1] and seen[1][1].endswith("用户这次说：\n\n接着做")
+
+
+def test_relay_hint():
+    """什么时候提示接力：上下文 20 万以上；或隔了一个多小时回来、上下文 8 万以上（缓存过期要整段重写）。"""
+    from remote_claude.sessions import Session
+    from remote_claude.web import relay_hint
+    now = 1_000_000.0
+    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=250_000, updated=now - 60)
+    assert relay_hint(s, False, False, now)["kind"] == "long"
+    assert relay_hint(s, True, False, now) is None                 # 正在做不打扰
+    assert relay_hint(s, False, True, now) == {"kind": "running"}
+    s.updated = now - 2 * 3600
+    h = relay_hint(s, False, False, now)
+    assert h["kind"] == "cold" and h["hours"] == 2.0
+    s.context_tokens = 50_000
+    assert relay_hint(s, False, False, now) is None                # 短对话重写也不贵
+    s.context_tokens, s.relay_to = 250_000, 9
+    assert relay_hint(s, False, False, now) is None                # 已经接力过

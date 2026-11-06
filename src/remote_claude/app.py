@@ -26,6 +26,16 @@ from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_se
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
+# 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
+RELAY = """这个对话太长了，要换到一个新对话接着做。请写一份交接说明，新对话只靠它接手，所以要具体：
+1. 目标：用户要做成什么、明确提过的要求和偏好；
+2. 已定下的决定和理由（含否掉的做法，免得重走）；
+3. 已经做完的：改了哪些文件、提交 / 推送 / 上线情况；
+4. 正在做的和接下来几步；
+5. 关键路径、命令、账号位置、踩过的坑；
+6. 还等用户决定的问题。
+只回复交接说明本身，用 Markdown，2000 字以内；不要调用任何工具，不要再做别的事。"""
+
 DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
@@ -135,6 +145,7 @@ class Bridge:
             log.warning("消耗记录迁移失败", exc_info=True)
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
+        self._relaying: set[int] = set()  # 正在写交接说明的对话；写完就开接力的新对话
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
         self.board_task: asyncio.Task | None = None
         self.board_lock = asyncio.Lock()
@@ -360,7 +371,37 @@ class Bridge:
             await self.detail("压缩", msg)
         return msg
 
+    def relay(self, num: int, via: str = "web") -> str:
+        """接力：让这个对话写交接说明，写完开一个新对话（同一个文件夹、模型、深度），交接说明随你第一句话交给它。"""
+        s = self.registry.get(num)
+        if not s or not (s.claude_id or s.codex_id):
+            return "这个对话还没开始，不用接力。"
+        if s.relay_to and self.registry.get(s.relay_to):
+            return f"已经接力到 #{s.relay_to} 了。"
+        if num in self._relaying:
+            return "正在写交接说明，写完自动开新对话。"
+        self._relaying.add(num)
+        ahead = self.runner.submit(s, Job(text=RELAY, via=via))
+        return "正在写交接说明" + (f"，等手上 {ahead} 件做完再写" if ahead else "") + "，写完自动开新对话。"
+
+    def _relay_open(self, p: Session, note: str) -> Session:
+        now = time.time()
+        s = Session(num=self.registry.reserve_num(), name=p.name[:8] + "·接力", cwd=p.cwd, add_dirs=list(p.add_dirs),
+                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, category=p.category,
+                    renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
+                    unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
+                           f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
+        self.registry.add(s)
+        p.relay_to = s.num
+        self.registry.save()
+        return s
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if s.num in self._relaying:
+            self._relaying.discard(s.num)
+            note = (turn.final_text or "").strip()
+            if not (turn.is_error or turn.interrupted) and note:
+                self._relay_open(s, note)
         if turn.schedule_id:
             self.schedules.finish(turn.schedule_id, turn.schedule_run_id, turn.error or ("任务未完成" if turn.is_error or turn.interrupted else ""))
         if turn.request == "压缩上下文" and not turn.is_error:

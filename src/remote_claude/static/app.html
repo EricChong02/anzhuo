@@ -368,6 +368,13 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .quick{align-items:center} .quick button{color:var(--acc)}
 @media (hover:hover){.quick button:hover{border-color:var(--acc)}}
 .hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
+/* 接力到新对话 */
+.relay{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accsoft);color:var(--ink);border-radius:var(--r1);padding:8px 8px 8px 12px;margin:0 0 6px;font-size:var(--t2);line-height:1.55}
+.relay .rt{flex:1 1 220px;min-width:0}
+.relay .rb{display:flex;gap:6px;flex:none;margin-left:auto}
+.relay button{height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
+.relay button.on{background:var(--acc);color:var(--on-acc)}
+.relay.running{background:none;color:var(--mute);padding:2px 8px 6px}
 /* 回到这里 */
 .rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
 .rwfile{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:var(--t3)} .rwfile input{margin-top:5px;width:18px;height:18px;accent-color:var(--acc)}
@@ -1193,6 +1200,33 @@ function renderQuota() {
   renderQuotaDetails();
 }
 
+const wan = n => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + ' 万' : String(n);
+let relayWait = 0;   // 点了接力、还在这个对话里等：新对话开好就自动过去
+async function startRelay(num) {
+  relayWait = num;
+  const r = await api('relay/' + num, {}).catch(() => null);
+  if (!r) { relayWait = 0; toast('没交出去，再点一次'); }
+  else if (r.message) toast(r.message);
+  lastKey = ''; loadThread(); loadSessions();
+}
+// 对话长了、或隔了一个多小时回来：在输入框上方提示接力到新对话（点“不用”就记住，直到对话再长一截或又隔了一阵）
+function renderRelay(d) {
+  const el = $('#relay'); if (!el) return;
+  const r = d.usage && d.usage.relay;
+  if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => openSession(d.relay_to)); }
+  const off = !r || (r.key && localStorage.getItem('relayOff:' + d.num) === r.key);
+  el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
+  if (off) return;
+  if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在写交接说明，写完自动开新对话'; return; }
+  const t = wan(r.tokens);
+  el.innerHTML = `<span class="rt">${r.kind === 'cold'
+    ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省。`
+    : `这个对话已约 ${t} token，每说一句都要重读一遍。告一段落或换件事时，接力到新对话更省也更准。`}</span>
+    <span class="rb"><button class="on" id="relayGo">接力到新对话</button><button id="relayNo">不用</button></span>`;
+  $('#relayGo').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  $('#relayNo').onclick = () => { localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true; };
+}
+
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
@@ -1201,11 +1235,15 @@ function renderUsage(u) {
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
     + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
+      ${u.tokens ? `<div class="qh">约 ${wan(u.tokens)} token，每说一句都要重读一遍</div>` : ''}
       <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
-        : u.busy ? '做完才能压缩' : '压缩上下文'}</button></div>` : '');
+        : u.busy ? '做完才能压缩' : '压缩上下文'}</button>
+      <button class="pill" id="relayBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.busy || !u.tokens || (u.relay && u.relay.kind === 'running') ? 'disabled' : ''}>${
+        u.relay && u.relay.kind === 'running' ? '<i class="spin"></i>正在写交接说明' : '接力到新对话'}</button></div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
+  if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); startRelay(sel); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
     const r = await api('compact/' + sel, {}).catch(() => null); b.textContent = r ? '已交给它，进度看对话里' : '没交出去，再点一次';
@@ -1504,7 +1542,7 @@ async function loadSessions() {
 }
 
 function composerHTML(ph) {
-  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
+  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="relay" id="relay" hidden></div><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
     <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
     <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
@@ -1895,6 +1933,7 @@ function renderThread(d) {
       return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
+    if (it.who === 'note' && it.relay) return `<div class="note rw">${esc(it.text)}<button class="relaygo" data-n="${it.relay}">过去</button></div>`;
     if (it.who === 'note') return it.rewind
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
@@ -1980,6 +2019,7 @@ function renderThread(d) {
       if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start(d, it); else forkAt(d, it.end, '');
     }
   });
+  document.querySelectorAll('.relaygo').forEach(b => b.onclick = () => openSession(+b.dataset.n));
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
@@ -2007,6 +2047,7 @@ function renderThread(d) {
     b.oncontextmenu = e => { e.preventDefault(); fill(); };
     b.onclick = () => { if (longed) { longed = false; return; } q.hidden = true; quickSend(d.num, text, b.textContent); };
   });
+  renderRelay(d);
   const hint = $('#hint'), fh = d.five_hour, risky = fh && fh.pct >= 90 && d.usage && (d.usage.mkey || 'opus') === 'opus' && !d.live && !d.limit;
   if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%${fh.reset ? ` · ${fh.reset} 重置` : ''}` : ''; }
   const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);

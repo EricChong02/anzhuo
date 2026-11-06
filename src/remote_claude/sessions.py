@@ -38,6 +38,7 @@ APPEND = """回复一律用简体中文，思考和过程中的说明也用简�
 用户已授权：活做完并自查通过后，提交、推送、上线这类收尾直接做，不要停下来问“要不要提交 / 推送 / 上线”，在报告里写明做了就行；危险命令有审核员把关，被拦下就换安全的做法，或在报告里说明。只有方案、内容上的取舍才用“要你定”问用户。
 动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__xiaoe__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
 这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
+大范围翻代码、查资料、读长日志这类只要结论的活，交给子代理（Agent 工具）去做，只把结论带回来，免得这个对话被大段原文撑长。
 小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
 
@@ -68,6 +69,7 @@ class Session:
     model: str | None = None  # None = 用 ~/.claude/settings.json 里的默认
     effort: str | None = None
     context_pct: float | None = None
+    context_tokens: int | None = None  # 上下文多少 token（每轮都要把这些重读一遍，长了就提示接力）
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
     unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
     seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
@@ -99,6 +101,9 @@ class Session:
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
     claude_usage: dict = field(default_factory=dict)  # Claude 报的这个会话累计金额和各模型 token（接着上次的会话也累计），每轮记差值
+    relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
+    relay_to: int = 0  # 接力：已经换到哪个新对话
+    relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
 
     @property
     def label(self) -> str:
@@ -810,6 +815,7 @@ class Runner:
             try:
                 usage = await client.get_context_usage()
                 turn.context_pct = s.context_pct = float(usage["percentage"])
+                s.context_tokens = int(usage.get("totalTokens") or 0) or None
             except Exception:  # noqa: BLE001 - 拿不到上下文用量不影响报告
                 log.debug("取上下文用量失败", exc_info=True)
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
@@ -961,6 +967,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             win, last = u.get("modelContextWindow"), (u.get("last") or {}).get("totalTokens")
             if win and last:
                 turn.context_pct = s.context_pct = min(100.0, 100.0 * last / win)
+                s.context_tokens = int(last)
         elif method == "account/rateLimits/updated":
             from .codex import limits_from
             if got := limits_from(prm.get("rateLimits") or {}):
@@ -1002,7 +1009,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             s.forking = False
             s.codex_pending_hidden = []
             s.codex_file_undo = ""
-            s.context_pct = None
+            s.context_pct = s.context_tokens = None
             self.registry.save()
         else:
             s.codex_id = await conn.open_thread(s.codex_id, CODEX_FIRST.strip())
@@ -1014,7 +1021,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             conn.turn_status = conn.turn_status or "completed"
             turn.final_text = "压缩好了。"
             if before is not None:
-                s.context_pct = turn.context_pct = None   # 压完的用量等下一轮再报
+                s.context_pct = turn.context_pct = s.context_tokens = None   # 压完的用量等下一轮再报
         else:
             turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort)
             await conn.done.wait()

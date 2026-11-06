@@ -66,7 +66,7 @@ USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/a
                f"{PREFIX}/api/uimg/{{num}}/{{uuid}}/{{k}}", f"{PREFIX}/api/thread/{{num}}", f"{PREFIX}/api/manage/{{num}}",
                f"{PREFIX}/api/speech/{{num}}", f"{PREFIX}/api/speech/release", f"{PREFIX}/api/audio/{{key}}",
                f"{PREFIX}/audio/{{key}}.mp3", f"{PREFIX}/api/search", f"{PREFIX}/api/send", f"{PREFIX}/api/settings/{{num}}",
-               f"{PREFIX}/api/compact/{{num}}", f"{PREFIX}/api/confirm/{{num}}", f"{PREFIX}/api/stop/{{num}}",
+               f"{PREFIX}/api/compact/{{num}}", f"{PREFIX}/api/relay/{{num}}", f"{PREFIX}/api/confirm/{{num}}", f"{PREFIX}/api/stop/{{num}}",
                f"{PREFIX}/api/rewind/{{num}}", f"{PREFIX}/api/fork/{{num}}", f"{PREFIX}/api/unqueue/{{num}}",
                f"{PREFIX}/api/presence", f"{PREFIX}/t/{{tid}}", f"{PREFIX}/t/{{tid}}/img/{{i}}", f"{PREFIX}/t/{{tid}}/file/{{i}}",
                "/dl/{tid}/{i}", "/dl/{tid}/{i}/pages", "/dl/{tid}/{i}/p/{name}"}
@@ -120,6 +120,26 @@ LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
 PROXY_SOURCE = {"x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
+
+
+RELAY_LONG = 200_000   # 上下文到这么长就提示接力：每说一句都要把它重读一遍
+RELAY_COLD = 80_000    # 隔了一个多小时再回来、上下文又有这么长：缓存过期，接着说要整段重写一遍
+CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
+
+
+def relay_hint(s, busy: bool, relaying: bool, now: float | None = None) -> dict | None:
+    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。"""
+    if relaying:
+        return {"kind": "running"}
+    tk = s.context_tokens or 0
+    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < RELAY_COLD:
+        return None
+    idle = (now or time.time()) - s.updated
+    if s.engine == "claude" and idle > CACHE_TTL:
+        return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
+    if tk >= RELAY_LONG:
+        return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
+    return None
 
 
 def preview_allowed(method: str, path: str) -> bool:
@@ -1262,6 +1282,12 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)
         items = [dict(it) for it in items]
+        if s.relay_from and s.relay_note and not (s.claude_id or s.codex_id):   # 接力来的、还没说第一句：给你看交接说明
+            p = b.registry.get(s.relay_from)
+            items = [{"who": "note", "text": f"接力自 #{s.relay_from}" + (f"「{p.name}」" if p else "") + "，下面的交接说明会随你第一句话一起交给它"},
+                     {"who": "claude", "text": s.relay_note}] + items
+        if s.relay_to:
+            items.append({"who": "note", "relay": s.relay_to, "text": f"已接力到 #{s.relay_to}，在新对话里接着做更省额度"})
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
         # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
@@ -1319,6 +1345,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                  "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
+                 "tokens": s.context_tokens, "relay": relay_hint(s, bool(turn) or b.runner.busy(num), num in getattr(b, "_relaying", ())),
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (t[:80] or "（图片）") for j in b.runner.queued(num) for t in (j.parts or [j.text])]
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
@@ -1327,7 +1354,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
-                                  "limit": limit, "engine": s.engine, "feedback": s.feedback or None,
+                                  "limit": limit, "engine": s.engine, "feedback": s.feedback or None, "relay_to": s.relay_to or None,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:
@@ -2017,6 +2044,12 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         msg = await self.bridge.compact(int(request.match_info["num"]), via="web")
         return web.json_response({"ok": True, "message": msg})
 
+    async def _api_relay(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        msg = self.bridge.relay(int(request.match_info["num"]), via="web")
+        return web.json_response({"ok": True, "message": msg})
+
     async def _api_stop(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
@@ -2163,6 +2196,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/schedules", self._api_schedules)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
+        app.router.add_post(f"{PREFIX}/api/relay/{{num:\\d+}}", self._api_relay)
         app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
