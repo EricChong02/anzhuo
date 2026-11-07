@@ -1965,7 +1965,8 @@ function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
-  const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
+  const relayTail = x => x.startsWith('（这是接力的新对话') && x.includes('用户这次说：\n\n') ? x.split('用户这次说：\n\n').pop() : x;   // 接力对话第一句：记录里带着交接说明
+  const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40)) || relayTail(x).startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
   lastSaid[d.num] = sayCount;
   lastYou[d.num] = saidList.filter(Boolean).slice(-1)[0] || '';
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });

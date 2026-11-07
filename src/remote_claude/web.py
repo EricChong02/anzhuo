@@ -233,6 +233,17 @@ ul{{padding-left:20px;margin:4px 0}} li::marker{{color:var(--faint)}}
 <main>{body}</main></body></html>"""
 
 
+_RELAY_MARK = "用户这次说：\n\n"
+
+
+def _said_has(recorded: str, sent: str) -> bool:
+    """记录里的这句是不是你发的那句。接力对话的第一句，记录里是“交接说明 + 用户这次说：+ 原话”。"""
+    head = sent.strip()[:40]
+    if recorded.startswith(head):
+        return True
+    return recorded.startswith("（这是接力的新对话") and _RELAY_MARK in recorded and recorded.split(_RELAY_MARK, 1)[1].startswith(head)
+
+
 class Web:
     def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = "",
                  user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
@@ -1371,7 +1382,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         # 只认发出之后才写进记录的那条：同一句话（比如“批准”按钮）再发一次，不会被旧的那条误认成已处理
         said = [(re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()), it.get("ts") or 0.0) for it in items if it["who"] == "you"]
         out = b.outgoing.get(num, [])
-        out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) and (not ts or ts >= o["t"] - 5) for x, ts in said)]
+        out[:] = [o for o in out if not any(_said_has(x, o["text"]) and (not ts or ts >= o["t"] - 5) for x, ts in said)]
         if s.rewind_at:   # 点过“回到这里”：那条之后的先收起来，下一句从那里接着；还没说下一句前能撤销
             cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
             if cut is not None:
