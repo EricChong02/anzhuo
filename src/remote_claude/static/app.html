@@ -1931,7 +1931,7 @@ function renderThread(d) {
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
-  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
+  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
@@ -1939,10 +1939,11 @@ function renderThread(d) {
       const req = d.live && (d.live.request || '').replace(/…$/, '');
       const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : (it.age > 30 ? '没开工' : '已送到');
       const before = prevEnd(idx);
-      const btns = ib('copy', '复制') + (isQ || (!it.pending && before) ? ib('back', '回退') : '') + (!it.pending && before !== null ? ib('fork', '分叉') : '');
-      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
+      const btns = ib('copy', '复制') + (it.historical ? ib('bring', '带给当前会话') : '') + (!it.historical && (isQ || (!it.pending && before)) ? ib('back', '回退') : '') + (!it.historical && !it.pending && before !== null ? ib('fork', '分叉') : '');
+      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
+    if (it.who === 'note' && it.handoff !== undefined) return `<details class="note"><summary>${esc(it.text)}</summary><div class="md">${md(it.handoff || '无交接说明')}</div></details>`;
     if (it.who === 'note' && it.relay) return `<div class="note rw">${esc(it.text)}<button class="relaygo" data-n="${it.relay}">过去</button></div>`;
     if (it.who === 'note') return it.rewind
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
@@ -1959,7 +1960,7 @@ function renderThread(d) {
     // 回复底部只保留模型与交付信息；耗时放在工作过程右侧
     const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
-    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
+    const btns = `<span class="ibs">${ib('copy', '复制')}${it.historical ? ib('bring', '带给当前会话') : it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
@@ -2019,6 +2020,11 @@ function renderThread(d) {
   document.querySelectorAll('.ib[data-act]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     const y = b.closest('.yw'), c = b.closest('.cl'), act = b.dataset.act;
+    if (act === 'bring') {
+      const it = d.items[+(y ? y.dataset.y : c.dataset.i)], ta = $('#ta');
+      ta.value += (ta.value ? '\n\n' : '') + '请参考之前这段聊天：\n' + it.text;
+      ta.oninput(); ta.focus(); toast('已放入输入框，发送后才带入上下文'); return;
+    }
     if (y) {
       const i = +y.dataset.y, text = d.items[i].text.replace(/\n\n（附件已存到[\s\S]*$/, '');
       if (act === 'copy') copyBtn(b, text);
@@ -2026,7 +2032,7 @@ function renderThread(d) {
       else forkAt(d, prevEnd(i) || '', text);
     } else if (c) {
       const it = d.items[+c.dataset.i];
-      if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start(d, it); else forkAt(d, it.end, '');
+      if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start({...d, num: it.source_num || d.num}, it); else forkAt(d, it.end, '');
     }
   });
   document.querySelectorAll('.relaygo').forEach(b => b.onclick = () => openSession(+b.dataset.n));
@@ -2141,6 +2147,7 @@ function rewindSheet(d, to, undoLast) {
 }
 // 复制、回退、分叉：和 Claude 一样是一排小图标，悬停出名字
 const IB = {
+  bring: '<svg viewBox="0 0 24 24"><path d="M4 5h12v9H9l-5 4V5zM14 19h6M17 16v6"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
   fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7M13.5 19H18v-4.5"/></svg>',
@@ -2354,6 +2361,7 @@ async function loadThread() {
   try {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
+    if (d.redirect) { await loadSessions(); if (sel === d.num) openSession(d.redirect); return; }
     cacheThread(d);
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);

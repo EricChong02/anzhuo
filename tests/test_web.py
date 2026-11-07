@@ -962,3 +962,47 @@ def test_resume_claude_code_history(tmp_path, monkeypatch):
         finally:
             await c.close()
     asyncio.run(go())
+
+
+def test_relay_continuous_history_and_old_entry(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        sessions = [reg.add(Session(num=reg.reserve_num(), name=name, cwd=str(tmp_path),
+                                   engine="codex", codex_id=f"native-{i}"))
+                    for i, name in enumerate(["完整标题", "旧的·接力", "旧的·接力"], 1)]
+        for parent, child in zip(sessions, sessions[1:]):
+            parent.relay_to, child.relay_from = child.num, parent.num
+            child.relay_note = f"交接{parent.num}"
+        runner = NS(turns={}, last={}, limits={}, default_effort="medium",
+                    compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}))
+        for session in sessions:
+            w.save_turn(session.label, Turn(started=session.num * 100, ended=session.num * 100 + 1,
+                        request=f"问题{session.num}", final_text=f"回复{session.num}",
+                        codex_turn_id=f"turn-{session.num}"), str(tmp_path), "测试")
+        old = json.loads((await w._api_thread(NS(match_info={"num": "1"}))).text)
+        assert old == {"num": 1, "redirect": 3}
+        listing = json.loads((await w._api_sessions({})).text)
+        assert [(r["num"], r["name"]) for r in listing["sessions"]] == [(3, "完整标题")]
+        before = [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
+        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}))).text)
+        assert result["name"] == "完整标题"
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["问题1", "问题2", "问题3"]
+        assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["交接1", "交接2"]
+        assert [i["source_num"] for i in result["items"] if i.get("historical") and i["who"] == "claude"] == [1, 2]
+        assert before == [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
+        assert not any(i.get("historical") for i in (await w._saved_items(sessions[0])))
+        # 跨账号关系不允许串入历史，也不能跳到别人的会话。
+        sessions[1].owner = "user"
+        assert w._relay_latest(sessions[0]).num == 1
+        assert [s.num for s in w._relay_chain(sessions[2])] == [3]
+        sessions[1].owner = "admin"
+        sessions[0].relay_from = 3
+        sessions[2].relay_to = 1
+        assert len(w._relay_chain(sessions[2])) == 3
+        assert w._relay_latest(sessions[0]) is not None
+    asyncio.run(go())

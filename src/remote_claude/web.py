@@ -554,8 +554,7 @@ class Web:
                 raise web.HTTPNotFound()
             text = (self._turn(tid) or {}).get("final_text", "")
         if not text and data.get("end"):
-            response = await self._api_thread(request)
-            items = json.loads(response.body)["items"]
+            items = await self._saved_items(session)
             text = next((it["text"] for it in items if it.get("who") == "claude" and it.get("end") == data["end"]), "")
         if not text:
             return web.json_response({"ok": False, "error": "这条回复还未保存，请稍后再点朗读"})
@@ -1024,6 +1023,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         owner = request.get("owner", "admin")
         fenced = owner != "admin"
         for s in [x for x in b.registry.sessions.values() if not x.hidden and x.owner == owner]:
+            if self._relay_latest(s).num != s.num:
+                continue
             turn = b.runner.turns.get(s.num)
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
@@ -1045,7 +1046,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             else:
                 status, detail = "idle", s.last_title or "空闲"
             unread = status in ("idle", "awaiting", "error", "paused") and bool(s.claude_id or s.codex_id) and s.updated > s.seen + 1
-            rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
+            rows.append({"num": s.num, "name": self._relay_chain(s)[0].name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "pinned": s.pinned, "category": category(s, b.cfg.folders), "manual_cat": s.category in CATS,
@@ -1091,7 +1092,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         elif act == "rename":
             if not val:
                 return web.json_response({"ok": False, "error": "名字不能空着"})
-            s.name, s.renamed = val[:40], True
+            for member in self._relay_chain(s):
+                member.name, member.renamed = val[:40], True
         elif act == "category":
             s.category = val if val in CATS else ""
         elif act == "delete":
@@ -1256,12 +1258,29 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     break
         return web.json_response({"q": q, **{k: v[:30] for k, v in out.items()}})
 
-    async def _api_thread(self, request: web.Request) -> web.Response:
-        b = self.bridge
-        num = int(request.match_info["num"])
-        s = b.registry.get(num)
-        if not s:
-            raise web.HTTPNotFound()
+    def _relay_chain(self, session):
+        chain, seen = [], set()
+        while session and session.num not in seen:
+            chain.append(session)
+            seen.add(session.num)
+            parent = self.bridge.registry.get(session.relay_from) if session.relay_from else None
+            if not parent or parent.owner != session.owner:
+                break
+            session = parent
+        return list(reversed(chain))
+
+    def _relay_latest(self, session):
+        seen = set()
+        while session and session.relay_to and session.num not in seen:
+            seen.add(session.num)
+            child = self.bridge.registry.get(session.relay_to)
+            if not child or child.owner != session.owner or child.num in seen:
+                break
+            session = child
+        return session
+
+    async def _saved_items(self, s):
+        b, num = self.bridge, s.num
         # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
         lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
         key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
@@ -1281,13 +1300,19 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)
-        items = [dict(it) for it in items]
-        if s.relay_from and s.relay_note and not (s.claude_id or s.codex_id):   # 接力来的、还没说第一句：给你看交接说明
-            p = b.registry.get(s.relay_from)
-            items = [{"who": "note", "text": f"接力自 #{s.relay_from}" + (f"「{p.name}」" if p else "") + "，下面的交接说明会随你第一句话一起交给它"},
-                     {"who": "claude", "text": s.relay_note}] + items
-        if s.relay_to:
-            items.append({"who": "note", "relay": s.relay_to, "text": f"已接力到 #{s.relay_to}，在新对话里接着做更省额度"})
+        return [dict(it) for it in items]
+
+    async def _api_thread(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        num = int(request.match_info["num"])
+        s = b.registry.get(num)
+        if not s:
+            raise web.HTTPNotFound()
+        latest = self._relay_latest(s)
+        if latest.num != num:
+            return web.json_response({"num": num, "redirect": latest.num})
+        chain = self._relay_chain(s)
+        items = await self._saved_items(s)
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
         # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
@@ -1300,6 +1325,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if cut is not None:
                 items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
         items += [{"who": "you", "text": o["text"], "pending": True, "age": int(time.time() - o["t"])} for o in out]
+        history = []
+        for index, previous in enumerate(chain[:-1]):
+            history += [{**it, "source_num": previous.num, "historical": True}
+                        for it in await self._saved_items(previous)]
+            following = chain[index + 1]
+            history.append({"who": "note", "text": "已接力，后续使用新的上下文", "handoff": following.relay_note})
+        items = history + items
         for it in items:
             if it["who"] == "claude":
                 it["text"] = self._zh_or_later(it["text"])
@@ -1327,7 +1359,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
                                 "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
         # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
-        last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not NOISE.match(it["text"] or "")), "")
+        last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not it.get("historical") and not NOISE.match(it["text"] or "")), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
         recs = self._records(num)
@@ -1352,7 +1384,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
             if s.limit_until > time.time() and not turn else None
         five = b.runner.limits.get("five_hour")
-        return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
+        return web.json_response({"num": num, "name": chain[0].name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
                                   "limit": limit, "engine": s.engine, "feedback": s.feedback or None, "relay_to": s.relay_to or None,
@@ -1514,6 +1546,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b.record("你（网页）", text, images=len(images), num=data.get("num"))
         num = data.get("num")
         if num:
+            if hasattr(b, "registry") and (session := b.registry.get(int(num))):
+                num = self._relay_latest(session).num
             busy = int(num) in b.runner.turns
             await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
             return web.json_response({"ok": True, "injected": busy})
@@ -1976,7 +2010,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s, t = b.registry.get(num), b.runner.turns.get(num)
         recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s else 0
         cc_mtime = self._cc_mtime(s)
-        return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
+        return json.dumps([s.updated if s else 0, s.relay_to if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
                            s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime])
 

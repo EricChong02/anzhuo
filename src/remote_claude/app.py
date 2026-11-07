@@ -386,8 +386,8 @@ class Bridge:
 
     def _relay_open(self, p: Session, note: str) -> Session:
         now = time.time()
-        s = Session(num=self.registry.reserve_num(), name=p.name[:8] + "·接力", cwd=p.cwd, add_dirs=list(p.add_dirs),
-                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, category=p.category,
+        s = Session(num=self.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
+                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, category=p.category, pinned=p.pinned,
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
                            f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
