@@ -957,7 +957,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
-                         "pinned": s.pinned, "category": "",
+                         "pinned": s.pinned, "category": "", "role": s.role,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}

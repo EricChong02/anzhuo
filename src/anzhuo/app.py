@@ -14,7 +14,7 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, folders, report, translate, usage
+from . import cards, folders, report, superagent, translate, usage
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, write_web_hash, web_accounts
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
@@ -151,6 +151,7 @@ class Bridge:
         _sch.set_timezone(cfg.timezone)
         self.runner.review_policy = cfg.review_policy
         self.runner.on_usage = self._usage
+        self.runner.role = lambda s: superagent.role(self, s)
         self.spend = LocalSpend(data_dir / "localspend.json")
         usage.migrate(data_dir / "usage.jsonl")
         self._relaying: set[int] = set()
@@ -175,6 +176,8 @@ class Bridge:
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
                 s.status = "error"
+        if cfg.super_agent:
+            superagent.ensure(self)
         self.registry.save()
 
     def create_schedule(self, data: dict) -> dict:
@@ -437,6 +440,8 @@ class Bridge:
             s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
             asyncio.create_task(self._auto_resume(s.num, until))
         self.registry.save()
+        if await superagent.on_turn_done(self, s, turn):
+            return   # 总管派的活：先回报给总管，由总管告诉你
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
@@ -859,13 +864,14 @@ class Bridge:
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None, model: str | None = None, effort: str | None = None,
-                     owner: str = "admin", root: str = "") -> None:
+                     owner: str = "admin", root: str = "", boss: int = 0) -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
             kind = "dev" if _looks_like_project(cwd) else "simple"
         auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root)
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
+                    boss=boss)
         said_model, said_effort = inline_overrides(text)
         if root and (model or said_model) == "gpt":
             model = said_model = None

@@ -1289,7 +1289,9 @@ function renderSide() {
     ['新完成', s => s.unread],
     ['有建议', s => s.suggest],
   ].map(([name, match]) => ({name, match, items: []}));
+  const routers = [];   // 总管（super_agent）：始终在最上面，不进分区和分组
   for (const s of sessions) {
+    if (s.role === 'router') { routers.push(s); continue; }
     const priority = priorityGroups.find(g => g.match(s));
     if (priority) { priority.items.push(s); continue; }
     const name = s.task_group || '未分组';
@@ -1302,7 +1304,8 @@ function renderSide() {
     g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
     return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
   }).join('');
-  $('#list').innerHTML = priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
+  const routerHtml = routers.length ? `<div class="label">总管</div>${routers.map(row).join('')}` : '';
+  $('#list').innerHTML = routerHtml + priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
     const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
     const running = xs.filter(s => s.status === 'running').length;
     const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
@@ -1310,7 +1313,7 @@ function renderSide() {
     const open = prefs[name] ?? xs.some(s => s.num === sel);
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
-  }).join('')) : (!priorityHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
+  }).join('')) : (!priorityHtml && !routerHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}

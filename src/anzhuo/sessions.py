@@ -107,6 +107,8 @@ class Session:
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
+    role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
+    boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
 
     @property
     def label(self) -> str:
@@ -214,6 +216,7 @@ class Runner:
         self.auto_review = False
         self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage = None
+        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed"} 或 None
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
     def busy(self, num: int) -> bool:
@@ -681,7 +684,8 @@ class Runner:
                     result = {"state": "failed", "images": [], "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]))
+        extra = (self.role(session) or {}).get("tools", []) if self.role and session else []
+        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]) + extra)
 
     async def _prompt(self, job: Job):
         content: list[dict] = []
@@ -707,6 +711,7 @@ class Runner:
             s.cwd, s.add_dirs = str(Path(s.root).expanduser()), []
             Path(s.cwd).mkdir(parents=True, exist_ok=True)
         hooks = [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]
+        role = (self.role(s) if self.role else None) or {}
         if fenced:
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self._fence(s)], timeout=60))
         options = ClaudeAgentOptions(
@@ -720,7 +725,8 @@ class Runner:
             enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
             setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
-            system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions)},
+            system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions) + role.get("append", "")},
+            disallowed_tools=list(role.get("disallowed", [])),
             mcp_servers={"anzhuo": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),

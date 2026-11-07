@@ -94,7 +94,8 @@ def build() -> Bridge:
     (TMP / "my-app").mkdir()
     (TMP / "notes").mkdir()
     cfg = Config(web_base=f"http://127.0.0.1:{PORT}", web_port=PORT, web_user="demo", scratch_root=str(TMP / "scratch"),
-                 folders={"my-app": str(TMP / "my-app"), "notes": str(TMP / "notes")}, translate_english=False)
+                 folders={"my-app": str(TMP / "my-app"), "notes": str(TMP / "notes")}, translate_english=False,
+                 super_agent=os.environ.get("ANZHUO_DEMO_SUPER") == "1")   # ANZHUO_DEMO_SUPER=1：带上“总管”对话
     Runner._run = lambda self, s, job, turn: Fake().run(s, job, turn)
     Runner.refresh_usage = no_usage
 
@@ -132,6 +133,9 @@ def build() -> Bridge:
                    seen=NOW, worked=True, context_pct=27)
     reg.add(live)
     reg.next_num = max(reg.sessions) + 1   # 上面是手工编号，新开的对话从后面接着排
+    if cfg.super_agent:   # 总管排在演示对话后面（上面手工编号会盖掉一开始建的那个）
+        from anzhuo import superagent
+        superagent.ensure(b)
     SCRIPTS["demo-5"] = [U("把 /api 下所有接口整理成文档，放到 docs/api.md", 1)]
     turn = Turn(started=NOW - 260, request="把 /api 下所有接口整理成文档", model="claude-sonnet-5-5", effort="medium",
                 steps=["搜：@router", "看 users.py", "看 orders.py", "写 api.md"], last_at=NOW - 8,
