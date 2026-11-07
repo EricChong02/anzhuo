@@ -812,9 +812,12 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
   --ink:#34434f;--mute:#67757f;--faint:#909ca6;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
 @media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;
   --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
-.dock{background:linear-gradient(to bottom,transparent,var(--dock) 26px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+/* 底板的磨砂和上沿淡出放在 ::before 上：mask 会把子元素一起裁掉，放在 .dock 本身会切掉往上弹的模型菜单 */
+.dock{isolation:isolate}
+.dock::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
   -webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px)}
-.newv .dock{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
+.newv .dock::before{content:none}
 .composer:focus-within{background:rgba(255,255,255,.80)}
 @media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
 /* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边 */
