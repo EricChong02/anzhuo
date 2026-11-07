@@ -1357,7 +1357,7 @@ function renderSide() {
   }
   const groups = [...buckets].sort((a, b) => Math.max(...b[1].map(s => s.updated)) - Math.max(...a[1].map(s => s.updated)));
   const rank = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
-  $('#list').innerHTML = `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span>${me.role === 'admin' ? `<button class="pill" id="organizeTasks" ${taskGrouping ? 'disabled' : ''}>${taskGrouping ? '整理中' : '重新整理'}</button>` : ''}</div>` + (groups.map(([name, xs]) => {
+  $('#list').innerHTML = `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
     const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
     const running = xs.filter(s => s.status === 'running').length;
     const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
@@ -1366,7 +1366,6 @@ function renderSide() {
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
   }).join('') || `<div class="note" style="padding:10px">还没有对话</div>`);
-  if ($('#organizeTasks')) $('#organizeTasks').onclick = () => organizeTasks(true);
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
