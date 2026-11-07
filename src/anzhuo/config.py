@@ -26,6 +26,7 @@ class Config:
     web_base: str = ""  # 网页的访问地址（http://127.0.0.1:8765，或你放在反向代理后面的外网地址）；空 = 不开网页
     web_port: int = 8765  # 网页只听本机这个端口
     web_user: str = ""  # 网页登录账号；密码只以指纹存钥匙串，非 macOS 存 web_hash.json（anzhuo passwd）
+    web_prefix: str = ""  # 子路径挂载：被别的面板反代透传（不剥前缀）时整站挂在它下面，如 "/yuanchuang"；空 = 根路径
     watch_host: str = ""  # 可选：外网服务器的 ssh 别名，那边每分钟查远窗在不在线，掉线发手机通知（scripts/server_watch.py）
     dingtalk_quiet: bool = True  # 钉钉只发结果（做完/等你定/出错、回答）；开工、收到、插话、工作台这些过程只在网页里看
     # ---- 文件夹 ----
@@ -60,11 +61,17 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     port = int(raw.get("web_port", 8765))
     # 网页默认开在本机：地址不写就用 http://127.0.0.1:端口；写 web = false 才关（那就必须用钉钉）
     web_base = str(raw.get("web_base", "")).rstrip("/") or (f"http://127.0.0.1:{port}" if raw.get("web", True) else "")
+    # 子路径挂载：写成 "yuanchuang" 也当 "/yuanchuang"，结尾的 / 去掉
+    web_prefix = str(raw.get("web_prefix", "")).strip()
+    if web_prefix and not web_prefix.startswith("/"):
+        web_prefix = "/" + web_prefix
+    web_prefix = web_prefix.rstrip("/")
     return Config(
         client_id=str(raw.get("client_id", "")),
         allowed_user_ids=[str(x) for x in raw.get("allowed_user_ids", [])],
         web_base=web_base,
         web_port=port,
+        web_prefix=web_prefix,
         web_user=str(raw.get("web_user", "")),
         watch_host=str(raw.get("watch_host", "")),
         dingtalk_quiet=bool(raw.get("dingtalk_quiet", True)),
