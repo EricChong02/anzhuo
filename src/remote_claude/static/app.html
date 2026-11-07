@@ -1013,7 +1013,8 @@ function watchStatus() {
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let me = {name: '', role: 'admin', root: ''};
-let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {};
+let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
+const coarsePhone = () => matchMedia('(max-width:600px) and (pointer:coarse)').matches;
 const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
 
 // Mac 连不上（睡着、断网、小E 在更新）时阿里云回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
@@ -1550,7 +1551,7 @@ async function loadSessions() {
 
 function composerHTML(ph) {
   return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="relay" id="relay" hidden></div><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
-    <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
+    <textarea id="ta" rows="1" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}"></textarea>
     <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
@@ -1912,6 +1913,7 @@ function renderThread(d) {
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
   const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
   lastSaid[d.num] = sayCount;
+  lastYou[d.num] = saidList.filter(Boolean).slice(-1)[0] || '';
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
   (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
   const localImgs = sentImgs;
@@ -2392,22 +2394,31 @@ function saveComposerText(key, text) {
     localStorage.setItem('composerDrafts', JSON.stringify(saved));
   } catch (_) {}
 }
+// 敲字时草稿停手 0.3 秒才写盘，切走、关页、发送时立即写
+let draftTimer = 0, draftWait = null;
+function saveComposerSoon(key, text) { draftWait = [key, text]; clearTimeout(draftTimer); draftTimer = setTimeout(flushComposerText, 300); }
+function flushComposerText() { clearTimeout(draftTimer); if (draftWait) { const [k, t] = draftWait; draftWait = null; saveComposerText(k, t); } }
+addEventListener('pagehide', flushComposerText);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushComposerText(); });
 function refreshComposer(key) { if (composerView?.key === key) composerView.paint(); }
 
 function wireComposer(sendFn, onSent, onOpening) {
   const ta = $('#ta'), btn = $('#send'), thumbs = $('#thumbs'), warning = $('#warn');
   const key = String(sel ?? 'new'), state = composerDraft(key), num0 = sel;
   const active = () => ta.isConnected && $('#ta') === ta && String(sel ?? 'new') === key && $('#app').classList.contains('in');
+  let fitting = false, thumbSig = '';
   const paint = () => {
     if (!active()) return;
     if (ta.value !== state.text) ta.value = state.text;
-    const vis = window.visualViewport ? visualViewport.height : innerHeight;
-    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
+    if (!fitting) { fitting = true; requestAnimationFrame(() => { fitting = false; if (!active()) return; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, (window.visualViewport ? visualViewport.height : innerHeight) * .3)) + 'px'; }); }
     btn.disabled = state.sending || state.reading > 0 || (!state.text.trim() && !state.images.length && !state.files.length);
     btn.innerHTML = state.sending ? '<i class="spin"></i>' : ICON.up;
     warning.hidden = !(state.error || state.progress);
     warning.textContent = state.error || state.progress;
     warning.classList.toggle('prog', !!state.progress && !state.error);
+    const sig = state.images.join('|') + '#' + state.files.map(f => f.name).join('|');
+    if (sig === thumbSig) return;
+    thumbSig = sig;
     thumbs.hidden = !state.images.length && !state.files.length;
     thumbs.innerHTML = state.images.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
       + state.files.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
@@ -2416,7 +2427,7 @@ function wireComposer(sendFn, onSent, onOpening) {
   };
   composerView = {key, paint};
   // 发送后输入法可能补发一次 input，把旧文字写回草稿；只认当前正在显示的输入框
-  const sync = () => { if (!active()) return; state.text = ta.value; saveComposerText(key, state.text); paint(); };
+  const sync = () => { if (!active()) return; state.text = ta.value; saveComposerSoon(key, state.text); paint(); };
   const add = async files => {
     state.reading++; refreshComposer(key);
     try {
@@ -2438,7 +2449,12 @@ function wireComposer(sendFn, onSent, onOpening) {
   document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
   const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
   ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); } };
+  ta.onkeydown = e => {
+    if (e.key === 'ArrowUp' && !ta.value && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && lastYou[num0]) {   // 输入框空着按 ↑：调出上一句，改一下重发
+      e.preventDefault(); ta.value = lastYou[num0]; sync(); ta.setSelectionRange(ta.value.length, ta.value.length); return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
+  };
   async function go() {
     const originalText = state.text, text = originalText.trim();
     if ((!text && !state.images.length && !state.files.length) || state.sending || state.reading) return;
@@ -2467,7 +2483,7 @@ function wireComposer(sendFn, onSent, onOpening) {
         if (state.text === originalText) state.text = '';
         state.images = state.images.filter(x => !snapshot.images.includes(x));
         state.files = state.files.filter(x => !snapshot.files.includes(x));
-        saveComposerText(key, state.text);
+        draftWait = null; saveComposerText(key, state.text);
         if (active()) ta.value = state.text;
         if (r.num) {
           if (key === 'new' && !state.text && !state.images.length && !state.files.length) composerDrafts.delete(key);
@@ -2482,10 +2498,12 @@ function wireComposer(sendFn, onSent, onOpening) {
       if (e.message !== 'login') state.error = e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次';
     } finally {
       state.sending = false; state.progress = ''; refreshComposer(key);
+      if (active() && !coarsePhone()) ta.focus();
       lastKey = ''; loadThread(); loadSessions();
     }
   }
   btn.onclick = go; paint();
+  if (active() && !coarsePhone()) ta.focus({preventScroll: true});
 }
 
 const WHERE_ICON = {
@@ -2852,6 +2870,11 @@ if (window.visualViewport) {
   document.addEventListener('visibilitychange', () => { presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
   // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
   addEventListener('keydown', e => {
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && e.key.length === 1 && !coarsePhone()) {   // 焦点不在输入框时直接打字：落进输入框
+      const ta = $('#ta'), t = e.target;
+      if (ta && t !== ta && !(t.closest && t.closest('input,textarea,select,[contenteditable],button,a,.modal,[role=dialog]')) && !document.querySelector('.modal,[role=dialog]')) ta.focus({preventScroll: true});
+      return;
+    }
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'k') { e.preventDefault(); if ($('#app').classList.contains('in') && matchMedia('(max-width:820px)').matches) goList(); $('#q').focus(); $('#q').select(); }
