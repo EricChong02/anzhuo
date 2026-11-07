@@ -920,6 +920,16 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
   .aq-grid{grid-template-columns:1fr 1fr;gap:10px} .aq-grid .aq:nth-child(3){grid-column:1/-1}
   .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}
   .au-split{gap:14px}}
+
+.task-tools{display:flex;align-items:center;justify-content:space-between;padding:12px 10px 8px;color:var(--mute);font-size:var(--t2)}
+.task-group{border-bottom:1px solid var(--line);margin:0 4px}
+.task-group>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;padding:14px 8px;list-style:none}
+.task-group>summary::-webkit-details-marker{display:none}
+.task-group>summary b{display:block;font-size:var(--t3);font-weight:500;color:var(--ink)}
+.task-group>summary small{display:block;margin-top:4px;font-size:var(--t1);color:var(--mute)}
+.task-group>summary>svg{width:16px;height:16px;flex:none;color:var(--mute);transition:transform .15s}
+.task-group[open]>summary>svg{transform:rotate(90deg)}
+.task-rows{padding-bottom:10px}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
@@ -1307,21 +1317,47 @@ function courseLib() {
   $('#lq').oninput = draw;
   draw();
 }
+let taskGrouping = false, taskGroupAttempt = 0;
+function groupPreferences() {
+  try { return JSON.parse(localStorage.getItem('taskGroupOpen:' + (me.name || '')) || '{}'); } catch (_) { return {}; }
+}
+async function organizeTasks(force = false) {
+  if (me.role !== 'admin' || taskGrouping || (!force && Date.now() - taskGroupAttempt < 300000)) return;
+  taskGroupAttempt = Date.now(); taskGrouping = true; renderSide();
+  try {
+    const r = await api('task-groups', {force});
+    if (r.ok && r.count) toast(`已用 ${r.model} 整理 ${r.count} 个对话`);
+    else if (!r.ok && force) toast(r.error || '正在整理，请稍后查看');
+  } catch (_) { if (force) toast('整理暂未完成，请稍后重试'); }
+  finally { taskGrouping = false; await loadSessions(); }
+}
 function renderSide() {
   renderCourses();
   $('#adminBtn').classList.toggle('sel', !!$('#adm'));
   if (query) return renderSearch();
   const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
       <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
-  const now = Date.now() / 1000;
-  const busy = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || (s.unread && s.num !== sel);
-  // 要你定的、在做的、刚做完没看的在最上面；其余按最近 7 天、更早
-  const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued', 'paused'].includes(s.status)],
-    ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel],
-    ['最近', s => !busy(s) && now - s.updated < 7 * 86400], ['更早', s => !busy(s) && now - s.updated >= 7 * 86400]]
-    .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
-  $('#list').innerHTML = groups.map(([t, xs]) => `<div class="label">${t}</div>` + xs.map(row).join('')).join('')
-    || `<div class="note" style="padding:10px">还没有对话</div>`;
+  const buckets = new Map(), prefs = groupPreferences();
+  for (const s of sessions) {
+    const name = s.task_group || '待整理';
+    if (!buckets.has(name)) buckets.set(name, []);
+    buckets.get(name).push(s);
+  }
+  const groups = [...buckets].sort((a, b) => Math.max(...b[1].map(s => s.updated)) - Math.max(...a[1].map(s => s.updated)));
+  const rank = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
+  $('#list').innerHTML = `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span>${me.role === 'admin' ? `<button class="pill" id="organizeTasks" ${taskGrouping ? 'disabled' : ''}>${taskGrouping ? '整理中' : '重新整理'}</button>` : ''}</div>` + (groups.map(([name, xs]) => {
+    const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
+    const running = xs.filter(s => ['running', 'queued', 'paused'].includes(s.status)).length;
+    const counts = [needs ? `${needs} 件需要你` : '', running ? `${running} 件在做` : '', `${xs.length} 个对话`].filter(Boolean).join(' · ');
+    const open = prefs[name] ?? xs.some(s => s.num === sel);
+    xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
+    return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
+  }).join('') || `<div class="note" style="padding:10px">还没有对话</div>`);
+  if ($('#organizeTasks')) $('#organizeTasks').onclick = () => organizeTasks(true);
+  document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
+    const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
+    try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
+  });
   wireRows();
   renderSum();
 }
@@ -1474,6 +1510,7 @@ function rowMenu(num) {
   const s = sessions.find(x => x.num === num); if (!s) return;
   const el = sheet(`<div class="t">${esc(s.name)}</div>
     <button data-a="rename"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>改名</button>
+    <button data-a="task_group">${ICON.list}移到任务分组</button>
     ${['awaiting', 'error'].includes(s.status) && !(s.detail || '').startsWith('等你确认') ? `<button data-a="dismiss"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m6 6 12 12M18 6 6 18"/></svg>不用回答了（清掉这个状态）</button>` : ''}
     <div class="sep"></div><button class="del" data-a="del"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>删除</button>`);
   el.querySelectorAll('button').forEach(b => b.onclick = async () => {
@@ -1483,6 +1520,13 @@ function rowMenu(num) {
       const inp = el.querySelector('#rn'); inp.focus(); inp.select();
       const ok = async () => { const v = inp.value.trim(); if (!v) return; el.remove(); manage(num, 'rename', v); };
       el.querySelector('#rok').onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) ok(); };
+    } else if (a === 'task_group') {
+      const names = [...new Set(sessions.map(x => x.task_group).filter(Boolean))];
+      el.querySelector('.box').innerHTML = `<div class="t">移到任务分组</div><input id="tg" list="taskNames" value="${esc(s.task_group || '')}" maxlength="24" placeholder="选择已有任务，或输入新任务名"><datalist id="taskNames">${names.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist><button class="on" id="tgok">保存</button>`;
+      const inp = el.querySelector('#tg'); inp.focus();
+      const save = async () => { const value = inp.value.trim(); if (value.length < 2) return toast('任务名至少2个字'); if (await manage(num, 'task_group', value)) { el.remove(); toast('已归组，自动整理会保留你的选择'); } };
+      el.querySelector('#tgok').onclick = save;
+      inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) save(); };
     } else if (a === 'dismiss') {
       el.remove(); if (await manage(num, 'dismiss')) { if (sel === num) { lastKey = ''; loadThread(); } toast('已清掉这个状态'); }
     } else if (a === 'del') {
@@ -1545,7 +1589,7 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); }
+  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); if (me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 

@@ -85,6 +85,8 @@ class Session:
     codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
     pinned: bool = False  # 网页里置顶
     category: str = ""  # 你手动归的类别（做课/平台/案头/杂事）；空 = 按文件夹自动分
+    task_group: str = ""  # 具体任务分组，模型生成或手动指定
+    task_group_manual: bool = False  # 手动指定后模型不覆盖
     renamed: bool = False  # 你手动改过名：自动起名不再动它
     titled: bool = False  # 已经自动起过短名字
     hidden_at: float = 0.0  # 删除（收起）的时间：30 天内搜得到、能找回

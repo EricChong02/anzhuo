@@ -23,7 +23,7 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
-from . import thread, translate, usage
+from . import thread, translate, usage, task_groups
 from .brand import LOGIN_CSS, MARK
 from .push import Push
 from .speech import Speech
@@ -255,6 +255,8 @@ class Web:
         self._rewind_lock = asyncio.Lock()
         self.speech = Speech(data_dir / "speech")
         self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
+        self._group_busy: set[str] = set()
+        self._group_attempt: dict[str, float] = {}
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
         self._zh_path = data_dir / "translations.json"
         try:
@@ -1016,6 +1018,50 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self._course_list = (time.time(), out)
         return out
 
+    async def _api_task_groups(self, request):
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        owner = request.get("owner", "admin")
+        if owner != "admin":
+            raise web.HTTPForbidden()
+        data = await request.json()
+        if owner in self._group_busy:
+            return web.json_response({"ok": False, "busy": True})
+        if not data.get("force") and time.time() - self._group_attempt.get(owner, 0) < 300:
+            return web.json_response({"ok": False, "retry_later": True})
+        sessions = [s for s in self.bridge.registry.sessions.values()
+                    if s.owner == owner and not s.hidden and self._relay_latest(s).num == s.num]
+        targets = sorted([s for s in sessions if not s.task_group_manual and (data.get("force") or not s.task_group)],
+                         key=lambda s: -s.updated)[:80]
+        if not targets:
+            return web.json_response({"ok": True, "count": 0})
+        self._group_busy.add(owner)
+        self._group_attempt[owner] = time.time()
+        try:
+            items = [{"num": s.num, "title": self._relay_chain(s)[0].name[:60],
+                      "folder": Path(s.cwd).name[:80], "summary": s.last_summary[:400]}
+                     for s in targets]
+            result, model = await task_groups.classify(items, sorted({s.task_group for s in sessions if s.task_group}),
+                                                       cache=None if data.get("force") else self.store_path.with_name("task_groups.json"))
+            count = 0
+            for s in targets:
+                # 分类期间用户可能改了分组、删除或完成接力；以当前现场为准。
+                if s.task_group_manual or s.hidden or s.owner != owner:
+                    continue
+                latest = self._relay_latest(s)
+                if latest.task_group_manual:
+                    continue
+                for member in self._relay_chain(latest):
+                    member.task_group = result[s.num]
+                count += 1
+            self.bridge.registry.save()
+            return web.json_response({"ok": True, "count": count, "model": model})
+        except Exception:
+            log.warning("任务归组失败，保留原分组")
+            return web.json_response({"ok": False, "error": "暂时没整理成功，原有分组已保留"})
+        finally:
+            self._group_busy.discard(owner)
+
     async def _api_sessions(self, request: web.Request) -> web.Response:
         b = self.bridge
         now = time.time()
@@ -1049,6 +1095,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             rows.append({"num": s.num, "name": self._relay_chain(s)[0].name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
+                         "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
                          "pinned": s.pinned, "category": category(s, b.cfg.folders), "manual_cat": s.category in CATS,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
@@ -1094,6 +1141,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return web.json_response({"ok": False, "error": "名字不能空着"})
             for member in self._relay_chain(s):
                 member.name, member.renamed = val[:40], True
+        elif act == "task_group":
+            if not 2 <= len(val) <= 24 or any(ord(c) < 32 for c in val):
+                return web.json_response({"ok": False, "error": "任务分组名称需为2到24字"}, status=400)
+            for member in self._relay_chain(s):
+                member.task_group, member.task_group_manual = val, True
         elif act == "category":
             s.category = val if val in CATS else ""
         elif act == "delete":
@@ -1991,7 +2043,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 continue
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
-                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category, s.limit_until,
+                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category, s.task_group, s.task_group_manual, s.limit_until,
                         s.rewind_at, s.auto_resume))
         return json.dumps(out, ensure_ascii=False, default=str)
 
@@ -2217,6 +2269,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/devices", self._api_devices)
         app.router.add_post(f"{PREFIX}/api/devices/logout", self._api_device_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
+        app.router.add_post(f"{PREFIX}/api/task-groups", self._api_task_groups)
         app.router.add_get(f"{PREFIX}/api/events", self._api_events)
         app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
