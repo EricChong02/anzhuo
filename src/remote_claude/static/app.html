@@ -1350,14 +1350,27 @@ function renderSide() {
   const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
       <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
   const buckets = new Map(), prefs = groupPreferences();
+  const priorityGroups = [
+    ['需要你', s => ['awaiting', 'error'].includes(s.status)],
+    ['在做', s => ['running', 'queued'].includes(s.status)],
+    ['已暂停', s => s.status === 'paused'],
+    ['新完成', s => s.unread],
+    ['有建议', s => s.suggest],
+  ].map(([name, match]) => ({name, match, items: []}));
   for (const s of sessions) {
+    const priority = priorityGroups.find(g => g.match(s));
+    if (priority) { priority.items.push(s); continue; }
     const name = s.task_group || '待整理';
     if (!buckets.has(name)) buckets.set(name, []);
     buckets.get(name).push(s);
   }
   const groups = [...buckets].sort((a, b) => Math.max(...b[1].map(s => s.updated)) - Math.max(...a[1].map(s => s.updated)));
   const rank = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
-  $('#list').innerHTML = `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
+  const priorityHtml = priorityGroups.filter(g => g.items.length).map(g => {
+    g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
+    return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
+  }).join('');
+  $('#list').innerHTML = priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
     const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
     const running = xs.filter(s => s.status === 'running').length;
     const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
@@ -1365,7 +1378,7 @@ function renderSide() {
     const open = prefs[name] ?? xs.some(s => s.num === sel);
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
-  }).join('') || `<div class="note" style="padding:10px">还没有对话</div>`);
+  }).join('')) : (!priorityHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
