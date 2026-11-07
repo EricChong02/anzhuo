@@ -289,3 +289,15 @@ def test_admin_week_range_and_unknown_reset(tmp_path,monkeypatch):
         assert not unknown['week_available'] and unknown['period_start'] is None
         assert unknown['usage']['conversations']==[]
     asyncio.run(go())
+
+
+def test_rate_does_not_count_end_of_turn_cost_twice(tmp_path):
+    from remote_claude.localspend import LocalSpend
+    spend=LocalSpend(tmp_path/'local.json',tmp_path/'projects')
+    # 同一轮花费6：前后两段各3，回答结束时另记一条整轮6。
+    spend.buckets={300:3,600:3}
+    spend.snaps=[[0,0],[600,3]]
+    rows=[{'t':900,'cost':6,'limits':{'seven_day':6}}]
+    assert usage.rate(rows,0,spend)==1  # 6个百分点 / 6，不能除以重复累计的9
+    spend.buckets={};spend._idx=None
+    assert usage.rate(rows,0,spend)==1  # 本机记录缺失时才整体退回对话口径

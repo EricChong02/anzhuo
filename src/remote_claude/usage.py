@@ -252,13 +252,17 @@ def rate(rows: list[dict], since: float, spend=None) -> float | None:
     if spend is not None:
         pts += [(t, p, 0.0) for t, p in spend.snaps if t >= since]
     pts.sort()
-    dp = dc = 0.0
+    dp = local_cost = recorded_cost = 0.0
     for (ta, pa, _), (tb, pb, cb) in zip(pts, pts[1:]):
         if pb < pa:
             continue
-        c = max(cb, spend.between(ta, tb)) if spend is not None else cb
         dp += pb - pa
-        dc += c
+        recorded_cost += cb
+        if spend is not None:
+            local_cost += spend.between(ta, tb)
+    # 本机记录按发生时间入账，整轮记录按完成时间入账。同一轮可能跨多个读数区间，
+    # 逐段取max会把此前已计入本机记录的消耗在结束时再计一次。整段只选一个来源。
+    dc = local_cost if spend is not None and local_cost >= 2 else recorded_cost
     return dp / dc if dc >= 2 and dp >= 1 else None
 
 

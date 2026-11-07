@@ -2744,8 +2744,8 @@ function drawUsage(col, d) {
     return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></div>`; }).join('');
   const convs = u.conversations;
   col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotas}</div>
-    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
-    <div class="au-period">${d.period === 'week' ? d.week_available ? `${esc(new Date(d.period_start * 1000).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false}))} 重置起至今 · 按 Claude 周期统计` : '尚未获取周额度重置时间，请暂选近 7 天' : `近 ${admDays} 天`}<br>${u.rate == null ? '额度换算尚未校准，暂显示 token' : '周额度消耗为估算值'} · Codex 单列 token</div>
+    <div class="adm-h"><span>已记录消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
+    <div class="au-period">${d.period === 'week' ? d.week_available ? `${esc(new Date(d.period_start * 1000).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false}))} 重置起至今 · 按 Claude 周期统计` : '尚未获取周额度重置时间，请暂选近 7 天' : `近 ${admDays} 天`}<br>${u.rate == null ? '额度换算尚未校准，暂显示 token' : '已结束对话的周额度估算，回答中用量尚未入账'} · Codex 单列 token</div>
     <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${wk(u, u.total_cost) ? '周额度 ' + wk(u, u.total_cost) + ' · ' : ''}${turns} 轮${gptToks ? ' · Codex ' + tokn(gptToks) : ''}</span></div>
       <div class="au-split">${split}</div></div>
       <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
@@ -2935,6 +2935,7 @@ if (window.visualViewport) {
   connectEvents();
   setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
   setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
+  setInterval(() => { if (!document.hidden && $('#adm')) loadAdmin(); }, 30000);
   document.addEventListener('visibilitychange', () => { presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
   // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
   addEventListener('keydown', e => {
