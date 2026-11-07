@@ -1355,6 +1355,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
                                   "limit": limit, "engine": s.engine, "feedback": s.feedback or None, "relay_to": s.relay_to or None,
+                                  "can_relay": bool(s.claude_id or s.codex_id) and not s.relay_to,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:

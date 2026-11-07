@@ -1213,6 +1213,12 @@ async function startRelay(num) {
 function renderRelay(d) {
   const el = $('#relay'); if (!el) return;
   const r = d.usage && d.usage.relay;
+  const h = $('#relayHead');   // 顶栏常驻：点过“不用”或没到提示门槛，也随时能接力
+  if (h) {
+    const run = r && r.kind === 'running';
+    h.innerHTML = d.can_relay || run ? `<button class="pill" id="relayTop" title="写交接说明，开新对话接着做" ${run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
+    if ($('#relayTop')) $('#relayTop').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  }
   if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => openSession(d.relay_to)); }
   const off = !r || (r.key && localStorage.getItem('relayOff:' + d.num) === r.key);
   el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
@@ -1601,7 +1607,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b class="wt"><span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
+      <div class="ti"><b class="wt"><span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="relayHead"></span><span id="usageBox"></span><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
