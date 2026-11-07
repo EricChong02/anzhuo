@@ -20,6 +20,7 @@ def test_config_defaults(tmp_path):
     assert not c.dingtalk_enabled                      # 不填 client_id = 只用网页
     assert c.web_base == "http://127.0.0.1:8765"       # 网页默认开在本机
     assert (c.auto_review, c.auto_cleanup) == (False, False)   # 危险命令等人点；不自动归档、清理
+    assert not c.task_grouping and c.accounts == {}
     assert c.skip_names == [] and c.folders == {} and c.extra_instructions == "" and c.review_policy == ""
     p.write_text('web = false\nclient_id = "abc"\nallowed_user_ids = ["u1"]\nweb_port = 9000\n')
     c = load_config(p)
@@ -113,8 +114,22 @@ def test_no_personal_traces():
     hits = []
     for f in ROOT.rglob("*"):
         if (not f.is_file() or f.suffix in (".png", ".pdf", ".lock", ".pyc") or ".git/" in str(f) or ".venv" in f.parts
-                or "__pycache__" in f.parts or f.name in ("test_open_source.py", ".git")):
+                or any(d in f.parts for d in ("__pycache__", ".ruff_cache", ".pytest_cache")) or f.name in ("test_open_source.py", ".git")):
             continue
         text = f.read_text(encoding="utf-8", errors="ignore")
         hits += [f"{f.relative_to(ROOT)}: {b}" for b in bad if b in text]
     assert not hits, hits
+
+
+def test_restricted_accounts_require_macos_and_root(monkeypatch):
+    from anzhuo import config
+    cfg = Config(accounts={"owner": {"role": "admin"}, "guest": {"role": "user", "root": "~/guest"}})
+    monkeypatch.setattr(config, "read_web_hash", lambda name: "test-hash")
+    monkeypatch.setattr(config.sys, "platform", "win32")
+    with pytest.raises(ValueError, match="macOS"):
+        config.web_accounts(cfg)
+    cfg.accounts = {"owner": {"role": "admin"}}
+    assert config.web_accounts(cfg)["owner"]["hash"] == "test-hash"
+    cfg.accounts = {"guest": {"role": "user", "root": "~/guest"}}
+    with pytest.raises(ValueError, match="admin"):
+        config.web_accounts(cfg)

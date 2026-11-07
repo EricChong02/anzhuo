@@ -433,3 +433,11 @@ def test_queue_merges_and_waits_for_client():
         assert injected == ["顺便看下第二屏"] and r.turns[3].injected == 1
 
     asyncio.run(go())
+
+
+def test_said_has_relay_first_message():
+    from anzhuo.web import _said_has
+    rec = "（这是接力的新对话：…）\n\n# 交接\n\n---\n用户这次说：\n\n推不上的原因：钩子跑 doctor"
+    assert _said_has(rec, "推不上的原因：钩子跑 doctor")
+    assert _said_has("批准本会话编辑：a", "批准本会话编辑：a")
+    assert not _said_has(rec, "别的话")

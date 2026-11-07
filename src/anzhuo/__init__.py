@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import CONFIG_PATH, DATA_DIR, load_config, read_secret, read_web_hash
+from .config import CONFIG_PATH, DATA_DIR, load_config, read_secret, read_web_hash, web_accounts
 
 
 def _claude_logged_in() -> str:
@@ -45,7 +45,13 @@ def check() -> int:
             ok = False
             print(f"  短名 {name}：目录不存在 {p}")
     if cfg.web_base:
-        if not cfg.web_user:
+        if cfg.accounts:
+            for name, account in web_accounts(cfg).items():
+                if not account.get("hash"):
+                    ok = False
+                    print(f"网页账号 {name} 缺少密码：运行 scripts/set_account.py")
+            print(f"网页：{cfg.web_base}，多账号配置")
+        elif not cfg.web_user:
             ok = False
             print(f"网页：{cfg.web_base}（还没设登录账号密码：运行 anzhuo passwd）")
         elif not read_web_hash(cfg.web_user):

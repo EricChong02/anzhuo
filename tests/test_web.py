@@ -122,7 +122,7 @@ def test_chat_api(tmp_path, monkeypatch):
         def __init__(self):
             s6 = Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？", claude_id="sid6")
             s7 = Session(num=7, name="清理", cwd=str(tmp_path))
-            self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda: [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
+            self.registry = NS(sessions={6: s6, 7: s7}, visible=lambda owner="admin": [s6, s7], get=lambda n: {6: s6, 7: s7}.get(n),
                                current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
@@ -164,14 +164,14 @@ def test_chat_api(tmp_path, monkeypatch):
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True}
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "relay_suggested": False}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
             assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
             assert b.said == []                                                    # 钉钉不转述你在网页说的话
             t7 = await (await c.get("/_x/api/thread/7")).json()
-            assert t7["items"][-1] == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
+            assert {k:v for k,v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
             # 新对话“在哪做”：最近用过的文件夹 / 手输的路径 / 找不到 / 找到好几个 / 不碰文件
@@ -441,7 +441,7 @@ def test_fork(tmp_path, monkeypatch):
     p = Session(num=6, name="大数据第二节磨课", cwd=str(tmp_path), claude_id="sid6", model="m", worked=True)
     sessions = {6: p}
     nums = iter([9, 10])
-    reg = NS(sessions=sessions, get=sessions.get, visible=lambda: list(sessions.values()), save=lambda: None,
+    reg = NS(sessions=sessions, get=sessions.get, visible=lambda owner="admin": list(sessions.values()), save=lambda: None,
              reserve_num=lambda: next(nums), add=lambda s: sessions.setdefault(s.num, s))
     monkeypatch.setattr(th, "full_messages", lambda sid, cwd, times=None: sid)
     monkeypatch.setattr(th, "history", lambda msgs, limit=300, times=None: [
@@ -835,4 +835,86 @@ def test_resume_claude_code_history(tmp_path, monkeypatch):
             assert len(reg.sessions) == 4
         finally:
             await c.close()
+    asyncio.run(go())
+
+
+def test_relay_continuous_history_and_old_entry(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        sessions = [reg.add(Session(num=reg.reserve_num(), name=name, cwd=str(tmp_path),
+                                   engine="codex", codex_id=f"native-{i}"))
+                    for i, name in enumerate(["完整标题", "旧的·接力", "旧的·接力"], 1)]
+        for parent, child in zip(sessions, sessions[1:]):
+            parent.relay_to, child.relay_from = child.num, parent.num
+            child.relay_note = f"交接{parent.num}"
+        runner = NS(turns={}, last={}, limits={}, default_effort="medium",
+                    compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        for session in sessions:
+            w.save_turn(session.label, Turn(started=session.num * 100, ended=session.num * 100 + 1,
+                        request=f"问题{session.num}", final_text=f"回复{session.num}",
+                        codex_turn_id=f"turn-{session.num}"), str(tmp_path), "测试")
+        old = json.loads((await w._api_thread(NS(match_info={"num": "1"}))).text)
+        assert old == {"num": 1, "redirect": 3}
+        listing = json.loads((await w._api_sessions({})).text)
+        assert [(r["num"], r["name"]) for r in listing["sessions"]] == [(3, "完整标题")]
+        before = [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
+        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}))).text)
+        assert result["name"] == "完整标题"
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["问题1", "问题2", "问题3"]
+        assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["交接1", "交接2"]
+        assert [i["source_num"] for i in result["items"] if i.get("historical") and i["who"] == "claude"] == [1, 2]
+        assert before == [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
+        assert not any(i.get("historical") for i in (await w._saved_items(sessions[0])))
+        # 跨账号关系不允许串入历史，也不能跳到别人的会话。
+        sessions[1].owner = "user"
+        assert w._relay_latest(sessions[0]).num == 1
+        assert [s.num for s in w._relay_chain(sessions[2])] == [3]
+        sessions[1].owner = "admin"
+        sessions[0].relay_from = 3
+        sessions[2].relay_to = 1
+        assert len(w._relay_chain(sessions[2])) == 3
+        assert w._relay_latest(sessions[0]) is not None
+    asyncio.run(go())
+
+
+def test_relay_only_after_advice_and_between_answers(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+    async def go():
+        reg=Registry(tmp_path/'sessions.json')
+        s=reg.add(Session(num=reg.reserve_num(), name='长对话', cwd=str(tmp_path), engine='codex', codex_id='native',context_tokens=300_000))
+        turns={1:Turn(started=time.time())}
+        queued=[]
+        runner=NS(turns=turns,last={},limits={},default_effort='medium',compacting=lambda n:'',
+                  busy=lambda n:bool(turns or queued),queued=lambda n:queued)
+        def rejected(*args,**kwargs): raise AssertionError('忙碌时不应提交接力')
+        w=Web('http://x',0,tmp_path)
+        w.bridge=NS(registry=reg,runner=runner,outgoing={},_relaying=set(),relay=rejected)
+        request=NS(match_info={'num':'1'},headers={})
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay'] and not result['usage']['relay_suggested']
+        turns.clear()
+        result=json.loads((await w._api_thread(request)).text)
+        assert result['can_relay'] and result['usage']['relay_suggested']
+        assert Registry(tmp_path/'sessions.json').get(1).relay_suggested
+        turns[1]=Turn(started=time.time())
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay'] and result['usage']['relay_suggested']
+        assert (await w._api_relay(request)).status==409
+        turns.clear()
+        from anzhuo.sessions import Job
+        queued.append(Job(text='排队消息'))
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay']
+        assert (await w._api_relay(request)).status==409
+        queued.clear()
+        s.context_tokens = 1000  # 建议触发过，即使上下文下降也保留入口
+        result = json.loads((await w._api_thread(request)).text)
+        assert result['can_relay'] and result['usage']['relay_suggested']
     asyncio.run(go())

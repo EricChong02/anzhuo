@@ -79,3 +79,8 @@ scripts/install_launchd.sh              # optional: start at login, restart on c
 4. Personal use only. Do not turn it into a shared service — that may violate the Claude / ChatGPT terms.
 
 Yuanchuang is an independent project, not affiliated with Anthropic, OpenAI or DingTalk. MIT licensed.
+
+## November 7, 2026 update
+
+Claude and Codex now support handoff to a fresh conversation while keeping a continuous history in the UI. This update also adds task groups, usage management, clearer session states, and optional macOS restricted accounts. Automatic model classification is opt-in (`task_grouping = true`) because it sends short task metadata to a model. Existing Windows support and conservative approval defaults are retained. See [CHANGELOG.md](CHANGELOG.md) for details and verification limits.
+

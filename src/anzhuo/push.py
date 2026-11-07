@@ -72,10 +72,11 @@ class Push:
         self.subs = [s for s in self.subs if s["endpoint"] != endpoint]
         self._save()
 
-    async def send(self, title: str, body: str, num: int | None = None) -> int:
-        """给每台开了通知的设备发一条；设备已注销（404/410）的顺手删掉。出错只记日志，不影响别的。
-        返回发到了几台（0 = 一台都没发到，远窗改用钉钉说一句）。"""
-        if not self.subs:
+    async def send(self, title: str, body: str, num: int | None = None, only: set[str] | None = None) -> int:
+        """给每台开了通知的设备发一条（only 给了就只发这几个订阅）；设备已注销（404/410）的顺手删掉。出错只记日志，不影响别的。
+        返回发到了几台（0 = 一台都没发到，小E 改用钉钉说一句）。"""
+        subs = [x for x in self.subs if only is None or x["endpoint"] in only]
+        if not subs:
             return 0
         from pywebpush import WebPushException, webpush
         data = json.dumps({"title": title, "body": body, "num": num, "tag": f"s{num}" if num else ""}, ensure_ascii=False)
@@ -93,7 +94,7 @@ class Push:
             except Exception as e:  # noqa: BLE001 - 网络不通之类：这台不算发到
                 log.warning("手机通知没发出去：%s", type(e).__name__)
 
-        for sub in list(self.subs):
+        for sub in subs:
             await asyncio.to_thread(one, sub)
         if gone:
             self.subs = [s for s in self.subs if s["endpoint"] not in gone]

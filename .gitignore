@@ -8,3 +8,5 @@ config.toml
 *.db
 .env
 .venv-tts/
+
+.ruff_cache/

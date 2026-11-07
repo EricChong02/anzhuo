@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from aiohttp import web
 
-from . import thread, translate
+from . import thread, translate, usage, task_groups
 from .brand import LOGIN_CSS, MARK
 from .push import Push
 from .speech import Speech
@@ -57,6 +57,39 @@ def check_password(password: str, stored: str) -> bool:
 
 DESK_FRESH = 300  # 电脑端对话的记录在这么多秒内被写过，就当电脑上可能还开着
 PREFIX = "/_x"  # 远窗自己的页面都在这个前缀下面
+PUBLIC = (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
+          f"{PREFIX}/health")
+# 受限账号（role = user）能用的页面和接口；别的（历史记录、试课、定时、浏览文件夹、接电脑端对话、管理页）一律不给
+USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/api/push", f"{PREFIX}/api/logout",
+               f"{PREFIX}/api/devices", f"{PREFIX}/api/devices/logout", f"{PREFIX}/api/sessions", f"{PREFIX}/api/events",
+               f"{PREFIX}/api/uimg/{{num}}/{{uuid}}/{{k}}", f"{PREFIX}/api/thread/{{num}}", f"{PREFIX}/api/manage/{{num}}",
+               f"{PREFIX}/api/speech/{{num}}", f"{PREFIX}/api/speech/release", f"{PREFIX}/api/audio/{{key}}",
+               f"{PREFIX}/audio/{{key}}.mp3", f"{PREFIX}/api/search", f"{PREFIX}/api/send", f"{PREFIX}/api/settings/{{num}}",
+               f"{PREFIX}/api/compact/{{num}}", f"{PREFIX}/api/relay/{{num}}", f"{PREFIX}/api/confirm/{{num}}", f"{PREFIX}/api/stop/{{num}}",
+               f"{PREFIX}/api/rewind/{{num}}", f"{PREFIX}/api/fork/{{num}}", f"{PREFIX}/api/unqueue/{{num}}",
+               f"{PREFIX}/api/presence", f"{PREFIX}/t/{{tid}}", f"{PREFIX}/t/{{tid}}/img/{{i}}", f"{PREFIX}/t/{{tid}}/file/{{i}}",
+               "/dl/{tid}/{i}", "/dl/{tid}/{i}/pages", "/dl/{tid}/{i}/p/{name}"}
+
+RELAY_LONG = 200_000   # 上下文到这么长就提示接力：每说一句都要把它重读一遍
+RELAY_COLD = 80_000    # 隔了一个多小时再回来、上下文又有这么长：缓存过期，接着说要整段重写一遍
+CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
+
+
+def relay_hint(s, busy: bool, relaying: bool, now: float | None = None) -> dict | None:
+    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。"""
+    if relaying:
+        return {"kind": "running"}
+    tk = s.context_tokens or 0
+    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < RELAY_COLD:
+        return None
+    idle = (now or time.time()) - s.updated
+    if s.engine == "claude" and idle > CACHE_TTL:
+        return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
+    if tk >= RELAY_LONG:
+        return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
+    return None
+
+
 def display_model(model_id: str) -> str:
     """统一网页名称，保留未知型号；兼容早先保存的 GPT（实际型号）。"""
     wrapped = re.fullmatch(r"GPT[（(](.*)[）)]", model_id or "")
@@ -132,9 +165,72 @@ ul{{padding-left:20px;margin:4px 0}} li::marker{{color:var(--faint)}}
 <main>{body}</main></body></html>"""
 
 
+_RELAY_MARK = "用户这次说：\n\n"
+
+
+def _said_has(recorded: str, sent: str) -> bool:
+    """记录里的这句是不是你发的那句。接力对话的第一句，记录里是“交接说明 + 用户这次说：+ 原话”。"""
+    head = sent.strip()[:40]
+    if recorded.startswith(head):
+        return True
+    return recorded.startswith("（这是接力的新对话") and _RELAY_MARK in recorded and recorded.split(_RELAY_MARK, 1)[1].startswith(head)
+
+
 class Web:
-    def __init__(self, base: str, port: int, data_dir: Path, user: str = "", pw_hash: str = "", watch_host: str = ""):
-        self.user, self.pw_hash = user, pw_hash
+    async def _api_task_groups(self, request):
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        owner = request.get("owner", "admin")
+        if owner != "admin":
+            raise web.HTTPForbidden()
+        if not self.bridge.cfg.task_grouping:
+            return web.json_response({"ok": True, "count": 0})
+        data = await request.json()
+        if owner in self._group_busy:
+            return web.json_response({"ok": False, "busy": True})
+        if not data.get("force") and time.time() - self._group_attempt.get(owner, 0) < 300:
+            return web.json_response({"ok": False, "retry_later": True})
+        sessions = [s for s in self.bridge.registry.sessions.values()
+                    if s.owner == owner and not s.hidden and self._relay_latest(s).num == s.num]
+        targets = sorted([s for s in sessions if not s.task_group_manual and (data.get("force") or not s.task_group)],
+                         key=lambda s: -s.updated)[:80]
+        if not targets:
+            return web.json_response({"ok": True, "count": 0})
+        self._group_busy.add(owner)
+        self._group_attempt[owner] = time.time()
+        try:
+            items = [{"num": s.num, "title": self._relay_chain(s)[0].name[:60],
+                      "folder": Path(s.cwd).name[:80], "summary": s.last_summary[:400]}
+                     for s in targets]
+            result, model = await task_groups.classify(items, sorted({s.task_group for s in sessions if s.task_group}),
+                                                       cache=None if data.get("force") else self.store_path.with_name("task_groups.json"))
+            count = 0
+            for s in targets:
+                # 分类期间用户可能改了分组、删除或完成接力；以当前现场为准。
+                if s.task_group_manual or s.hidden or s.owner != owner:
+                    continue
+                latest = self._relay_latest(s)
+                if latest.task_group_manual:
+                    continue
+                for member in self._relay_chain(latest):
+                    member.task_group = result[s.num]
+                count += 1
+            self.bridge.registry.save()
+            return web.json_response({"ok": True, "count": count, "model": model})
+        except Exception:
+            log.warning("任务归组失败，保留原分组")
+            return web.json_response({"ok": False, "error": "暂时没整理成功，原有分组已保留"})
+        finally:
+            self._group_busy.discard(owner)
+
+
+    def __init__(self, base: str, port: int, data_dir: Path,
+                 user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
+                 save_hash=None):
+        # 账号：名字 → {role: admin / user, root: user 的工作文件夹, hash: 密码指纹}。老写法（user + pw_hash）当作唯一的 admin
+        self.accounts = dict(accounts) if accounts else ({user: {"role": "admin", "root": "", "hash": pw_hash}} if user else {})
+        self.save_hash = save_hash  # 管理页改密码时存指纹（默认存钥匙串）
+        self.usage_path = data_dir / "usage.jsonl"
         self.fails: dict[str, list[float]] = {}
         self.all_fails: list[float] = []
         self.base = base.rstrip("/")
@@ -145,7 +241,9 @@ class Web:
         self.store = self._load()
         self._rewind_lock = asyncio.Lock()
         self.speech = Speech(data_dir / "speech")
-        self.bridge = None  # 远窗本体（app.Bridge），网页对话框靠它看对话、发话
+        self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
+        self._group_busy: set[str] = set()
+        self._group_attempt: dict[str, float] = {}
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
         self._zh_path = data_dir / "translations.json"
         try:
@@ -173,7 +271,8 @@ class Web:
             d = json.loads(self.store_path.read_text())
         except (OSError, json.JSONDecodeError):
             d = {}
-        return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {})}
+        return {"sessions": d.get("sessions", {}), "devices": d.get("devices", {}), "disabled": d.get("disabled", []),
+                "shares": d.get("shares", {}), "rate2": d.get("rate2")}
 
     def _save(self) -> None:
         now = time.time()
@@ -189,9 +288,49 @@ class Web:
         """某个页面的固定网址（没登录会先到登录页，登完回到这里）。"""
         return f"{self.base}{target}"
 
+    def _acct_of(self, sid: str) -> str:
+        """这台设备登的是哪个账号（这个功能之前登录的都算 admin）。"""
+        return self.store.get("devices", {}).get(sid, {}).get("account") or self._admin()
+
+    def _admin(self) -> str:
+        return next((n for n, a in self.accounts.items() if a.get("role") == "admin"), "admin")
+
+    # 老写法：只有一个账号（admin）时直接读写它的名字和密码指纹
+    @property
+    def user(self) -> str:
+        return self._admin()
+
+    @user.setter
+    def user(self, name: str) -> None:
+        old = self.accounts.pop(self._admin(), {"role": "admin", "root": "", "hash": ""})
+        self.accounts[name] = old
+
+    @property
+    def pw_hash(self) -> str:
+        return (self.accounts.get(self._admin()) or {}).get("hash", "")
+
+    @pw_hash.setter
+    def pw_hash(self, digest: str) -> None:
+        self.accounts.setdefault(self._admin(), {"role": "admin", "root": ""})["hash"] = digest
+
+    def role(self, acct: str) -> str:
+        return (self.accounts.get(acct) or {}).get("role", "user")
+
+    def root_of(self, acct: str) -> str:
+        return (self.accounts.get(acct) or {}).get("root", "") if self.role(acct) != "admin" else ""
+
+    def owner_key(self, acct: str) -> str:
+        """对话登记里记的归属：admin 账号的一律记 "admin"（钉钉开的也是），别的账号记账号名。"""
+        return "admin" if self.role(acct) == "admin" else acct
+
     def _logged_in(self, request: web.Request) -> bool:
         sid = request.cookies.get(COOKIE, "")
         ok = bool(sid) and self.store["sessions"].get(sid, 0) > time.time()
+        acct = self._acct_of(sid) if ok else ""
+        if ok and (acct not in self.accounts or acct in self.store.get("disabled", [])):
+            ok = False   # 账号被停用或删掉了：这台设备进不来
+        if ok:
+            request["acct"], request["owner"] = acct, self.owner_key(acct)
         if ok:   # 记一下这台设备最近什么时候用过（5 分钟记一次，不每次写盘）
             dev = self.store.setdefault("devices", {}).setdefault(sid, {"created": time.time()})
             if time.time() - dev.get("seen", 0) > 300:
@@ -226,7 +365,7 @@ class Web:
 <form class="login" method="post" action="{PREFIX}/login">
 {MARK}<h1>远窗</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
-<input name="username" placeholder="账号" autocomplete="username" inputmode="numeric" required>
+<input name="username" placeholder="账号" autocomplete="username" autocapitalize="off" required>
 <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
 <button>登录</button></form>"""
         return self._page("登录 · 远窗", body, status)
@@ -243,8 +382,9 @@ class Web:
         ip = self._client_ip(request)
         if wait := self._locked(ip):
             return self._login_form(nxt, f"错太多次了，{max(1, wait // 60)} 分钟后再试。", 429)
-        ok = (self.pw_hash and hmac.compare_digest(str(form.get("username", "")).strip(), self.user)
-              and check_password(str(form.get("password", "")), self.pw_hash))
+        name = str(form.get("username", "")).strip()
+        acct = self.accounts.get(name) if name not in self.store.get("disabled", []) else None
+        ok = bool(acct and acct.get("hash") and check_password(str(form.get("password", "")), acct["hash"]))
         if not ok:
             now = time.time()
             self.fails.setdefault(ip, []).append(now)
@@ -254,7 +394,7 @@ class Web:
         self.fails.pop(ip, None)
         sid = secrets.token_urlsafe(32)
         self.store["sessions"][sid] = time.time() + SESSION_DAYS * 86400
-        self.store.setdefault("devices", {})[sid] = {"created": time.time(), "seen": time.time(), "ip": ip,
+        self.store.setdefault("devices", {})[sid] = {"created": time.time(), "seen": time.time(), "ip": ip, "account": name,
                                                      "ua": request.headers.get("User-Agent", "")[:300]}
         self._save()
         resp = web.HTTPFound(nxt)
@@ -278,19 +418,29 @@ class Web:
     async def _api_devices(self, request: web.Request) -> web.Response:
         """登录着的设备：哪台、最近什么时候用过、从哪个网络来，当前这台标出来。"""
         me = request.cookies.get(COOKIE, "")
+        return web.json_response({"devices": self._device_rows(me, request["acct"])})
+
+    def _device_rows(self, me: str, acct: str | None) -> list[dict]:
+        """登录着的设备（acct=None 列所有账号的，管理页用）。"""
         now = time.time()
         rows = []
         for sid, exp in self.store["sessions"].items():
-            if exp <= now:
+            if exp <= now or (acct is not None and self._acct_of(sid) != acct):
                 continue
             d = self.store.get("devices", {}).get(sid, {})
             ip = d.get("ip", "")
             rows.append({"id": self._device_id(sid), "name": self._device_name(d.get("ua", "")), "me": sid == me,
                          "seen": d.get("seen") or d.get("created") or 0, "created": d.get("created") or 0,
                          "ip": ".".join(ip.split(".")[:2] + ["*", "*"]) if ip.count(".") == 3 else ip,
-                         "push": bool(d.get("endpoint"))})
+                         "push": bool(d.get("endpoint")), "account": self._acct_of(sid)})
         rows.sort(key=lambda r: (not r["me"], -r["seen"]))
-        return web.json_response({"devices": rows})
+        return rows
+
+    def _drop_device(self, sid: str) -> None:
+        dev = self.store.get("devices", {}).pop(sid, {})
+        self.store["sessions"].pop(sid, None)
+        if dev.get("endpoint"):
+            self.push.remove(dev["endpoint"])
 
     async def _api_device_logout(self, request: web.Request) -> web.Response:
         """退出某一台（不能用来退出自己这台，那个走“退出登录”）。"""
@@ -299,11 +449,8 @@ class Web:
         want = str((await request.json()).get("id") or "")
         me = request.cookies.get(COOKIE, "")
         for sid in list(self.store["sessions"]):
-            if self._device_id(sid) == want and sid != me:
-                dev = self.store.get("devices", {}).pop(sid, {})
-                self.store["sessions"].pop(sid, None)
-                if dev.get("endpoint"):
-                    self.push.remove(dev["endpoint"])
+            if self._device_id(sid) == want and sid != me and self._acct_of(sid) == request["acct"]:
+                self._drop_device(sid)
                 self._save()
                 return web.json_response({"ok": True})
         return web.json_response({"ok": False}, status=404)
@@ -313,11 +460,9 @@ class Web:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         data = await request.json()
-        if data.get("all"):
-            self.store["sessions"] = {}
-            self.store["devices"] = {}
-            self.push.subs = []
-            self.push._save()
+        if data.get("all"):   # 只退这个账号的所有设备
+            for sid in [k for k in self.store["sessions"] if self._acct_of(k) == request["acct"]]:
+                self._drop_device(sid)
         else:
             self.store["sessions"].pop(request.cookies.get(COOKIE, ""), None)
             if data.get("endpoint"):
@@ -326,6 +471,39 @@ class Web:
         resp = web.json_response({"ok": True})
         resp.del_cookie(COOKIE, path="/")
         return resp
+
+    async def notify(self, owner: str, title: str, body: str, num: int | None = None) -> int:
+        """手机通知只发给这个对话所属账号登录的设备。没对上设备的老订阅算 admin 的。"""
+        mine, others = set(), set()
+        for sid, d in self.store.get("devices", {}).items():
+            if d.get("endpoint"):
+                (mine if self.owner_key(self._acct_of(sid)) == owner else others).add(d["endpoint"])
+        targets = [x["endpoint"] for x in self.push.subs
+                   if x["endpoint"] in mine or (owner == "admin" and x["endpoint"] not in others)]
+        return await self.push.send(title, body, num, only=set(targets))
+
+    def quota(self, acct: str) -> dict | None:
+        """受限账号本周额度用了多少（admin 不限，返回 None）。顺手把推出来的换算比例存下，数据少的时候接着用。"""
+        if self.role(acct) == "admin":
+            return None
+        limits = getattr(getattr(self.bridge, "runner", None), "limits", {}) or {}
+        week = limits.get("seven_day")
+        share = float(self.store.get("shares", {}).get(acct, (self.accounts.get(acct) or {}).get("share", usage.DEFAULT_SHARE)))
+        q = usage.quota(usage.load(self.usage_path, time.time() - 29 * 86400), self.owner_key(acct), share,
+                        usage.reset_epoch(week[1]) if week else None, self.store.get("rate2"),
+                        spend=getattr(self.bridge, "spend", None))
+        if q["rate"] and q["rate"] != self.store.get("rate2"):   # rate2：2026-11-04 之前存的 rate 是按累计值算错的，不用
+            self.store["rate2"] = q["rate"]
+            self._save()
+        q["reset"] = time.strftime("%-m月%-d日 %H:%M", time.localtime(q["reset_at"])) if q["reset_at"] else ""
+        return q
+
+    def over_quota(self, acct: str) -> str:
+        """额度用完了返回一句说明，没用完返回空。"""
+        q = self.quota(acct)
+        if not q or q["pct"] < 100:
+            return ""
+        return "本周额度已用完" + (f"，{q['reset']} 重置后再继续。" if q["reset"] else "，重置后再继续。")
 
     # ---------- 本地朗读 ----------
     async def _speech_context(self, app):
@@ -363,8 +541,7 @@ class Web:
                 raise web.HTTPNotFound()
             text = (self._turn(tid) or {}).get("final_text", "")
         if not text and data.get("end"):
-            response = await self._api_thread(request)
-            items = json.loads(response.body)["items"]
+            items = await self._saved_items(session)
             text = next((it["text"] for it in items if it.get("who") == "claude" and it.get("end") == data["end"]), "")
         if not text:
             return web.json_response({"ok": False, "error": "这条回复还未保存，请稍后再点朗读"})
@@ -373,18 +550,18 @@ class Web:
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)})
 
-    def _speech_allowed(self, key: str):
+    def _speech_allowed(self, key: str, request: web.Request):
         try:
             m = self.speech.meta(key)
             session = self.bridge.registry.get(m["num"])
-            if not session or session.hidden:
+            if not session or session.hidden or session.owner != request.get("owner", "admin"):
                 raise web.HTTPNotFound()
         except (ValueError, KeyError):
             raise web.HTTPNotFound() from None
 
     async def _api_audio(self, request: web.Request) -> web.Response:
         key = request.match_info["key"]
-        self._speech_allowed(key)
+        self._speech_allowed(key, request)
         if request.method == "POST":
             if not self._same_origin(request):
                 raise web.HTTPForbidden()
@@ -397,7 +574,7 @@ class Web:
 
     async def _audio(self, request: web.Request) -> web.StreamResponse:
         key = request.match_info["key"]
-        self._speech_allowed(key)
+        self._speech_allowed(key, request)
         d = self.speech.directory(key)
         state = self.speech.status(key)
         if state["state"] == "error":
@@ -740,7 +917,21 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b = self.bridge
         now = time.time()
         rows = []
-        for s in [x for x in b.registry.sessions.values() if not x.hidden]:
+        owner = request.get("owner", "admin")
+        fenced = owner != "admin"
+        regrouped = False
+        for member in b.registry.sessions.values():
+            if member.owner == owner and member.task_group and not member.task_group_manual:
+                group = task_groups.normalize(member.task_group)
+                if group != member.task_group:
+                    member.task_group = group
+                    regrouped = True
+        if regrouped:
+            b.registry.save()
+
+        for s in [x for x in b.registry.sessions.values() if not x.hidden and x.owner == owner]:
+            if self._relay_latest(s).num != s.num:
+                continue
             turn = b.runner.turns.get(s.num)
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
@@ -762,19 +953,25 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             else:
                 status, detail = "idle", s.last_title or "空闲"
             unread = status in ("idle", "awaiting", "error", "paused") and bool(s.claude_id or s.codex_id) and s.updated > s.seen + 1
-            rows.append({"num": s.num, "name": s.name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
+            rows.append({"num": s.num, "name": self._relay_chain(s)[0].name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
-                         "pinned": s.pinned,
+                         "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
+                         "pinned": s.pinned, "category": "",
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
-        return web.json_response({"sessions": rows, "recent": self._recent_folders(), "last_folder": self._last_folder(),
-                                  "folders": list(b.cfg.folders), "current": b.registry.current, "models": model_options(),
-                                  "limits": self._limits(b.runner.limits),
-                                  "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
-                                  "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible())})
+        acct = request.get("acct", "")
+        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
+        return web.json_response({"sessions": rows, "recent": [] if fenced else self._recent_folders(), "last_folder": "" if fenced else self._last_folder(),
+                                   "me": me,
+                                  "folders": [] if fenced else list(b.cfg.folders),
+                                  "current": None if fenced else b.registry.current,
+                                  "models": [m for m in model_options() if not fenced or m[0] != "gpt"],
+                                  "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
+                                  "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "task_grouping": getattr(b.cfg, "task_grouping", False), "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
 
     def _recent_folders(self, limit: int = 6) -> list[dict]:
         """最近用过的工作文件夹（新对话菜单里排在最前）；临时文件夹和家目录不算。这里不碰磁盘：受保护的文件夹一 stat 就可能卡住。"""
@@ -802,6 +999,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return ""
             return next((k for k, v in b.cfg.folders.items() if str(Path(v).expanduser()) == p), p)
         return ""
+
+    def _my_limits(self, acct: str) -> list[dict]:
+        """受限账号只看自己的额度：用了自己那份的百分之几、几点重置。"""
+        q = self.quota(acct)
+        if not q:
+            return []
+        return [{"name": "本周", "pct": round(q["pct"]), "reset": q["reset"], "reset_at": q["reset_at"]}]
 
     @staticmethod
     def _limits(d: dict) -> list[dict]:
@@ -837,7 +1041,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         elif act == "rename":
             if not val:
                 return web.json_response({"ok": False, "error": "名字不能空着"})
-            s.name, s.renamed = val[:40], True
+            for member in self._relay_chain(s):
+                member.name, member.renamed = val[:40], True
+        elif act == "task_group":
+            if not 2 <= len(val) <= 24 or any(ord(c) < 32 for c in val):
+                return web.json_response({"ok": False, "error": "任务分组名称需为2到24字"}, status=400)
+            for member in self._relay_chain(s):
+                member.task_group, member.task_group_manual = val, True
         elif act == "delete":
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，先停下再删"})
@@ -986,7 +1196,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return web.json_response({"q": q, "title": [], "said": [], "deleted": []})
         ql, now = q.lower(), time.time()
         out: dict[str, list] = {"title": [], "said": [], "deleted": []}
-        for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+        for s in sorted((s for s in b.registry.sessions.values() if s.owner == request.get("owner", "admin")), key=lambda x: -x.updated):
             row = {"num": s.num, "name": s.name, "updated": s.updated,
                    "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
             if ql in s.name.lower():
@@ -1003,12 +1213,29 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     break
         return web.json_response({"q": q, **{k: v[:30] for k, v in out.items()}})
 
-    async def _api_thread(self, request: web.Request) -> web.Response:
-        b = self.bridge
-        num = int(request.match_info["num"])
-        s = b.registry.get(num)
-        if not s:
-            raise web.HTTPNotFound()
+    def _relay_chain(self, session):
+        chain, seen = [], set()
+        while session and session.num not in seen:
+            chain.append(session)
+            seen.add(session.num)
+            parent = self.bridge.registry.get(session.relay_from) if session.relay_from else None
+            if not parent or parent.owner != session.owner:
+                break
+            session = parent
+        return list(reversed(chain))
+
+    def _relay_latest(self, session):
+        seen = set()
+        while session and session.relay_to and session.num not in seen:
+            seen.add(session.num)
+            child = self.bridge.registry.get(session.relay_to)
+            if not child or child.owner != session.owner or child.num in seen:
+                break
+            session = child
+        return session
+
+    async def _saved_items(self, s):
+        b, num = self.bridge, s.num
         # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
         lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
         key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
@@ -1028,18 +1255,38 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)
-        items = [dict(it) for it in items]
+        return [dict(it) for it in items]
+
+    async def _api_thread(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        num = int(request.match_info["num"])
+        s = b.registry.get(num)
+        if not s:
+            raise web.HTTPNotFound()
+        latest = self._relay_latest(s)
+        if latest.num != num:
+            return web.json_response({"num": num, "redirect": latest.num})
+        chain = self._relay_chain(s)
+        items = await self._saved_items(s)
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
         # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
-        said = [re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()) for it in items if it["who"] == "you"]
+        # 只认发出之后才写进记录的那条：同一句话（比如“批准”按钮）再发一次，不会被旧的那条误认成已处理
+        said = [(re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()), it.get("ts") or 0.0) for it in items if it["who"] == "you"]
         out = b.outgoing.get(num, [])
-        out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) for x in said)]
+        out[:] = [o for o in out if not any(_said_has(x, o["text"]) and (not ts or ts >= o["t"] - 5) for x, ts in said)]
         if s.rewind_at:   # 点过“回到这里”：那条之后的先收起来，下一句从那里接着；还没说下一句前能撤销
             cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
             if cut is not None:
                 items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
-        items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
+        items += [{"who": "you", "text": o["text"], "pending": True, "age": int(time.time() - o["t"])} for o in out]
+        history = []
+        for index, previous in enumerate(chain[:-1]):
+            history += [{**it, "source_num": previous.num, "historical": True}
+                        for it in await self._saved_items(previous)]
+            following = chain[index + 1]
+            history.append({"who": "note", "text": "已接力，后续使用新的上下文", "handoff": following.relay_note})
+        items = history + items
         for it in items:
             if it["who"] == "claude":
                 it["text"] = self._zh_or_later(it["text"])
@@ -1067,7 +1314,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                     "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
                                 "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
         # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
-        last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not NOISE.match(it["text"] or "")), "")
+        last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not it.get("historical") and not NOISE.match(it["text"] or "")), "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
         recs = self._records(num)
@@ -1082,19 +1329,27 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if item.get("model"):
                 item["model_label"] = display_model(item["model"])
                 item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
+        relay_busy = bool(turn) or b.runner.busy(num)
+        relaying = num in getattr(b, "_relaying", ())
+        recommendation = relay_hint(s, relay_busy, relaying)
+        if recommendation and recommendation["kind"] in ("long", "cold") and not s.relay_suggested:
+            s.relay_suggested = True
+            b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
+                 "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (t[:80] or "（图片）") for j in b.runner.queued(num) for t in (j.parts or [j.text])]
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
             if s.limit_until > time.time() and not turn else None
         five = b.runner.limits.get("five_hour")
-        return web.json_response({"num": num, "name": s.name, "cwd": display(Path(s.cwd)), "items": items,
+        return web.json_response({"num": num, "name": chain[0].name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
-                                  "limit": limit, "engine": s.engine,
+                                  "limit": limit, "engine": s.engine,  "relay_to": s.relay_to or None,
+                                  "can_relay": s.relay_suggested and bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:
@@ -1132,11 +1387,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         origin = request.headers.get("Origin")
         return origin is None or origin == self.base or not self.base.startswith("https://")
 
-    async def _save_files(self, data: dict) -> list[str]:
+    def _inbox(self, request: web.Request) -> Path:
+        """网页传上来的附件放哪：admin 放小E 自己的收件箱；受限账号放进它自己的文件夹（不然它读不到）。"""
+        root = self.root_of(request.get("acct", ""))
+        return Path(root).expanduser() / "收到的附件" if root else self.store_path.parent / "inbox" / "web"
+
+    async def _save_files(self, data: dict, folder: Path | None = None) -> list[str]:
         """网页传上来的文件（任何格式）存进收件箱，原文件名保留在后面。"""
         files = data.get("files") or []
         paths = []
-        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder = folder or Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
         for i, f in enumerate(files):
             name = Path(str(f.get("name") or "file")).name.replace("/", "_")[:120] or "file"
@@ -1145,14 +1405,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             paths.append(str(p))
         return paths
 
-    async def _save_images(self, data: dict) -> list[str]:
+    async def _save_images(self, data: dict, folder: Path | None = None) -> list[str]:
         paths = []
-        folder = Path(self.store_path.parent) / "inbox" / "web"
+        folder = folder or Path(self.store_path.parent) / "inbox" / "web"
         folder.mkdir(parents=True, exist_ok=True)
         for i, url in enumerate(data.get("images") or []):
             head, _, b64 = str(url).partition(",")
             ext = "jpg" if "jpeg" in head else "png"
-            p = folder / f"{int(time.time() * 1000)}-{i}.{ext}"
+            p = folder / f"{int(time.time() * 1000)}-{secrets.token_hex(3)}-{i}.{ext}"   # 一次反馈几处各带图：同一毫秒里也不撞名
             p.write_bytes(base64.b64decode(b64))
             paths.append(str(p))
         return paths
@@ -1180,7 +1440,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return await request.json(), []
         reader = await request.multipart()
         data, saved = None, []
-        folder = self.store_path.parent / "inbox" / "web"
+        folder = self._inbox(request)
         try:
             async for part in reader:
                 if part.name == "message" and data is None and not saved:
@@ -1216,6 +1476,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             raise web.HTTPForbidden()
         data, streamed_files = await self._read_send(request)
         text = str(data.get("text") or "").strip()
+        acct = request.get("acct", "")
+        if self.role(acct) != "admin":
+            return await self._send_fenced(request, acct, data, text, streamed_files)
         from .schedules import parse_request
         try:
             plan = parse_request(text)
@@ -1244,6 +1507,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b.record("你（网页）", text, images=len(images), num=data.get("num"))
         num = data.get("num")
         if num:
+            if hasattr(b, "registry") and (session := b.registry.get(int(num))):
+                num = self._relay_latest(session).num
             busy = int(num) in b.runner.turns
             await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
             return web.json_response({"ok": True, "injected": busy})
@@ -1264,6 +1529,36 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         before = b.registry.next_num
         await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind, model=model, effort=effort)
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
+
+    async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str]) -> web.Response:
+        """受限账号说话：只能在自己的对话里接着说，或在自己的文件夹里新开；不分派、不排定时、不用 GPT。"""
+        b = self.bridge
+        if why := self.over_quota(acct):
+            return web.json_response({"ok": False, "error": why}, status=429)
+        inbox = self._inbox(request)
+        images = await self._save_images(data, inbox)
+        uploaded = streamed + await self._save_files(data, inbox)
+        if uploaded:
+            text = (text + "\n\n" if text else "") + "\n".join(f"（附件已存到：{p}）" for p in uploaded)
+        if not text and not images:
+            return web.json_response({"ok": False, "error": "没写内容"}, status=400)
+        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
+                       local_images=images, via="web")
+        owner = self.owner_key(acct)
+        if num := data.get("num"):
+            if not b.registry.mine(int(num), owner):
+                raise web.HTTPNotFound()
+            busy = int(num) in b.runner.turns
+            await b._message(Cmd("message", num=int(num), text=text), inc, routed=True)
+            return web.json_response({"ok": True, "injected": busy})
+        root = Path(self.root_of(acct)).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        model, effort = self._model_effort(data)
+        before = b.registry.reserve_num()
+        b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
+        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" else model, effort=effort,
+                       owner=owner, root=str(root))
+        return web.json_response({"ok": True, "num": before})
 
     @staticmethod
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
@@ -1295,6 +1590,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         except ValueError:
             data = {}
         num = int(data.get("num") or 0)
+        if num and not self.bridge.registry.mine(num, request.get("owner", "admin")):
+            return web.json_response({"ok": False}, status=404)
         if num and data.get("visible"):
             self.watch[num] = time.time()
         else:
@@ -1320,7 +1617,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             ids = [r["id"] for r in records]
             kept = ids[:ids.index(to) + 1] if to else []
             now = time.time()
-            s = Session(num=b.registry.reserve_num(), name=p.name[:8] + "·分叉", cwd=p.cwd,
+            s = Session(num=b.registry.reserve_num(), name=p.name[:8] + "·分叉", cwd=p.cwd, owner=p.owner, root=p.root,
                         add_dirs=list(p.add_dirs), engine="codex", model=p.model, effort=p.effort,
                         codex_id=p.codex_id if to else None, codex_records=kept, codex_cut_turn=cut,
                         fork_from=p.num, forking=bool(to), rewind_at=to,
@@ -1335,7 +1632,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return web.json_response({"ok": False, "error": "找不到那条回复了（可能在压缩之前）"})
         now = time.time()
         s = Session(num=b.registry.reserve_num(), name=(p.name[:8] + "·分叉"), cwd=p.cwd, add_dirs=list(p.add_dirs),
-                    claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
+                    owner=p.owner, root=p.root, claude_id=p.claude_id if to else None, model=p.model, effort=p.effort, renamed=True, titled=True,
                     worked=p.worked, seen=now, updated=now, fork_from=p.num, forking=bool(to), rewind_at=to,
                     rewind_note=f"从 #{p.num}「{p.name}」分叉")
         b.registry.add(s)
@@ -1505,14 +1802,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             out.pop()
         return web.json_response({"ok": True, "text": job.text.split("\n\n（附件已存到")[0]})
 
-    def _sig_sessions(self) -> str:
+    def _sig_sessions(self, owner: str = "admin") -> str:
         """对话列表的“指纹”：谁在做、做到第几步、等不等你、更新时间；变了就叫网页刷新列表。"""
         b = self.bridge
         out = []
         for s in b.registry.sessions.values():
+            if s.owner != owner:
+                continue
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
-                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.limit_until,
+                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.task_group, s.task_group_manual, s.limit_until,
                         s.rewind_at, s.auto_resume))
         return json.dumps(out, ensure_ascii=False, default=str)
 
@@ -1531,7 +1830,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s, t = b.registry.get(num), b.runner.turns.get(num)
         recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s else 0
         cc_mtime = self._cc_mtime(s)
-        return json.dumps([s.updated if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
+        return json.dumps([s.updated if s else 0, s.relay_to if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
                            s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime])
 
@@ -1539,6 +1838,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
         网页收到就当场更新，不用每几秒问一次。每 15 秒发个空行保活（反向代理 120 秒没动静会断）。"""
         num = int(request.query.get("num") or 0)
+        owner = request.get("owner", "admin")
+        if num and not self.bridge.registry.mine(num, owner):
+            num = 0
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store",
                                            "X-Accel-Buffering": "no"})
         await resp.prepare(request)
@@ -1546,7 +1848,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         beat = time.time()
         try:
             while True:
-                sig_s = self._sig_sessions()
+                sig_s = self._sig_sessions(owner)
                 if sig_s != last_s:
                     if last_s is not None:
                         await resp.write(b"event: s\ndata: 1\n\n")
@@ -1598,20 +1900,135 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         msg = await self.bridge.compact(int(request.match_info["num"]), via="web")
         return web.json_response({"ok": True, "message": msg})
 
+    async def _api_relay(self, request: web.Request) -> web.Response:
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        num = int(request.match_info["num"])
+        s = self.bridge.registry.get(num)
+        if not s:
+            raise web.HTTPNotFound()
+        if num not in self.bridge._relaying:
+            if self.bridge.runner.busy(num):
+                return web.json_response({"ok": False, "message": "正在回答或还有排队消息，请等回答结束后再接力。"}, status=409)
+            if not s.relay_suggested and not relay_hint(s, False, False):
+                return web.json_response({"ok": False, "message": "这个对话暂时没有接力建议。"}, status=409)
+        msg = self.bridge.relay(num, via="web")
+        return web.json_response({"ok": True, "message": msg})
+
     async def _api_stop(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         stopped = await self.bridge.runner.stop(int(request.match_info["num"]))
         return web.json_response({"ok": True, "stopped": stopped})
 
+    # ---------- 管理页（只有 admin）：账号与登录、额度消耗 ----------
+    async def _admin_page(self, request: web.Request) -> web.Response:
+        raise web.HTTPFound(f"{PREFIX}/#admin")   # 管理是主界面里的一个视图
+
+    async def _api_admin(self, request: web.Request) -> web.Response:
+        b = self.bridge
+        if not getattr(b.runner, "limits_gpt", None):   # GPT 额度平时只在有 GPT 对话时才读；管理页总要看得到
+            try:
+                await b.runner.refresh_gpt_usage()
+            except Exception:  # noqa: BLE001
+                log.debug("读 GPT 额度失败", exc_info=True)
+        now = time.time()
+        current_week = request.query.get("period") == "week"
+        days = max(7, min(90, int(request.query.get("days") or 30)))
+        week = b.runner.limits.get("seven_day")
+        reset = usage.reset_epoch(week[1], now=now) if week else None
+        cycle_start = usage.week_start(reset, now=now)
+        names = {n: s.name for n, s in b.registry.sessions.items()}
+        rows = usage.load(self.usage_path, (cycle_start if cycle_start is not None else now) if current_week else now - (days + 1) * 86400)
+        if current_week and cycle_start is None:
+            rows = []
+        me = request.cookies.get(COOKIE, "")
+        accts = []
+        for name, a in self.accounts.items():
+            accts.append({"name": name, "role": a.get("role"), "root": display(Path(a["root"]).expanduser()) if a.get("root") else "",
+                          "disabled": name in self.store.get("disabled", []), "me": name == request["acct"],
+                          "owner": self.owner_key(name), "quota": self.quota(name),
+                          "devices": [d for d in self._device_rows(me, None) if d["account"] == name]})
+        start = cycle_start if cycle_start is not None else now - usage.WEEK
+        rate = usage.rate(usage.load(self.usage_path, start - 3 * usage.WEEK), start - 3 * usage.WEEK,
+                          getattr(b, "spend", None)) or self.store.get("rate2")
+        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, now=now, rate=rate,
+                                                                            since=(cycle_start if cycle_start is not None else now) if current_week else None,
+                                                                            groups=usage.relay_groups(b.registry.sessions)),
+                                  "limits": self._limits(b.runner.limits),
+                                  "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "period": "week" if current_week else "days", "week_available": cycle_start is not None,
+                                  "period_start": cycle_start if current_week else None, "rate": rate})
+
+    async def _api_admin_act(self, request: web.Request) -> web.Response:
+        """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        d = await request.json()
+        act, name = d.get("action"), str(d.get("account") or "")
+        if name not in self.accounts:
+            return web.json_response({"ok": False, "error": "没有这个账号"}, status=404)
+        if act == "password":
+            pw = str(d.get("value") or "")
+            if len(pw) < 6:
+                return web.json_response({"ok": False, "error": "密码至少 6 位"})
+            digest = hash_password(pw)
+            if self.save_hash:
+                await asyncio.to_thread(self.save_hash, name, digest)
+            self.accounts[name]["hash"] = digest
+        elif act in ("disable", "enable"):
+            if self.role(name) == "admin":
+                return web.json_response({"ok": False, "error": "管理员账号不能停用"})
+            dis = set(self.store.get("disabled", []))
+            dis.add(name) if act == "disable" else dis.discard(name)
+            self.store["disabled"] = sorted(dis)
+        elif act == "share":
+            if self.role(name) == "admin":
+                return web.json_response({"ok": False, "error": "管理员不限额度"})
+            try:
+                share = float(d.get("value"))
+            except (TypeError, ValueError):
+                return web.json_response({"ok": False, "error": "比例不对"})
+            if not 0 < share <= 1:
+                return web.json_response({"ok": False, "error": "比例要在 1% 到 100% 之间"})
+            self.store.setdefault("shares", {})[name] = share
+        elif act == "logout":
+            want = str(d.get("id") or "")
+            me = request.cookies.get(COOKIE, "")
+            for sid in list(self.store["sessions"]):
+                if self._device_id(sid) == want and sid != me and self._acct_of(sid) == name:
+                    self._drop_device(sid)
+        elif act == "logout_all":
+            me = request.cookies.get(COOKIE, "")
+            for sid in [k for k in self.store["sessions"] if self._acct_of(k) == name and k != me]:
+                self._drop_device(sid)
+        else:
+            raise web.HTTPBadRequest()
+        self._save()
+        return web.json_response({"ok": True})
+
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
-                            f"{PREFIX}/health"):
+        if request.path in PUBLIC:
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
+        if "acct" not in request:   # 测试里直接放行登录的：当作 admin
+            request["acct"], request["owner"] = self._admin(), "admin"
+        owner, admin = request["owner"], self.role(request["acct"]) == "admin"
+        route = request.match_info.route.resource.canonical if request.match_info.route.resource else ""
+        if not admin and route not in USER_ROUTES:
+            raise web.HTTPForbidden(text="这个账号用不了这里")
+        if route.startswith(f"{PREFIX}/admin") or route.startswith(f"{PREFIX}/api/admin"):
+            if not admin:
+                raise web.HTTPForbidden(text="只有管理员能看")
+        # 带对话编号的：只能是自己账号的对话（别人的当作没有）
+        raw = request.match_info.get("num") or (request.match_info.get("tid") or "").split("-")[0]
+        if raw.isdigit() and self.bridge is not None and hasattr(self.bridge, "registry"):
+            s = self.bridge.registry.get(int(raw))
+            if (s and s.owner != owner) or (not s and not admin):
+                raise web.HTTPNotFound()
         return await handler(request)
 
     def app(self) -> web.Application:
@@ -1633,6 +2050,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{PREFIX}/api/devices", self._api_devices)
         app.router.add_post(f"{PREFIX}/api/devices/logout", self._api_device_logout)
         app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
+        app.router.add_post(f"{PREFIX}/api/task-groups", self._api_task_groups)
         app.router.add_get(f"{PREFIX}/api/events", self._api_events)
         app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
         app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
@@ -1648,6 +2066,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/schedules", self._api_schedules)
         app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
         app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
+        app.router.add_post(f"{PREFIX}/api/relay/{{num:\\d+}}", self._api_relay)
         app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
@@ -1657,6 +2076,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/resume-cc", self._api_resume_cc)
         app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
         app.router.add_post(f"{PREFIX}/api/presence", self._api_presence)
+        app.router.add_get(f"{PREFIX}/admin", self._admin_page)
+        app.router.add_get(f"{PREFIX}/api/admin", self._api_admin)
+        app.router.add_post(f"{PREFIX}/api/admin", self._api_admin_act)
         app.router.add_get(PREFIX, self._to_index)
         app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)

@@ -7,6 +7,8 @@
 <link rel="apple-touch-icon" href="/_x/icon.png"><link rel="manifest" href="/_x/manifest.json">
 <style>
 [hidden]{display:none!important}
+/* 受限账号（只在一个文件夹里干活）：定时任务、历史记录、管理这些入口都不显示 */
+.fenced .adm-only{display:none!important}
 :root{--bg:#fafaf9;--side:#f2f2ef;--panel:#fff;--bubble:#ebebe6;--ink:#1c1c1e;--mute:#6b6b70;--faint:#a3a3a8;--line:rgba(0,0,0,.08);
   /* 墨蓝：主色只用在“能点的、在进行的”；琥珀色只留给“等你定” */
   --acc:#2c4a74;--accsoft:rgba(44,74,116,.09);--acc-shadow:rgba(44,74,116,.28);--on-acc:#fff;
@@ -315,6 +317,11 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .ymeta{align-self:flex-end;margin-top:-18px;display:flex;align-items:center;gap:6px;font-size:var(--t1);color:var(--mute);padding-right:4px;min-height:24px}
 .yw .ymeta{margin-top:2px;min-height:30px} .ymeta .sending{color:var(--faint)}
 .yw .ibs{display:flex;opacity:0;transition:opacity .15s} .yw.show .ibs{opacity:1} @media (hover:hover){.yw:hover .ibs{opacity:1}}
+/* 代码块 / 要你确认的命令：右上角一个复制键 */
+.cw{position:relative;margin:0 0 .9em} .cw pre,.md .cw pre{margin:0;padding-right:44px}
+.cw>.cpy{position:absolute;top:5px;right:5px;z-index:1}
+details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
+.confirm .cw{margin:8px 0 12px} .confirm .cw pre{margin:0}
 /* 小图标按钮：复制、回退、分叉 */
 .ibs{display:inline-flex;align-items:center;gap:2px} .ib{position:relative;width:30px;height:30px;border-radius:var(--r1);display:grid;place-items:center;color:var(--mute)}
 .ib svg{width:17px;height:17px;stroke-width:1.7} .ib.done{color:var(--acc)} .ib:active{background:var(--line)}
@@ -352,6 +359,13 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .quick{align-items:center} .quick button{color:var(--acc)}
 @media (hover:hover){.quick button:hover{border-color:var(--acc)}}
 .hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
+/* 接力到新对话 */
+.relay{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accsoft);color:var(--ink);border-radius:var(--r1);padding:8px 8px 8px 12px;margin:0 0 6px;font-size:var(--t2);line-height:1.55}
+.relay .rt{flex:1 1 220px;min-width:0}
+.relay .rb{display:flex;gap:6px;flex:none;margin-left:auto}
+.relay button{height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
+.relay button.on{background:var(--acc);color:var(--on-acc)}
+.relay.running{background:none;color:var(--mute);padding:2px 8px 6px}
 /* 回到这里 */
 .rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
 .rwfile{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:var(--t3)} .rwfile input{margin-top:5px;width:18px;height:18px;accent-color:var(--acc)}
@@ -376,7 +390,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
   html.ipad .pill{height:38px} html.ipad .quick button{height:40px}
 }
 @media (max-width:820px){
-  .app{grid-template-columns:1fr} .side{background:var(--bg)}
+  .app{grid-template-columns:minmax(0,1fr)} .side{background:var(--bg);min-width:0} .scroll,.item .tx{min-width:0} .item{max-width:100%}
   .app.in .side{display:none} .app:not(.in) .main{display:none} .back{display:grid}
   .app:not(.in) .fab{display:grid} #newBtn{display:none}
   .brand{padding:calc(14px + env(safe-area-inset-top)) 14px 6px 20px} .brand b{font-size:28px} .brand img{width:34px;height:34px;border-radius:var(--r1)} .sum{font-size:var(--t3);padding:0 22px 4px}
@@ -501,9 +515,14 @@ svg{stroke-width:1.6}
 /* ── 侧栏：直接落在雾上 ── */
 .side{background:transparent}
 .brand{padding:20px 14px 12px 20px}
+.conn{display:flex;align-items:center;gap:6px;flex:1;min-width:0;margin-left:12px;white-space:nowrap;overflow:hidden;font-size:12.5px;color:var(--mute,#7b8794)}
+.conn i{width:7px;height:7px;border-radius:50%;background:#9aa5b1;flex:none;transition:background .3s,box-shadow .3s}
+.conn.on i{background:#3fb37f;box-shadow:0 0 0 2.5px rgba(63,179,127,.18)}
+.conn.off i{background:#d9a441;box-shadow:0 0 0 2.5px rgba(217,164,65,.2)}
+.conn .cs{color:var(--ink);opacity:.8}
 .brand .mk{width:30px;height:30px;border-radius:8px;margin-right:11px;flex:none;overflow:hidden;box-shadow:0 1px 3px rgba(24,44,64,.12),inset 0 0 0 .5px rgba(255,255,255,.5)}
 .mk>svg{width:100%;height:100%;display:block} .mk>svg.d{display:none} @media (prefers-color-scheme:dark){.mk>svg.l{display:none}.mk>svg.d{display:block}}
-.brand b{font-family:var(--fd);font-weight:400;font-size:20px;letter-spacing:.2em}
+.brand b{font-family:var(--fd);font-weight:400;font-size:20px;letter-spacing:.2em;flex:none}
 .icon-btn,.back{width:36px;height:36px;border-radius:50%;background:transparent;box-shadow:none;place-items:center;transition:background .2s}
 .icon-btn{margin-left:6px} .icon-btn svg{width:18px;height:18px}
 @media (hover:hover){.icon-btn:hover,.back:hover{background:var(--ctl-hi)}}
@@ -753,29 +772,30 @@ html,body{background:var(--sky) var(--bg);background-attachment:fixed}
   --haze-run:rgba(74,118,178,.22);--haze-ask:rgba(226,172,82,.30);--haze-err:rgba(214,108,92,.22)}
 @media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);
   --haze-run:rgba(122,166,234,.20);--haze-ask:rgba(232,186,96,.20);--haze-err:rgba(238,139,124,.18)}}
-/* 状态灯：小、淡、不发光，颜色和灰蓝底同一族（字本身不变色） */
-.dot,.running .dot,.ccard.running .dot,.ccard.queued .dot,.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot,.error .dot,.error.unread .dot,.unread .dot{
-  width:6px;height:6px;border:0;border-radius:50%;background:var(--c);box-shadow:none}
+/* 会话状态：实色灯和文字同时区分，排队与暂停使用不同形状。 */
+.dot,.running .dot,.ccard.running .dot,.queued .dot,.ccard.queued .dot,.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot,.error .dot,.error.unread .dot,.unread .dot{
+  width:9px;height:9px;border:0;border-radius:50%;background:var(--c);box-shadow:none}
 .running .dot::after,.ccard.running .dot::after{display:none}
-.running .dot,.ccard.running .dot,.ccard.queued .dot{--c:#8aa5c9;animation:soft 3.2s ease-in-out infinite}
-.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:#cdb27f}
-.error .dot,.error.unread .dot{--c:#cf968c}
-.unread .dot{--c:#aeb9c4}
-.paused .dot{background:transparent;box-shadow:inset 0 0 0 1px var(--faint)}
-@media (prefers-color-scheme:dark){.running .dot,.ccard.running .dot,.ccard.queued .dot{--c:#7f9bc2} .awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:#bba277}
-  .error .dot,.error.unread .dot{--c:#bd8b83} .unread .dot{--c:#647280}}
-@keyframes soft{0%,100%{opacity:.45}50%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.running .dot,.ccard.running .dot,.ccard.queued .dot{animation:none}}
+.unread .dot{--c:var(--ink)}
+.running .dot,.running.unread .dot,.ccard.running .dot{--c:var(--acc);animation:soft 2s ease-in-out infinite}
+.queued .dot,.queued.unread .dot,.ccard.queued .dot{display:block;--c:var(--acc);background:transparent;box-shadow:inset 0 0 0 2px var(--acc);border-radius:3px;animation:none}
+.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:var(--amber);animation:none}
+.error .dot,.error.unread .dot{--c:var(--red);border-radius:2px;animation:none}
+.paused .dot,.paused.unread .dot{display:block;background:linear-gradient(to right,var(--mute) 0 32%,transparent 32% 68%,var(--mute) 68%);border-radius:0;box-shadow:none;animation:none}
+@keyframes soft{0%,100%{opacity:.65}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.running .dot,.ccard.running .dot{animation:none}}
 /* 往左滑露出的删除 */
 .swipe{position:relative;overflow:hidden;border-radius:20px}
 .swipe>.item{position:relative;z-index:1;touch-action:pan-y}
 .swdel{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:64px;height:40px;border:0;border-radius:999px;padding:0;cursor:pointer;
   background:#cf7f74;color:#fff;font:inherit;font-size:15px;font-weight:500;letter-spacing:.08em;opacity:0;pointer-events:none}
 @media (prefers-color-scheme:dark){.swdel{background:#b36c63}}
-/* 字一律原色 */
-.awaiting .st,.error .st,.unread.idle .st,.paused .st,.ccard.running .st,.ccard.queued .st,.ccard.awaiting .st{color:var(--mute)}
-.head .ti span.running,.head .ti span.awaiting,.head .ti span.error{color:var(--mute)}
-/* 没看过的：标题稍实一点，不靠颜色；状态靠分组和灰字，不加任何色块 */
+/* 状态文字提高对比，和灯一起表达含义。 */
+.item.running .st,.item.queued .st,.ccard.running .st,.ccard.queued .st,.head .ti span.running,.head .ti span.queued{color:var(--acc);font-weight:500}
+.item.awaiting .st,.ccard.awaiting .st,.head .ti span.awaiting{color:var(--amber);font-weight:500}
+.item.error .st,.ccard.error .st,.head .ti span.error{color:var(--red);font-weight:500}
+.item.paused .st,.head .ti span.paused,.item.unread.idle .st{color:var(--ink);font-weight:500}
+/* 没看过的：标题稍实一点 */
 .item .nm{font-weight:400} .item.unread .nm{font-weight:500}
 
 /* 在做的卡片也不透色：转圈和进度条已经说明在做 */
@@ -802,12 +822,103 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 @media (prefers-color-scheme:dark){:root{--headbg:rgba(38,48,58,.74)}}
 .head{background:var(--headbg);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
   -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent)}
+/* ═══ 管理（只有 admin 看得到）：用量、账号 ═══
+   和对话页同一套：磨砂板、扁平旋钮按钮、圆体数字，不加说明小字。图表两色：主账号墨蓝、user 琥珀（已过色盲校验） */
+.adm{flex:1;overflow:auto;padding:6px 20px calc(48px + env(safe-area-inset-bottom));--s1:#4a76b2;--s2:#b5762a}
+@media (prefers-color-scheme:dark){.adm{--s1:#5d8bd1;--s2:#c27d2a}}
+.adm .col{gap:14px}
+.adm-tabs{display:flex;gap:2px;padding:3px;border-radius:var(--rf);background:var(--knob-in);flex:none}
+.adm-tabs button{height:30px;padding:0 14px;border-radius:var(--rf);font-size:var(--t2);color:var(--mute)}
+.adm-tabs button.on{background:var(--plate-hi);color:var(--ink);font-weight:500}
+.adm-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 6px -4px;font-size:var(--t2);color:var(--mute)}
+.plate{background:var(--plate);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);border-radius:20px;padding:16px 18px}
+.num{font-family:var(--fd);font-variant-numeric:tabular-nums}
+/* 额度：一块板一家，5 小时 / 本周两行 */
+.aq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.aq-others{grid-column:1/-1}
+.aq-others summary,.au-split summary{cursor:pointer;color:var(--mute);font-size:var(--t2)}
+.aq-others[open] summary,.au-split details[open] summary{margin-bottom:12px}
+.aq h3{margin:0 0 12px;font-size:var(--t3);font-weight:500}
+.aq-row+.aq-row{margin-top:14px}
+.aq-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t2);color:var(--mute)}
+.aq-top b{font-size:var(--t5);font-weight:400;color:var(--ink)}
+.aq-row .qb{height:4px;margin-top:6px} .aq-row .qr{margin-top:5px}
+.aq-row.hot .aq-top b{color:var(--amber)} .aq-row.hot .qb i{background:var(--amber)}
+.aq-row.critical .aq-top b{color:var(--red)} .aq-row.critical .qb i{background:var(--red)}
+.aq-empty{color:var(--faint);font-size:var(--t2)}
+/* 消耗：大数 + 各账号 + 每天的柱子 */
+.au-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.au-big b{display:block;font-size:40px;font-weight:300;line-height:1.1;letter-spacing:.01em}
+.au-big span{font-size:var(--t2);color:var(--mute)}
+.au-split{display:flex;gap:18px;flex-wrap:wrap}
+.au-split div{font-size:var(--t2);color:var(--mute)} .au-split b{display:block;font-size:var(--t4);font-weight:400;color:var(--ink)}
+.sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
+.au-chart{position:relative;margin-top:18px}
+.au-chart svg{display:block;width:100%;height:200px;overflow:visible;stroke:none}
+.au-chart text{fill:var(--faint);font-size:11px;font-family:var(--fd);font-variant-numeric:tabular-nums}
+.au-chart .gl{stroke:var(--line);stroke-width:1}
+.au-chart .hit{cursor:pointer} .au-chart .cur{fill:var(--knob-in)}
+.au-tip{position:absolute;z-index:3;pointer-events:none;transform:translate(-50%,calc(-100% - 10px));min-width:150px;padding:10px 12px;border-radius:var(--r2);
+  background:var(--pop);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--rim),0 12px 30px -12px rgba(40,60,80,.3);font-size:var(--t2);line-height:1.6;white-space:nowrap}
+.au-tip b{font-weight:500} .au-tip .r{display:flex;justify-content:space-between;gap:14px;color:var(--mute)} .au-tip .r span:last-child{color:var(--ink)}
+/* 每个对话：一行一个，右边金额，下面一道细线是占比 */
+.ac-list{display:flex;flex-direction:column;gap:2px;padding:8px}
+.ac{display:grid;grid-template-columns:1fr auto;gap:2px 14px;align-items:baseline;width:100%;text-align:left;padding:10px 10px 12px;border-radius:14px}
+@media (hover:hover){.ac[data-n]:hover{background:var(--plate-hi)}}
+.ac .nm{font-size:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.ac .nm span{overflow:hidden;text-overflow:ellipsis}
+.ac .v{font-size:var(--t3);text-align:right}
+.ac .st{font-size:var(--t1);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac .pc{font-size:var(--t1);color:var(--faint);text-align:right}
+.ac .bar{grid-column:1/-1;height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:6px}
+.ac .bar i{display:block;height:100%;border-radius:var(--rf)}
+.ac-empty{padding:28px 0;text-align:center;color:var(--faint);font-size:var(--t2)}
+/* 账号 */
+.aa{display:flex;flex-direction:column;gap:14px}
+.aa-hd{display:flex;align-items:center;gap:12px}
+.aa-av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--knob);font-family:var(--fd);font-size:var(--t4);color:var(--mute)}
+.aa-av.u{background:rgba(181,118,42,.12);color:#9a6420}
+@media (prefers-color-scheme:dark){.aa-av.u{background:rgba(194,125,42,.16);color:#d9a35e}}
+.aa-hd .tx{flex:1;min-width:0} .aa-hd b{display:flex;align-items:center;gap:8px;font-size:var(--t4);font-weight:500}
+.aa-hd small{display:block;font-size:var(--t2);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aa-tag{font-size:var(--t1);font-weight:400;padding:1px 8px;border-radius:var(--rf);background:var(--knob-in);color:var(--mute)}
+.aa-line{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--t2);color:var(--mute)}
+.aa-acts{display:flex;gap:8px;flex-wrap:wrap}
+.aa-acts .pill.bad,.aa-dev .pill.bad{color:var(--red)}
+.aa-devs{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.aa-dev{display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px}
+.aa-dev>svg{width:20px;height:20px;color:var(--mute)}
+.aa-dev .tx{flex:1;min-width:0} .aa-dev b{display:flex;align-items:center;gap:6px;font-size:var(--t3);font-weight:400}
+.aa-dev small{display:block;font-size:var(--t1);color:var(--mute)}
+.aa-dev .me{font-size:var(--t1);color:var(--acc);background:var(--accsoft);border-radius:var(--rf);padding:0 7px}
+.aa-dev .pill{height:30px;padding:0 12px}
+.aa.off .aa-hd,.aa.off .aa-devs{opacity:.55}
+.pwbox{display:flex;flex-direction:column;gap:6px;padding:8px}
+.pwbox b{font-size:var(--t4);font-weight:500;padding:4px 4px 2px}
+.au-tip{background:rgba(238,242,244,.97)}
+@media (prefers-color-scheme:dark){.au-tip{background:rgba(32,40,48,.97)}}
+@media (max-width:600px){.adm{padding:6px 12px calc(48px + env(safe-area-inset-bottom))} .au-big b{font-size:34px}
+  .aq-grid{grid-template-columns:1fr 1fr;gap:10px} .aq-grid .aq:nth-child(3){grid-column:1/-1}
+  .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}
+  .au-split{gap:14px}}
+
+.task-tools{display:flex;align-items:center;justify-content:space-between;padding:12px 10px 8px;color:var(--mute);font-size:var(--t2)}
+.task-group{border-bottom:1px solid var(--line);margin:0 4px}
+.task-group>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;padding:14px 8px;list-style:none}
+.task-group>summary::-webkit-details-marker{display:none}
+.task-group>summary b{display:block;font-size:var(--t3);font-weight:500;color:var(--ink)}
+.task-group>summary small{display:block;margin-top:4px;font-size:var(--t1);color:var(--mute)}
+.task-group>summary>svg{width:16px;height:16px;flex:none;color:var(--mute);transition:transform .15s}
+.task-group[open]>summary>svg{transform:rotate(90deg)}
+.task-rows{padding-bottom:10px}
+.quota-dialog .quota-manage{width:100%;justify-content:center;margin-top:20px;min-height:44px;font-size:var(--t2);color:var(--acc)}
+.au-period{font-size:var(--t1);color:var(--mute);line-height:1.7;padding:4px 6px} #admDays button{padding:0 11px}
 </style></head><body>
 <div class="app" id="app">
   <aside class="side">
-    <div class="brand"><span class="mk"><svg class="l" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mblc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbls" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#c3d1dd"/><stop offset=".55" stop-color="#dde5eb"/><stop offset="1" stop-color="#eef2f4"/></linearGradient><radialGradient id="mblg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#3a66a3" stop-opacity=".9"/><stop offset=".42" stop-color="#5179b0" stop-opacity=".45"/><stop offset=".66" stop-color="#5179b0" stop-opacity=".17"/><stop offset=".84" stop-color="#5179b0" stop-opacity=".05"/><stop offset="1" stop-color="#5179b0" stop-opacity="0"/></radialGradient><linearGradient id="mblp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".50"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient><filter id="mblb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mblc)"><rect width="512" height="512" fill="url(#mbls)"/><rect width="512" height="512" fill="url(#mblg)"/><rect width="512" height="512" fill="url(#mblp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".8" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#2c5594" opacity=".6" filter="url(#mblb)"/><circle cx="384" cy="128" r="24" fill="#f7fbff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".95" stroke-width="6"/></svg><svg class="d" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mbdc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbds" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#26323f"/><stop offset=".55" stop-color="#18212b"/><stop offset="1" stop-color="#10161d"/></linearGradient><radialGradient id="mbdg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#6f9be0" stop-opacity=".85"/><stop offset=".42" stop-color="#4f7fc6" stop-opacity=".45"/><stop offset=".66" stop-color="#4f7fc6" stop-opacity=".17"/><stop offset=".84" stop-color="#4f7fc6" stop-opacity=".05"/><stop offset="1" stop-color="#4f7fc6" stop-opacity="0"/></radialGradient><linearGradient id="mbdp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient><filter id="mbdb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mbdc)"><rect width="512" height="512" fill="url(#mbds)"/><rect width="512" height="512" fill="url(#mbdg)"/><rect width="512" height="512" fill="url(#mbdp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".2" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#7aa6ea" opacity=".6" filter="url(#mbdb)"/><circle cx="384" cy="128" r="24" fill="#eef4ff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="6"/></svg></span><b>远窗</b><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
+    <div class="brand"><span class="mk"><svg class="l" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mblc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbls" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#c3d1dd"/><stop offset=".55" stop-color="#dde5eb"/><stop offset="1" stop-color="#eef2f4"/></linearGradient><radialGradient id="mblg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#3a66a3" stop-opacity=".9"/><stop offset=".42" stop-color="#5179b0" stop-opacity=".45"/><stop offset=".66" stop-color="#5179b0" stop-opacity=".17"/><stop offset=".84" stop-color="#5179b0" stop-opacity=".05"/><stop offset="1" stop-color="#5179b0" stop-opacity="0"/></radialGradient><linearGradient id="mblp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".50"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient><filter id="mblb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mblc)"><rect width="512" height="512" fill="url(#mbls)"/><rect width="512" height="512" fill="url(#mblg)"/><rect width="512" height="512" fill="url(#mblp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".8" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#2c5594" opacity=".6" filter="url(#mblb)"/><circle cx="384" cy="128" r="24" fill="#f7fbff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".95" stroke-width="6"/></svg><svg class="d" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mbdc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbds" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#26323f"/><stop offset=".55" stop-color="#18212b"/><stop offset="1" stop-color="#10161d"/></linearGradient><radialGradient id="mbdg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#6f9be0" stop-opacity=".85"/><stop offset=".42" stop-color="#4f7fc6" stop-opacity=".45"/><stop offset=".66" stop-color="#4f7fc6" stop-opacity=".17"/><stop offset=".84" stop-color="#4f7fc6" stop-opacity=".05"/><stop offset="1" stop-color="#4f7fc6" stop-opacity="0"/></radialGradient><linearGradient id="mbdp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient><filter id="mbdb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mbdc)"><rect width="512" height="512" fill="url(#mbds)"/><rect width="512" height="512" fill="url(#mbdg)"/><rect width="512" height="512" fill="url(#mbdp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".2" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#7aa6ea" opacity=".6" filter="url(#mbdb)"/><circle cx="384" cy="128" r="24" fill="#eef4ff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="6"/></svg></span><b>远窗</b><div class="conn" id="conn" role="status"><i></i><span class="cs">连接中…</span></div><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
     <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
-    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><button class="item schedule-entry" id="schedulesBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg><span class="nm">定时任务</span></button><div id="list"></div>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="list"></div>
       <button id="logoutBtn" hidden></button>
     </div>
     <div class="quota" id="quota" hidden></div>
@@ -894,10 +1005,19 @@ function watchStatus() {
   document.title = n ? `(${n}) 远窗` : '远窗';
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
-let stick = false, sessions = [], folders = [], recent = [], lastFolder = '', sel = null, lastKey = '', pending = {}, opened = new Set();
+let me = {name: '', role: 'admin', root: ''};
+let stick = false, sessions = [], folders = [], recent = [], lastFolder = '', sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
+const coarsePhone = () => matchMedia('(max-width:600px) and (pointer:coarse)').matches;
+const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
+
 
 // Mac 连不上（睡着、断网、远窗在更新）时反向代理回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
+function setConn(st) {
+  const c = $('#conn'); if (!c) return;
+  c.className = 'conn ' + st; c.querySelector('.cs').textContent = {on: '已连接', off: '连不上', wait: '连接中…'}[st];
+}
 function setOffline(off) {
+  setConn(off ? 'off' : 'on');
   let el = $('#offline');
   if (!off) { if (el) el.remove(); return; }
   if (el) return;
@@ -981,7 +1101,7 @@ function md(src) {
   const endQuote = () => { if (quote.length) out.push(`<blockquote>${quote.map(inline).join('<br>')}</blockquote>`); quote = []; };
   const endAll = () => { endPara(); endList(); endTbl(); endQuote(); };
   // 代码块超过 8 行先收起（第一行当标题），点开再看
-  const pre = c => c.length > 8 ? `<details class="code"><summary><span>${c[0].trim().slice(0, 60) || '代码'}</span><small>${c.length} 行</small></summary><pre>${c.join('\n')}</pre></details>` : `<pre>${c.join('\n')}</pre>`;
+  const pre = c => c.length > 8 ? `<details class="code"><summary><span>${c[0].trim().slice(0, 60) || '代码'}</span><small>${c.length} 行</small><button class="ib cpy" data-tip="复制" aria-label="复制"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg></button></summary><pre>${c.join('\n')}</pre></details>` : `<div class="cw"><button class="ib cpy" data-tip="复制" aria-label="复制"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg></button><pre>${c.join('\n')}</pre></div>`;
   for (const l of lines) {
     if (code) { if (/^\s*```/.test(l)) { out.push(pre(code)); code = null; } else code.push(l); continue; }
     if (/^\s*```/.test(l)) { endAll(); code = []; continue; }
@@ -1059,10 +1179,12 @@ function renderQuotaDetails() {
 }
 function openQuotaDetails() {
   if ($('#quotaDetailBody')) return;
-  const el = sheet(`<div class="quota-detail-head"><h2 id="quotaTitle">额度用量</h2><button class="quota-close" aria-label="关闭">${ICON.close || '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'}</button></div><div id="quotaDetailBody"></div>`);
+  const el = sheet(`<div class="quota-detail-head"><h2 id="quotaTitle">额度用量</h2><button class="quota-close" aria-label="关闭">${ICON.close || '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'}</button></div><div id="quotaDetailBody"></div>${me.role !== 'user' ? '<button class="pill quota-manage" id="quotaManage">查看详细用量 · 进入管理</button>' : ''}`);
   el.classList.add('quota-dialog');
   const panel = el.querySelector('.box'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', 'quotaTitle');
   el.querySelector('.quota-close').onclick = () => el.remove();
+  const manageButton = el.querySelector('#quotaManage');
+  if (manageButton) manageButton.onclick = () => { el.remove(); openAdmin('usage'); };
   el.addEventListener('keydown', e => { if (e.key === 'Escape') el.remove(); });
   renderQuotaDetails(); el.querySelector('.quota-close').focus();
 }
@@ -1076,6 +1198,44 @@ function renderQuota() {
   renderQuotaDetails();
 }
 
+const wan = n => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + ' 万' : String(n);
+let relayReady = 0;
+let relayWait = 0;   // 点了接力、还在这个对话里等：新对话开好就自动过去
+async function startRelay(num) {
+  if (relayReady !== num) return;
+  relayReady = 0;
+  ['relayTop', 'relayGo', 'relayBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+  relayWait = num;
+  const r = await api('relay/' + num, {}).catch(() => null);
+  if (!r) { relayWait = 0; toast('没交出去，再点一次'); }
+  else { if (!r.ok) relayWait = 0; if (r.message) toast(r.message); }
+  lastKey = ''; loadThread(); loadSessions();
+}
+// 对话长了、或隔了一个多小时回来：在输入框上方提示接力到新对话（点“不用”就记住，直到对话再长一截或又隔了一阵）
+function renderRelay(d) {
+  const el = $('#relay'); if (!el) return;
+  const r = d.usage && d.usage.relay;
+  relayReady = d.can_relay && !d.live && !d.usage?.busy ? d.num : 0;
+  const h = $('#relayHead');   // 建议过才出现，回答进行中禁用
+  if (h) {
+    const run = r && r.kind === 'running';
+    h.innerHTML = d.usage?.relay_suggested || run ? `<button class="pill" id="relayTop" title="写交接说明，开新对话接着做" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
+    if ($('#relayTop')) $('#relayTop').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  }
+  if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => openSession(d.relay_to)); }
+  const off = !r || (r.key && localStorage.getItem('relayOff:' + d.num) === r.key);
+  el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
+  if (off) return;
+  if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在写交接说明，写完自动开新对话'; return; }
+  const t = wan(r.tokens);
+  el.innerHTML = `<span class="rt">${r.kind === 'cold'
+    ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省。`
+    : `这个对话已约 ${t} token，每说一句都要重读一遍。告一段落或换件事时，接力到新对话更省也更准。`}</span>
+    <span class="rb"><button class="on" id="relayGo">接力到新对话</button><button id="relayNo">不用</button></span>`;
+  $('#relayGo').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  $('#relayNo').onclick = () => { localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true; };
+}
+
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
@@ -1084,11 +1244,15 @@ function renderUsage(u) {
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
     + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
+      ${u.tokens ? `<div class="qh">约 ${wan(u.tokens)} token，每说一句都要重读一遍</div>` : ''}
       <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
-        : u.busy ? '做完才能压缩' : '压缩上下文'}</button></div>` : '');
+        : u.busy ? '做完才能压缩' : '压缩上下文'}</button>
+      ${u.relay_suggested || u.relay?.kind === 'running' ? `<button class="pill" id="relayBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.busy || u.relay?.kind === 'running' ? 'disabled' : ''}>${
+        u.relay?.kind === 'running' ? '<i class="spin"></i>正在写交接说明' : u.busy ? '回答结束后才能接力' : '接力到新对话'}</button>` : ''}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
+  if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); startRelay(sel); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {
     e.stopPropagation(); const b = e.currentTarget; b.disabled = true; b.innerHTML = '<i class="spin"></i>压缩中';
     const r = await api('compact/' + sel, {}).catch(() => null); b.textContent = r ? '已交给它，进度看对话里' : '没交出去，再点一次';
@@ -1099,19 +1263,58 @@ document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.u
 
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
 const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
+let taskGrouping = false, taskGroupAttempt = 0;
+function groupPreferences() {
+  try { return JSON.parse(localStorage.getItem('taskGroupOpen:' + (me.name || '')) || '{}'); } catch (_) { return {}; }
+}
+async function organizeTasks(force = false) {
+  if (me.role !== 'admin' || taskGrouping || (!force && Date.now() - taskGroupAttempt < 300000)) return;
+  taskGroupAttempt = Date.now(); taskGrouping = true; renderSide();
+  try {
+    const r = await api('task-groups', {force});
+    if (r.ok && r.count) toast(`已用 ${r.model} 整理 ${r.count} 个对话`);
+    else if (!r.ok && force) toast(r.error || '正在整理，请稍后查看');
+  } catch (_) { if (force) toast('整理暂未完成，请稍后重试'); }
+  finally { taskGrouping = false; await loadSessions(); }
+}
 function renderSide() {
   if (query) return renderSearch();
   const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
       <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
-  const now = Date.now() / 1000;
-  const busy = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || (s.unread && s.num !== sel);
-  // 要你定的、在做的、刚做完没看的在最上面；其余按最近 7 天、更早
-  const groups = [['需要你', s => ['awaiting', 'error'].includes(s.status)], ['在做', s => ['running', 'queued', 'paused'].includes(s.status)],
-    ['新完成', s => s.status === 'idle' && s.unread && s.num !== sel],
-    ['最近', s => !busy(s) && now - s.updated < 7 * 86400], ['更早', s => !busy(s) && now - s.updated >= 7 * 86400]]
-    .map(([t, f]) => [t, sessions.filter(f)]).filter(([, xs]) => xs.length);
-  $('#list').innerHTML = groups.map(([t, xs]) => `<div class="label">${t}</div>` + xs.map(row).join('')).join('')
-    || `<div class="note" style="padding:10px">还没有对话</div>`;
+  const buckets = new Map(), prefs = groupPreferences();
+  const priorityGroups = [
+    ['需要你', s => ['awaiting', 'error'].includes(s.status)],
+    ['在做', s => ['running', 'queued'].includes(s.status)],
+    ['已暂停', s => s.status === 'paused'],
+    ['新完成', s => s.unread],
+    ['有建议', s => s.suggest],
+  ].map(([name, match]) => ({name, match, items: []}));
+  for (const s of sessions) {
+    const priority = priorityGroups.find(g => g.match(s));
+    if (priority) { priority.items.push(s); continue; }
+    const name = s.task_group || '未分组';
+    if (!buckets.has(name)) buckets.set(name, []);
+    buckets.get(name).push(s);
+  }
+  const groups = [...buckets].sort((a, b) => Math.max(...b[1].map(s => s.updated)) - Math.max(...a[1].map(s => s.updated)));
+  const rank = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
+  const priorityHtml = priorityGroups.filter(g => g.items.length).map(g => {
+    g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
+    return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
+  }).join('');
+  $('#list').innerHTML = priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
+    const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
+    const running = xs.filter(s => s.status === 'running').length;
+    const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
+    const counts = [needs ? `${needs} 件需要你` : '', running ? `${running} 件在做` : '', queued ? `${queued} 件排队` : '', paused ? `${paused} 件暂停` : '', `${xs.length} 个对话`].filter(Boolean).join(' · ');
+    const open = prefs[name] ?? xs.some(s => s.num === sel);
+    xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
+    return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
+  }).join('')) : (!priorityHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
+  document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
+    const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
+    try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
+  });
   wireRows();
   renderSum();
 }
@@ -1257,12 +1460,12 @@ async function scheduleForm(task = {}) {
     el.remove(); openSchedules();
   };
 }
-$('#schedulesBtn').onclick = openSchedules;
 
 function rowMenu(num) {
   const s = sessions.find(x => x.num === num); if (!s) return;
   const el = sheet(`<div class="t">${esc(s.name)}</div>
     <button data-a="rename"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>改名</button>
+    <button data-a="task_group">${ICON.list}移到任务分组</button>
     ${['awaiting', 'error'].includes(s.status) && !(s.detail || '').startsWith('等你确认') ? `<button data-a="dismiss"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="m6 6 12 12M18 6 6 18"/></svg>不用回答了（清掉这个状态）</button>` : ''}
     <div class="sep"></div><button class="del" data-a="del"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>删除</button>`);
   el.querySelectorAll('button').forEach(b => b.onclick = async () => {
@@ -1272,6 +1475,13 @@ function rowMenu(num) {
       const inp = el.querySelector('#rn'); inp.focus(); inp.select();
       const ok = async () => { const v = inp.value.trim(); if (!v) return; el.remove(); manage(num, 'rename', v); };
       el.querySelector('#rok').onclick = ok; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) ok(); };
+    } else if (a === 'task_group') {
+      const names = [...new Set(sessions.map(x => x.task_group).filter(Boolean))];
+      el.querySelector('.box').innerHTML = `<div class="t">移到任务分组</div><input id="tg" list="taskNames" value="${esc(s.task_group || '')}" maxlength="24" placeholder="选择已有任务，或输入新任务名"><datalist id="taskNames">${names.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist><button class="on" id="tgok">保存</button>`;
+      const inp = el.querySelector('#tg'); inp.focus();
+      const save = async () => { const value = inp.value.trim(); if (value.length < 2) return toast('任务名至少2个字'); if (await manage(num, 'task_group', value)) { el.remove(); toast('已归组，自动整理会保留你的选择'); } };
+      el.querySelector('#tgok').onclick = save;
+      inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) save(); };
     } else if (a === 'dismiss') {
       el.remove(); if (await manage(num, 'dismiss')) { if (sel === num) { lastKey = ''; loadThread(); } toast('已清掉这个状态'); }
     } else if (a === 'del') {
@@ -1319,11 +1529,11 @@ $('#q').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; setQue
 $('#qclr').onclick = e => { e.preventDefault(); $('#q').value = ''; setQuery(''); $('#q').blur(); };
 
 // 标题下一行：问候 + 几件在做、几件等你，一眼看清现在的情况
-const OWNER = '庄老师';
+const OWNER = '';
 function renderSum() {
   const h = new Date().getHours(), hi = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
-  const run = sessions.filter(s => ['running', 'queued', 'paused'].includes(s.status)).length, wait = sessions.filter(s => ['awaiting', 'error'].includes(s.status)).length;
-  const bits = [esc(hi + '，' + OWNER)];
+  const run = sessions.filter(s => ['running', 'queued'].includes(s.status)).length, wait = sessions.filter(s => ['awaiting', 'error'].includes(s.status)).length;
+  const bits = [esc(hi + (OWNER ? '，' + OWNER : ''))];
   if (run) bits.push(`<span class="r">${run} 件在做</span>`);
   if (wait) bits.push(`<span class="w">${wait} 件等你</span>`);
   if (!run && !wait) bits.push('都做完了');
@@ -1331,13 +1541,13 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); sessions = d.sessions; folders = d.folders; recent = d.recent || []; lastFolder = d.last_folder || ''; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); }
+  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; recent = d.recent || []; lastFolder = d.last_folder || ''; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
 function composerHTML(ph) {
-  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
-    <textarea id="ta" rows="1" placeholder="${esc(ph)}"></textarea>
+  return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="relay" id="relay" hidden></div><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
+    <textarea id="ta" rows="1" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}"></textarea>
     <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
     <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
@@ -1385,7 +1595,7 @@ function headStatus() {
 // 历史只留一层：列表 → 某个对话。已经在对话（或新对话页）里再切到别的，就替换当前这一层，返回一次就回到列表
 function navTo(state, hash) {
   const st = history.state;
-  if (st && (st.s || st.n)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
+  if (st && (st.s || st.n || st.a)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
 }
 function openSession(num, fromPop) {
   partialText = ''; setTimeout(connectEvents);
@@ -1395,7 +1605,7 @@ function openSession(num, fromPop) {
   $('#app').classList.add('in');
   const s = sessions.find(x => x.num === num) || {name: '#' + num, cwd: ''};
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button>
-      <div class="ti"><b class="wt"><span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="usageBox"></span><span id="headActs"></span></div>
+      <div class="ti"><b class="wt"><span class="tt">${esc(s.name)}</span></b><span id="hst"></span></div><span id="relayHead"></span><span id="usageBox"></span><span id="headActs"></span></div>
     <div class="feed" id="feed"><div class="col" id="col"><div class="note">读取中…</div></div></div>
     ${composerHTML('说点什么…')}`;
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
@@ -1409,7 +1619,7 @@ function openSession(num, fromPop) {
   feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
   feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
   $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
-  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
+  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now(), base: saidBase(num, text)}; (pending[num] ||= []).push(p); return p; });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
 
@@ -1432,7 +1642,7 @@ function connectEvents() {
   esNum = n; esOk = false;
   es = new EventSource('/_x/api/events?num=' + n);
   es.onopen = () => { esOk = true; setOffline(false); };
-  es.onerror = () => { esOk = false; };          // 浏览器会自己重连；期间退回定时问
+  es.onerror = () => { esOk = false; setConn('wait'); };          // 浏览器会自己重连；期间退回定时问
   es.addEventListener('s', () => loadSessions());
   es.addEventListener('t', () => loadThread());
   es.addEventListener('p', e => { partialText = JSON.parse(e.data).text || ''; showPartial(); });
@@ -1656,9 +1866,16 @@ async function logoutHere(all) {
   location.href = '/_x/login';
 }
 $('#moreBtn').onclick = () => {
-  const el = sheet(`<button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>
+  const admin = me.role !== 'user';
+  const el = sheet((admin ? `<button data-a="s"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>定时任务</button>
+    <button data-a="a"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>管理</button>
+    <div class="sep"></div><button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>` : '') + `
     <button data-a="d"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg>登录的设备 · 退出登录</button>`);
-  el.querySelector('[data-a=h]').onclick = () => { location.href = '/_x/history'; };
+  if (admin) {
+    el.querySelector('[data-a=s]').onclick = () => { el.remove(); openSchedules(); };
+    el.querySelector('[data-a=a]').onclick = () => { el.remove(); openAdmin('usage'); };
+    el.querySelector('[data-a=h]').onclick = () => { location.href = '/_x/history'; };
+}
   el.querySelector('[data-a=d]').onclick = () => { el.remove(); $('#logoutBtn').onclick(); };
 };
 $('#logoutBtn').onclick = async () => {
@@ -1684,7 +1901,7 @@ $('#logoutBtn').onclick = async () => {
 
 addEventListener('popstate', e => { const lb = document.querySelectorAll('.lightbox'); if (lb.length) { lb.forEach(x => x.remove()); e.stopImmediatePropagation(); } });
 
-addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else goList(); });
+addEventListener('popstate', e => { const n = e.state && e.state.s; if (n) openSession(n, true); else if (e.state && e.state.n) openNew(true); else if (e.state && e.state.a) openAdmin(e.state.a, true); else goList(); });
 
 // 进行中用了多久：按秒走，每秒自己跳（不用等服务器）
 const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`; };
@@ -1695,14 +1912,17 @@ function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
-  const said = {has: t => saidList.some(x => x.startsWith(t.slice(0, 40)))};   // 记录里可能多了“（附件已存到…）”，按开头比
+  const relayTail = x => x.startsWith('（这是接力的新对话') && x.includes('用户这次说：\n\n') ? x.split('用户这次说：\n\n').pop() : x;   // 接力对话第一句：记录里带着交接说明
+  const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40)) || relayTail(x).startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
+  lastSaid[d.num] = sayCount;
+  lastYou[d.num] = saidList.filter(Boolean).slice(-1)[0] || '';
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
   (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
   const localImgs = sentImgs;
   // 服务器那边也报了这条“待发”（插话、排队）时，网页自己先摆的那条就不再重复显示
   const srvPend = d.items.filter(i => i.who === 'you' && i.pending).map(i => i.text.trim());
   const inSrv = t => srvPend.some(x => x.startsWith(t.slice(0, 40)) || t.startsWith(x.slice(0, 40)));
-  pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
+  pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
   const replies = d.items.filter(i => i.who === 'claude');
@@ -1713,21 +1933,24 @@ function renderThread(d) {
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
-  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
+  const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
       const req = d.live && (d.live.request || '').replace(/…$/, '');
-      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
+      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : (it.age > 30 ? '没开工' : '已送到');
       const before = prevEnd(idx);
-      const btns = ib('copy', '复制') + (isQ || (!it.pending && before) ? ib('back', '回退') : '') + (!it.pending && before !== null ? ib('fork', '分叉') : '');
-      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
+      const btns = ib('copy', '复制') + (it.historical ? ib('bring', '带给当前会话') : '') + (!it.historical && (isQ || (!it.pending && before)) ? ib('back', '回退') : '') + (!it.historical && !it.pending && before !== null ? ib('fork', '分叉') : '');
+      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
+    if (it.who === 'note' && it.handoff !== undefined) return `<details class="note"><summary>${esc(it.text)}</summary><div class="md">${md(it.handoff || '无交接说明')}</div></details>`;
+    if (it.who === 'note' && it.relay) return `<div class="note rw">${esc(it.text)}<button class="relaygo" data-n="${it.relay}">过去</button></div>`;
     if (it.who === 'note') return it.rewind
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
-    const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : ''].join('');
+    const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
+      ].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>${/\.pdf$/i.test(f.name) ? `<a class="file-download" href="${esc(f.url)}?download=1" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a>` : ''}</div>`).join('');
@@ -1739,12 +1962,12 @@ function renderThread(d) {
     // 回复底部只保留模型与交付信息；耗时放在工作过程右侧
     const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
-    const btns = `<span class="ibs">${ib('copy', '复制')}${it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
+    const btns = `<span class="ibs">${ib('copy', '复制')}${it.historical ? ib('bring', '带给当前会话') : it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
     return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
-    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
+    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? (Date.now() - p.t > 30000 && !d.live ? '没开工' : '已送到') : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
   if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
@@ -1770,7 +1993,7 @@ function renderThread(d) {
   const restQ = (d.queue || []).filter(q => !shownQ.has(q));
   if (restQ.length) h += `<div class="queue">接下来：${restQ.map(esc).join('；')}</div>`;
   if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>
-      <pre>${esc(d.live.confirm.cmd)}</pre><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
+      <div class="cw"><button class="ib cpy" data-tip="复制" aria-label="复制"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg></button><pre>${esc(d.live.confirm.cmd)}</pre></div><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
 </div>`;
   if (d.limit) h += `<div class="limit"><div class="q">额度用完了 · ${esc(d.limit.at)} 恢复${d.limit.auto ? '后自动接着做' : ''}</div>
       <button class="pill" id="autoRes">${d.limit.auto ? '别自动接' : '恢复后自动接着做'}</button></div>`;
@@ -1799,6 +2022,11 @@ function renderThread(d) {
   document.querySelectorAll('.ib[data-act]').forEach(b => b.onclick = e => {
     e.stopPropagation();
     const y = b.closest('.yw'), c = b.closest('.cl'), act = b.dataset.act;
+    if (act === 'bring') {
+      const it = d.items[+(y ? y.dataset.y : c.dataset.i)], ta = $('#ta');
+      ta.value += (ta.value ? '\n\n' : '') + '请参考之前这段聊天：\n' + it.text;
+      ta.oninput(); ta.focus(); toast('已放入输入框，发送后才带入上下文'); return;
+    }
     if (y) {
       const i = +y.dataset.y, text = d.items[i].text.replace(/\n\n（附件已存到[\s\S]*$/, '');
       if (act === 'copy') copyBtn(b, text);
@@ -1806,9 +2034,10 @@ function renderThread(d) {
       else forkAt(d, prevEnd(i) || '', text);
     } else if (c) {
       const it = d.items[+c.dataset.i];
-      if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start(d, it); else forkAt(d, it.end, '');
+      if (act === 'copy') copyBtn(b, it.text); else if (act === 'listen') speechPlayer.start({...d, num: it.source_num || d.num}, it); else forkAt(d, it.end, '');
     }
   });
+  document.querySelectorAll('.relaygo').forEach(b => b.onclick = () => openSession(+b.dataset.n));
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
@@ -1836,6 +2065,7 @@ function renderThread(d) {
     b.oncontextmenu = e => { e.preventDefault(); fill(); };
     b.onclick = () => { if (longed) { longed = false; return; } q.hidden = true; quickSend(d.num, text, b.textContent); };
   });
+  renderRelay(d);
   const hint = $('#hint'), fh = d.five_hour, risky = fh && fh.pct >= 90 && d.usage && (d.usage.mkey || 'opus') === 'opus' && !d.live && !d.limit;
   if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%${fh.reset ? ` · ${fh.reset} 重置` : ''}` : ''; }
   renderUsage(d.usage);
@@ -1846,7 +2076,7 @@ function renderThread(d) {
     document.querySelectorAll('.opt').forEach(x => x.disabled = true);
     b.querySelector('.k').innerHTML = '<i class="spin"></i>';
     const text = `选 ${b.dataset.k}：${b.dataset.v}`;
-    (pending[d.num] ||= []).push({text, t: Date.now()});
+    (pending[d.num] ||= []).push({text, t: Date.now(), base: saidBase(d.num, text)});
     await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
   });
   tickSilence();   // 先填好“没动静”那行，再定位置
@@ -1860,7 +2090,7 @@ const replyCount = {}, wasLive = {}, sentImgs = new Map();
 
 // 快捷回答：先显示出去，3 秒内能撤回（点错了不至于真发出去）
 function quickSend(num, text, label) {
-  const item = {text, t: Date.now(), quick: true};
+  const item = {text, t: Date.now(), quick: true, base: saidBase(num, text)};
   (pending[num] ||= []).push(item); lastKey = ''; loadThread();
   const timer = setTimeout(async () => { item.quick = false; lastKey = ''; loadThread();
     const r = await api('send', {num, text}).catch(() => null); if (r && r.ok) item.acked = true; else { pending[num] = (pending[num] || []).filter(p => p !== item); toast('没发出去，再点一次'); }
@@ -1902,6 +2132,7 @@ function rewindSheet(d, to, undoLast) {
 }
 // 复制、回退、分叉：和 Claude 一样是一排小图标，悬停出名字
 const IB = {
+  bring: '<svg viewBox="0 0 24 24"><path d="M4 5h12v9H9l-5 4V5zM14 19h6M17 16v6"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7"/><path d="M4 4v4.7h4.7"/></svg>',
   fork: '<svg viewBox="0 0 24 24"><path d="M3 12h6.5l8.5-7"/><path d="M13.5 5H18v4.5"/><path d="M9.5 12l8.5 7M13.5 19H18v-4.5"/></svg>',
@@ -2061,6 +2292,12 @@ const speechPlayer = (() => {
   }
   return {start, close, pause: () => { desired = false; audio.pause(); touch(false); paint(); }, deleted: n => { if (num === n) close(); }};
 })();
+document.addEventListener('click', e => {
+  const b = e.target.closest('.cpy'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const pre = b.closest('.cw, details.code').querySelector('pre');
+  copyBtn(b, pre.textContent);
+}, true);
 function copyBtn(b, text) {
   navigator.clipboard.writeText(text).then(() => {
     b.innerHTML = IB.ok; b.dataset.tip = '已复制'; b.classList.add('done');
@@ -2086,7 +2323,7 @@ function tickSilence() {
       await api('send', {num: sel, text: '现在做到哪了？是不是卡住了？卡在哪一步说一下。'}).catch(() => {}); loadThread(); }; }
 }
 
-// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（外网带宽小的时候，整段对话要传一两秒）
+// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（阿里云出口只有约 3Mbps，整段对话要传一两秒）
 const threadCache = new Map();
 try { for (const [n, v] of JSON.parse(localStorage.getItem('threads') || '[]')) threadCache.set(n, v); } catch (e) {}
 function cacheThread(d) {
@@ -2109,6 +2346,7 @@ async function loadThread() {
   try {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
+    if (d.redirect) { await loadSessions(); if (sel === d.num) openSession(d.redirect); return; }
     cacheThread(d);
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
@@ -2136,7 +2374,7 @@ let composerView = null;
 function composerDraft(key) {
   if (!composerDrafts.has(key)) {
     let text = '';
-    try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
+    if (key !== 'new') try { text = JSON.parse(localStorage.getItem('composerDrafts') || '{}')[key] || ''; } catch (_) {}
     composerDrafts.set(key, {text, images: [], files: [], sending: false, reading: 0, error: '', progress: ''});
   }
   return composerDrafts.get(key);
@@ -2144,26 +2382,36 @@ function composerDraft(key) {
 function saveComposerText(key, text) {
   try {
     const saved = JSON.parse(localStorage.getItem('composerDrafts') || '{}');
-    if (text) saved[key] = text; else delete saved[key];
+    // 新对话不跨次保留：每次打开都是空输入框
+    if (text && key !== 'new') saved[key] = text; else delete saved[key];
     localStorage.setItem('composerDrafts', JSON.stringify(saved));
   } catch (_) {}
 }
+// 敲字时草稿停手 0.3 秒才写盘，切走、关页、发送时立即写
+let draftTimer = 0, draftWait = null;
+function saveComposerSoon(key, text) { draftWait = [key, text]; clearTimeout(draftTimer); draftTimer = setTimeout(flushComposerText, 300); }
+function flushComposerText() { clearTimeout(draftTimer); if (draftWait) { const [k, t] = draftWait; draftWait = null; saveComposerText(k, t); } }
+addEventListener('pagehide', flushComposerText);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushComposerText(); });
 function refreshComposer(key) { if (composerView?.key === key) composerView.paint(); }
 
 function wireComposer(sendFn, onSent, onOpening) {
   const ta = $('#ta'), btn = $('#send'), thumbs = $('#thumbs'), warning = $('#warn');
   const key = String(sel ?? 'new'), state = composerDraft(key), num0 = sel;
   const active = () => ta.isConnected && $('#ta') === ta && String(sel ?? 'new') === key && $('#app').classList.contains('in');
+  let fitting = false, thumbSig = '';
   const paint = () => {
     if (!active()) return;
     if (ta.value !== state.text) ta.value = state.text;
-    const vis = window.visualViewport ? visualViewport.height : innerHeight;
-    ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, vis * .3)) + 'px';
+    if (!fitting) { fitting = true; requestAnimationFrame(() => { fitting = false; if (!active()) return; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, Math.max(96, (window.visualViewport ? visualViewport.height : innerHeight) * .3)) + 'px'; }); }
     btn.disabled = state.sending || state.reading > 0 || (!state.text.trim() && !state.images.length && !state.files.length);
     btn.innerHTML = state.sending ? '<i class="spin"></i>' : ICON.up;
     warning.hidden = !(state.error || state.progress);
     warning.textContent = state.error || state.progress;
     warning.classList.toggle('prog', !!state.progress && !state.error);
+    const sig = state.images.join('|') + '#' + state.files.map(f => f.name).join('|');
+    if (sig === thumbSig) return;
+    thumbSig = sig;
     thumbs.hidden = !state.images.length && !state.files.length;
     thumbs.innerHTML = state.images.map((u, i) => `<span class="thumb"><img src="${u}"><button data-i="${i}">×</button></span>`).join('')
       + state.files.map((f, i) => `<span class="thumb chipf">${ICON.doc}<span>${esc(f.name)}</span><button data-f="${i}">×</button></span>`).join('');
@@ -2171,7 +2419,8 @@ function wireComposer(sendFn, onSent, onOpening) {
     thumbs.querySelectorAll('button[data-f]').forEach(b => b.onclick = () => { state.files.splice(+b.dataset.f, 1); paint(); });
   };
   composerView = {key, paint};
-  const sync = () => { state.text = ta.value; saveComposerText(key, state.text); paint(); };
+  // 发送后输入法可能补发一次 input，把旧文字写回草稿；只认当前正在显示的输入框
+  const sync = () => { if (!active()) return; state.text = ta.value; saveComposerSoon(key, state.text); paint(); };
   const add = async files => {
     state.reading++; refreshComposer(key);
     try {
@@ -2193,7 +2442,12 @@ function wireComposer(sendFn, onSent, onOpening) {
   document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
   const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
   ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); } };
+  ta.onkeydown = e => {
+    if (e.key === 'ArrowUp' && !ta.value && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && lastYou[num0]) {   // 输入框空着按 ↑：调出上一句，改一下重发
+      e.preventDefault(); ta.value = lastYou[num0]; sync(); ta.setSelectionRange(ta.value.length, ta.value.length); return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
+  };
   async function go() {
     const originalText = state.text, text = originalText.trim();
     if ((!text && !state.images.length && !state.files.length) || state.sending || state.reading) return;
@@ -2222,8 +2476,10 @@ function wireComposer(sendFn, onSent, onOpening) {
         if (state.text === originalText) state.text = '';
         state.images = state.images.filter(x => !snapshot.images.includes(x));
         state.files = state.files.filter(x => !snapshot.files.includes(x));
-        saveComposerText(key, state.text);
+        draftWait = null; saveComposerText(key, state.text);
+        if (active()) ta.value = state.text;
         if (r.num) {
+          if (key === 'new' && !state.text && !state.images.length && !state.files.length) composerDrafts.delete(key);
           state.sending = false; state.progress = ''; refreshComposer(key);
           await loadSessions();
           if (active()) openSession(r.num); else toast('新对话已创建', '查看', () => openSession(r.num));
@@ -2235,10 +2491,12 @@ function wireComposer(sendFn, onSent, onOpening) {
       if (e.message !== 'login') state.error = e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次';
     } finally {
       state.sending = false; state.progress = ''; refreshComposer(key);
+      if (active() && !coarsePhone()) ta.focus();
       lastKey = ''; loadThread(); loadSessions();
     }
   }
   btn.onclick = go; paint();
+  if (active() && !coarsePhone()) ta.focus({preventScroll: true});
 }
 
 const WHERE_ICON = {
@@ -2340,9 +2598,197 @@ function deskSheet() {
   load();
 }
 
+// ═══ 管理（只有 admin）：用量、账号。是主区里的一个视图，和对话页一样进出 ═══
+let admTab = 'usage', admDays = 'week', admData = null;
+let admOtherQuotaOpen = false, admOtherSplitOpen = false;
+const ADM_ICON = {
+  phone: '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg>',
+  desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+};
+const ownerName = o => o === 'admin' ? '主账号' : o;
+const tokn = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? Math.round(v / 1e3) + 'K' : String(v || 0);
+const admOwners = d => [...new Set(['admin', ...d.accounts.map(a => a.owner)])];
+const ownerColor = (d, o) => admOwners(d).indexOf(o) % 2 ? 'var(--s2)' : 'var(--s1)';
+function openAdmin(tab, fromPop) {
+  if (me.role === 'user') return goList();
+  if (sel) presence(false);
+  sel = null; admTab = tab || admTab;
+  if (!fromPop) navTo({a: admTab}, '#admin');
+  $('#app').classList.add('in');
+  $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>管理</b></div>
+      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button></div></div>
+    <div class="adm" id="adm"><div class="col" id="admCol"></div></div>`;
+  $('#back').onclick = () => history.state && history.state.a ? history.back() : goList();
+  $('#admTabs').onclick = e => { const b = e.target.closest('button'); if (!b || b.dataset.t === admTab) return; admTab = b.dataset.t; history.replaceState({a: admTab}, '', '#admin'); drawAdmin(); };
+  renderSide(); drawAdmin(); loadAdmin();
+}
+async function loadAdmin() {
+  try {
+    const range = admDays;
+    const r = await fetch('/_x/api/admin?' + (range === 'week' ? 'period=week' : 'days=' + range));
+    if (r.status === 401) { location.href = '/_x/login?next=' + encodeURIComponent('/_x/#admin'); return; }
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    if (range !== admDays) return;
+    admData = data;
+  } catch (e) { if (!admData && $('#admCol')) $('#admCol').innerHTML = '<div class="ac-empty">没读到，下拉或稍后再试</div>'; return; }
+  drawAdmin();
+}
+async function admAct(body) {
+  const r = await api('admin', body).catch(() => null);
+  toast(r && r.ok ? '好了' : (r && r.error) || '没成功，再试一次');
+  await loadAdmin();
+}
+function drawAdmin() {
+  const col = $('#admCol'); if (!col) return;
+  document.querySelectorAll('#admTabs button').forEach(b => { b.classList.toggle('on', b.dataset.t === admTab); b.setAttribute('aria-selected', b.dataset.t === admTab); });
+  if (!admData) { col.innerHTML = '<div class="ac-empty">读取中…</div>'; return; }
+  if (admTab === 'accounts') return drawAccounts(col, admData);
+  drawUsage(col, admData);
+}
+
+// ── 用量 ──
+function aqRow(name, pct, reset) {
+  const cls = pct == null ? '' : pct > 90 ? 'critical' : pct >= 80 ? 'hot' : '';
+  return `<div class="aq-row ${cls}"><div class="aq-top"><span>${esc(name)}</span><b class="num">${pct == null ? '—' : Math.round(pct) + '%'}</b></div>
+    <div class="qb"><i style="width:${Math.max(pct ? 2 : 0, Math.min(100, pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)}</div>` : ''}</div>`;
+}
+function quotaPlate(title, ls) {
+  const order = ['5 小时', '本周'], rows = order.map(n => ls.find(l => l.name === n)).filter(Boolean);
+  return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, quotaReset(l).relative)).join('')
+    : `<div class="aq-row">${aqRow('本周', null, '')}</div>`}</div>`;
+}
+// 金额只在后台用来换算：× 每美元约合周额度的百分比 = 占主账号周额度的 %；还没校准出比例时返回 null
+function wkv(u, cost) { return u.rate == null ? null : cost * u.rate; }
+function fpct(p) { return p <= 0 ? '0%' : p < 0.1 ? '<0.1%' : p < 10 ? (Math.round(p * 10) / 10) + '%' : Math.round(p) + '%'; }
+function wk(u, cost) { const p = wkv(u, cost); return p == null ? '' : fpct(p); }
+function drawUsage(col, d) {
+  const u = d.usage, os = admOwners(d);
+  const fenced = d.accounts.filter(a => a.quota);
+  const quotas = quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt)
+    + (fenced.length ? `<details class="aq-others" id="admOtherQuota" ${admOtherQuotaOpen ? 'open' : ''}><summary>其他账号</summary><div class="aq-grid">` + fenced.map(a => `<div class="plate aq"><h3>${esc(a.name)}</h3>${aqRow(`本周 · 上限 ${Math.round(a.quota.share * 100)}%`, a.quota.calibrating ? null : a.quota.pct,
+        a.quota.reset_at ? quotaReset({name: '本周', reset_at: a.quota.reset_at}).relative : '')}</div>`).join('') + '</div></details>' : '');
+  const turns = u.days.reduce((s, x) => s + x.turns, 0), toks = u.days.reduce((s, x) => s + x.tokens, 0);
+  const gptToks = u.days.reduce((s, x) => s + x.gpt_tokens, 0);
+  const splits = os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, tokens: 0};
+    return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></div>`; });
+  const split = splits[0] + (splits.length > 1 ? `<details id="admOtherSplit" ${admOtherSplitOpen ? 'open' : ''}><summary>其他账号</summary>${splits.slice(1).join('')}</details>` : '');
+  const convs = u.conversations;
+  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotas}</div>
+    <div class="adm-h"><span>已记录消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
+    ${d.period === 'week' && !d.week_available ? '<div class="ac-empty">本周数据暂不可用</div>' : ''}
+    <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${wk(u, u.total_cost) ? '周额度 ' + wk(u, u.total_cost) + ' · ' : ''}${turns} 轮${gptToks ? ' · Codex ' + tokn(gptToks) : ''}</span></div>
+      <div class="au-split">${split}</div></div>
+      <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
+    <div class="adm-h"><span>对话消耗排行</span><span>${convs.length ? convs.length + ' 个' : ''}</span></div>
+    <div class="plate ac-list">${convs.length ? convs.map(c => {
+      const gpt = c.engine === 'codex', mine = c.owner === 'admin' && sessions.some(s => s.num === c.num);
+      const ms = c.models.map(m => m.replace(/^claude-/, '').replace(/-\d+(-\d+)?$/, '')), main = ms.filter(m => m !== 'haiku');
+      const bits = [ownerName(c.owner), ...(main.length ? main : ms), c.turns + ' 轮', ago(c.last)], p = gpt ? null : wkv(u, c.cost);
+      return `<button class="ac" ${mine ? `data-n="${c.num}"` : 'tabindex="-1"'}>
+        <span class="nm">${gpt ? engTag('codex') : ''}<span>${esc(c.name)}</span></span><span class="v num">${p == null ? tokn(c.tokens) : fpct(p)}</span>
+        <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${p == null ? 'tokens' : tokn(c.tokens)}</span>
+        <span class="bar"><i style="width:${p == null ? 0 : Math.max(1, Math.min(100, p))}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
+    }).join('') : '<div class="ac-empty">还没有记录</div>'}</div>`;
+  const otherQuota = $('#admOtherQuota'), otherSplit = $('#admOtherSplit');
+  if (otherQuota) otherQuota.ontoggle = () => { admOtherQuotaOpen = otherQuota.open; };
+  if (otherSplit) otherSplit.ontoggle = () => { admOtherSplitOpen = otherSplit.open; };
+  $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = b.dataset.d === 'week' ? 'week' : +b.dataset.d; loadAdmin(); };
+  col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
+  drawChart(d);
+}
+// 每天一根柱子，按账号叠（主账号在下）；段与段之间留 2px 缝，只有顶端是圆角；悬停 / 点一下看当天
+function drawChart(d) {
+  const svg = $('#auSvg'); if (!svg) return;
+  const days = d.usage.days, os = admOwners(d);
+  const W = Math.max(280, svg.clientWidth || 600), H = 200, L = 40, R = 4, T = 8, B = 24;
+  const byPct = d.usage.rate != null, val = (x, o) => byPct ? (x.by_owner[o] || 0) * d.usage.rate : (x.by_owner_tok[o] || 0);
+  const fmt = v => byPct ? (Math.round(v * 10) / 10) + '%' : tokn(v);
+  const tot = x => os.reduce((s, o) => s + val(x, o), 0);
+  const max = Math.max(0.01, ...days.map(tot));
+  const step = (() => { const raw = max / 3, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(v => v >= raw); })();
+  const top = step * Math.ceil(max / step), y = v => T + (H - T - B) * (1 - v / top);
+  const slot = (W - L - R) / days.length, bw = Math.max(3, Math.min(22, slot * .62));
+  let g = '';
+  for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
+  g += `<rect class="cur" id="auCur" x="0" y="${T}" width="${slot}" height="${H - T - B}" rx="6" opacity="0"/>`;
+  const every = Math.ceil(days.length / (W < 500 ? 5 : 10));
+  days.forEach((x, i) => {
+    const bx = L + slot * i + (slot - bw) / 2, parts = os.map(o => val(x, o));
+    const last = parts.reduce((k, v, j) => v > 0 ? j : k, -1);
+    let base = 0;
+    parts.forEach((v, k) => {
+      if (v <= 0) return;
+      const y1 = y(base + v), h = Math.max(1.5, y(base) - y1 - (base > 0 ? 2 : 0)), r = k === last ? Math.min(4, h, bw / 2) : 0;
+      g += r ? `<path d="M${bx},${y1 + h}V${y1 + r}Q${bx},${y1} ${bx + r},${y1}H${bx + bw - r}Q${bx + bw},${y1} ${bx + bw},${y1 + r}V${y1 + h}Z" fill="${ownerColor(d, os[k])}"/>`
+        : `<rect x="${bx}" y="${y1}" width="${bw}" height="${h}" fill="${ownerColor(d, os[k])}"/>`;
+      base += v;
+    });
+    if ((days.length - 1 - i) % every === 0) g += `<text x="${bx + bw / 2}" y="${H - 6}" text-anchor="middle">${x.day.replace(/^0/, '').replace('-', '/')}</text>`;
+  });
+  days.forEach((x, i) => { g += `<rect class="hit" data-i="${i}" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>`; });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = g;
+  const tip = $('#auTip'), cur = $('#auCur');
+  const show = e => {
+    const t = e.target.closest && e.target.closest('.hit');
+    if (!t) { tip.hidden = true; cur.setAttribute('opacity', 0); return; }
+    const i = +t.dataset.i, x = days[i];
+    cur.setAttribute('x', L + slot * i); cur.setAttribute('opacity', 1);
+    tip.innerHTML = `<b>${x.day.replace('-', '月').replace(/^0/, '')}日</b>　<span class="num">${byPct ? fpct(tot(x)) : tokn(tot(x))}</span>`
+      + os.map(o => `<div class="r"><span><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}</span><span class="num">${tokn(x.by_owner_tok[o] || 0)}${byPct ? ' · ' + fpct(val(x, o)) : ''}</span></div>`).join('')
+      + `<div class="r"><span>轮数</span><span class="num">${x.turns}</span></div>` + (x.gpt_tokens ? `<div class="r"><span>Codex</span><span class="num">${tokn(x.gpt_tokens)}</span></div>` : '')
+      + (x.week_pct != null ? `<div class="r"><span>当天周额度</span><span class="num">${Math.round(x.week_pct)}%</span></div>` : '');
+    tip.hidden = false;
+    const k = svg.getBoundingClientRect().width / W, cx = (L + slot * (i + .5)) * k, w = svg.getBoundingClientRect().width;
+    tip.style.left = Math.max(80, Math.min(w - 80, cx)) + 'px'; tip.style.top = Math.max(60, y(tot(x)) * k) + 'px';
+  };
+  svg.onpointermove = show; svg.onclick = show; svg.onpointerleave = () => { tip.hidden = true; cur.setAttribute('opacity', 0); };
+}
+addEventListener('resize', () => { if ($('#auSvg') && admData) drawChart(admData); });
+
+// ── 账号 ──
+function drawAccounts(col, d) {
+  col.innerHTML = d.accounts.map(a => {
+    const user = a.role !== 'admin', others = a.devices.filter(x => !x.me);
+    return `<div class="plate aa ${a.disabled ? 'off' : ''}" data-a="${esc(a.name)}">
+      <div class="aa-hd"><span class="aa-av ${user ? 'u' : ''}">${esc(a.name.slice(0, 1).toUpperCase())}</span>
+        <div class="tx"><b>${esc(a.name)}${a.disabled ? '<span class="aa-tag">已停用</span>' : ''}</b><small>${user ? esc(a.root) : '全部权限'}</small></div></div>
+      ${user && a.quota ? `<div class="aa-line"><span>周上限</span><div class="adm-tabs">${[10, 20, 30, 50].map(p => `<button data-act="share" data-v="${p}" class="${Math.round(a.quota.share * 100) === p ? 'on' : ''}">${p}%</button>`).join('')}</div></div>` : ''}
+      <div class="aa-devs">${a.devices.map(x => `<div class="aa-dev">${/iPhone|安卓/.test(x.name) ? ADM_ICON.phone : ADM_ICON.desk}
+          <div class="tx"><b>${esc(x.name)}${x.me ? '<span class="me">这台</span>' : ''}</b><small>${x.me ? '正在用' : x.seen ? ago2(x.seen) : '—'}${x.ip ? ' · ' + esc(x.ip) : ''}</small></div>
+          ${x.me ? '' : `<button class="pill bad" data-act="logout" data-id="${x.id}">退出</button>`}</div>`).join('') || '<div class="aa-dev"><small>没有登录着的设备</small></div>'}</div>
+      <div class="aa-acts"><button class="pill" data-act="pw">改密码</button>${others.length > 1 ? '<button class="pill bad" data-act="logout_all">全部退出</button>' : ''}
+        ${user ? `<button class="pill ${a.disabled ? '' : 'bad'}" data-act="${a.disabled ? 'enable' : 'disable'}">${a.disabled ? '启用' : '停用'}</button>` : ''}</div></div>`;
+  }).join('');
+  col.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const account = b.closest('[data-a]').dataset.a, act = b.dataset.act;
+    if (act === 'pw') return pwSheet(account);
+    if (act === 'share') return admAct({action: 'share', account, value: +b.dataset.v / 100});
+    if (act === 'disable') return confirmSheet(`停用 ${account}？`, '停用', () => admAct({action: 'disable', account}));
+    if (act === 'logout_all') return confirmSheet(`退出 ${account} 的其他设备？`, '全部退出', () => admAct({action: 'logout_all', account}));
+    b.disabled = true;
+    admAct({action: act, account, id: b.dataset.id});
+  };
+}
+function confirmSheet(title, ok, go) {
+  const el = sheet(`<div class="t">${esc(title)}</div><button class="del" data-ok>${esc(ok)}</button><button data-no>取消</button>`);
+  el.querySelector('[data-ok]').onclick = () => { el.remove(); go(); };
+  el.querySelector('[data-no]').onclick = () => el.remove();
+}
+function pwSheet(account) {
+  const el = sheet(`<div class="pwbox"><b>${esc(account)} 的新密码</b><input type="password" autocomplete="new-password" placeholder="至少 6 位" id="pwIn">
+    <button class="on" id="pwOk">保存</button><button id="pwNo">取消</button></div>`);
+  const inp = el.querySelector('#pwIn'); setTimeout(() => inp.focus(), 50);
+  const save = () => { if (inp.value.length < 6) { inp.focus(); return toast('至少 6 位'); } el.remove(); admAct({action: 'password', account, value: inp.value}); };
+  el.querySelector('#pwOk').onclick = save; inp.onkeydown = e => { if (e.key === 'Enter') save(); };
+  el.querySelector('#pwNo').onclick = () => el.remove();
+}
+
 // 新对话：和 Claude / ChatGPT 一样只有一个输入框；“在哪做”是输入框下面一个小按钮，默认是上次用的文件夹，要换才点开
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
+  composerDrafts.delete('new'); saveComposerText('new', '');
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
   const seen = new Set(recent.map(r => r.path));
   const opts = [...recent.map(r => ({v: r.path, ic: 'folder', t: r.name, d: r.show})),
@@ -2353,6 +2799,7 @@ function openNew(fromPop, preset) {
     <div class="newv"><h1>要做什么？</h1>${composerHTML('说说要做什么')}<div class="wbar" id="wbar"></div></div>`;
   $('#back').onclick = () => history.state && history.state.n ? history.back() : goList();
   const draw = () => {
+    if (me.role === 'user') { $('#wbar').innerHTML = `<span class="pill">${esc(me.root)}</span>`; return; }
     const cur = opts.find(o => o.v === pick) || {v: pick, ic: 'folder', t: pick};   // 手输的文件夹不在菜单里
     $('#wbar').innerHTML = `<button class="pill on" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
@@ -2411,13 +2858,20 @@ if (window.visualViewport) {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
   if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
+  else if (location.hash === '#admin') { history.replaceState(null, '', location.pathname); openAdmin(); }
   // 实时推送连着时只偶尔兜底刷新；断了（换网络、锁屏回来）退回每几秒问一次
   connectEvents();
   setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
   setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
+  setInterval(() => { if (!document.hidden && $('#adm')) loadAdmin(); }, 30000);
   document.addEventListener('visibilitychange', () => { presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
   // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
   addEventListener('keydown', e => {
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && e.key.length === 1 && !coarsePhone()) {   // 焦点不在输入框时直接打字：落进输入框
+      const ta = $('#ta'), t = e.target;
+      if (ta && t !== ta && !(t.closest && t.closest('input,textarea,select,[contenteditable],button,a,.modal,[role=dialog]')) && !document.querySelector('.modal,[role=dialog]')) ta.focus({preventScroll: true});
+      return;
+    }
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'k') { e.preventDefault(); if ($('#app').classList.contains('in') && matchMedia('(max-width:820px)').matches) goList(); $('#q').focus(); $('#q').select(); }

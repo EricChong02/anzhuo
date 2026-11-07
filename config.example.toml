@@ -39,3 +39,18 @@
 # scratch_root = "~/anzhuo-scratch"   # “不指定文件夹”时的临时文件夹放哪
 # search_roots = ["~/Projects", "~/Desktop", "~/Documents", "~/Downloads"]   # “新开 某个词：…”按名字找文件夹的范围
 # skip_names = []              # 按名字找时要跳过的文件夹名（前缀匹配），比如放私密资料的
+
+# 按任务自动分类（可选，默认关闭）：向模型发送标题、目录末级名称和最多400字摘要。
+# 有 DeepSeek 密钥优先用它，失败或没有密钥时用 Haiku；会消耗相应模型额度。
+# task_grouping = true
+
+# 多账号（可选）：不配时沿用 web_user，一个账号照常使用。
+# 必须有且只有一个 admin；受限 user 目前仅支持 macOS，且必须填写独立工作目录。
+# 分别运行 scripts/set_account.py 账号名 设置密码后重启。
+# [accounts.owner]
+# role = "admin"
+# [accounts.guest]
+# role = "user"
+# root = "~/anzhuo-guest"
+# share = 0.2  # 主账号 Claude 周额度的20%；估算未校准时不能精确限制
+

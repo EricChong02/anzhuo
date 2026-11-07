@@ -13,16 +13,27 @@ from pathlib import Path
 
 from claude_agent_sdk import list_sessions
 
-from . import cards, folders, report, translate
+from .localspend import LocalSpend
+from . import cards, folders, report, translate, usage
 from .commands import HELP, Cmd, parse
-from .config import DATA_DIR, Config, read_web_hash
+from .config import DATA_DIR, Config, write_web_hash, web_accounts
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
-from .web import Web
+from .web import Web, relay_hint
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
+
+# 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
+RELAY = """这个对话太长了，要换到一个新对话接着做。请写一份交接说明，新对话只靠它接手，所以要具体：
+1. 目标：用户要做成什么、明确提过的要求和偏好；
+2. 已定下的决定和理由（含否掉的做法，免得重走）；
+3. 已经做完的：改了哪些文件、提交 / 推送 / 上线情况；
+4. 正在做的和接下来几步；
+5. 关键路径、命令、账号位置、踩过的坑；
+6. 还等用户决定的问题。
+只回复交接说明本身，用 Markdown，2000 字以内；不要调用任何工具，不要再做别的事。"""
 
 DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、远窗发的），排查用
@@ -112,6 +123,16 @@ def _is_reply(text: str) -> bool:
 
 
 class Bridge:
+    def _usage(self, s: Session, turn: Turn) -> None:
+        last = None
+        if s.engine != "codex" and not s.claude_usage:   # 对话里还没存累计值：用记录里这个对话最后一条的
+            last = next((r.get("cum") for r in reversed(usage.load(self.data_dir / "usage.jsonl"))
+                         if r.get("num") == s.num and r.get("cum")), None)
+        if rec := usage.row(s, turn, self.runner.limits, last=last):
+            usage.append(self.data_dir / "usage.jsonl", rec)
+            self.registry.save()
+
+
     def __init__(self, cfg: Config, dt: DingTalk | NoDingTalk, data_dir: Path = DATA_DIR):
         self.cfg = cfg
         self.dt = dt
@@ -129,6 +150,10 @@ class Bridge:
         from . import schedules as _sch
         _sch.set_timezone(cfg.timezone)
         self.runner.review_policy = cfg.review_policy
+        self.runner.on_usage = self._usage
+        self.spend = LocalSpend(data_dir / "localspend.json")
+        usage.migrate(data_dir / "usage.jsonl")
+        self._relaying: set[int] = set()
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
@@ -136,8 +161,8 @@ class Bridge:
         self.board_lock = asyncio.Lock()
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
-        self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.web_user,
-                       read_web_hash(cfg.web_user) if cfg.web_base else "", cfg.watch_host)
+        self.web = Web(cfg.web_base, cfg.web_port, data_dir, watch_host=cfg.watch_host,
+                       accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -165,7 +190,7 @@ class Bridge:
 
     async def _schedule_failed(self, task: dict):
         body = f"{task['title']}：{task['error']}。计划已暂停，可在定时任务中修改。"
-        pushed = await self.web.push.send("定时任务未执行", body, task.get("target")) if self.web.enabled else 0
+        pushed = await self.web.notify("admin", "定时任务未执行", body, task.get("target")) if self.web.enabled else 0
         if not pushed:
             await self.say("定时任务未执行", body, board=False)
 
@@ -250,6 +275,8 @@ class Bridge:
         """在做的和排队的对话，给工作台用。"""
         items = []
         for num, s in sorted(self.registry.sessions.items()):
+            if s.owner != "admin":
+                continue
             if num in self.runner.turns:
                 items.append((s.label, num, self.runner.turns[num]))
             elif self.runner.busy(num):
@@ -342,7 +369,42 @@ class Bridge:
             await self.detail("压缩", msg)
         return msg
 
+    def relay(self, num: int, via: str = "web") -> str:
+        """接力：让这个对话写交接说明，写完开一个新对话（同一个文件夹、模型、深度），交接说明随你第一句话交给它。"""
+        s = self.registry.get(num)
+        if not s or not (s.claude_id or s.codex_id):
+            return "这个对话还没开始，不用接力。"
+        if s.relay_to and self.registry.get(s.relay_to):
+            return f"已经接力到 #{s.relay_to} 了。"
+        if num in self._relaying:
+            return "正在写交接说明，写完自动开新对话。"
+        if self.runner.busy(num):
+            return "正在回答或还有排队消息，请等回答结束后再接力。"
+        if not s.relay_suggested and not relay_hint(s, False, False):
+            return "这个对话暂时没有接力建议。"
+        self._relaying.add(num)
+        ahead = self.runner.submit(s, Job(text=RELAY, via=via))
+        return "正在写交接说明" + (f"，等手上 {ahead} 件做完再写" if ahead else "") + "，写完自动开新对话。"
+
+    def _relay_open(self, p: Session, note: str) -> Session:
+        now = time.time()
+        s = Session(num=self.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
+                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, pinned=p.pinned,
+                    task_group=p.task_group, task_group_manual=p.task_group_manual,
+                    renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
+                    unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
+                           f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
+        self.registry.add(s)
+        p.relay_to = s.num
+        self.registry.save()
+        return s
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
+        if s.num in self._relaying:
+            self._relaying.discard(s.num)
+            note = (turn.final_text or "").strip()
+            if not (turn.is_error or turn.interrupted) and note:
+                self._relay_open(s, note)
         if turn.schedule_id:
             self.schedules.finish(turn.schedule_id, turn.schedule_run_id, turn.error or ("任务未完成" if turn.is_error or turn.interrupted else ""))
         if turn.request == "压缩上下文" and not turn.is_error:
@@ -378,14 +440,14 @@ class Bridge:
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
-        full = turn.via == "dingtalk" or not self.web.enabled
+        full = (turn.via == "dingtalk" or not self.web.enabled) and s.owner == "admin"
         pushed = 0
         if self.web.enabled and not viewing:
             head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
                                              s.awaiting_kind, s.limit_until if turn.is_error else 0)
-            pushed = await self.web.push.send(head, what, s.num)
+            pushed = await self.web.notify(s.owner, head, what, s.num)
         if not full:
-            if not viewing and not pushed:
+            if not viewing and not pushed and s.owner == "admin":
                 head, what = report.push_message(s.name, turn.request, turn.final_text, turn.is_error, s.awaiting,
                                                  s.awaiting_kind, s.limit_until if turn.is_error else 0)
                 try:
@@ -436,7 +498,9 @@ class Bridge:
             return
         self.record("确认", c["what"], num=s.num)
         if self.web.enabled:
-            asyncio.create_task(self.web.push.send(s.name, "等你确认：" + c["what"], s.num))
+            asyncio.create_task(self.web.notify(s.owner, s.name, "等你确认：" + c["what"], s.num))
+        if s.owner != "admin":
+            return
         try:
             oid = f"c{s.num}-{int(time.time() * 1000)}"
             await self.dt.create_card(self.user_id, oid, cards.confirm_data(s.label, c["what"], c["cmd"], s.num))
@@ -541,6 +605,8 @@ class Bridge:
             if self.photo_task:
                 self.photo_task.cancel()
         cmd = parse(inc.text) if inc.text else Cmd("message")
+        if getattr(cmd, "num", None) and cmd.kind != "pick" and not self.registry.mine(cmd.num):
+            cmd.num = -1   # 别的账号的对话：钉钉里当作没有
         if cmd.kind == "pick" and self.pending:
             return await self._pick(cmd.num)
         if cmd.kind == "pick":
@@ -792,14 +858,17 @@ class Bridge:
         await self.say("接着桌面", "\n\n".join(lines))
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
-                     kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+                     kind: str | None = None, model: str | None = None, effort: str | None = None,
+                     owner: str = "admin", root: str = "") -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
             kind = "dev" if _looks_like_project(cwd) else "simple"
         auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto)
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root)
         said_model, said_effort = inline_overrides(text)
+        if root and (model or said_model) == "gpt":
+            model = said_model = None
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None
         s.model = model or said_model or s.model
@@ -810,6 +879,8 @@ class Bridge:
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
+            if owner != "admin":
+                return
             return await self.say("开好了", f"{s.label} 开好了\n\n{meta}\n\n接下来直接说要做什么。")
         await self._submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
 
@@ -838,11 +909,12 @@ class Bridge:
             if waiting:  # “按C来做”“好的”这类回复，交给正在等你回答的那个对话（最近问的那个）
                 num = waiting[0].num
         num = num or self.registry.current
-        s = self.registry.get(num)
+        s = self.registry.get(num) if routed else self.registry.mine(num)
         if not s:
             return await self.say("先开一个对话", "还没有对话。发“新开 文件夹：要做的事”，文件夹可以写 "
                                   + "、".join(self.cfg.folders) + "，或不写。发“帮助”看全部用法。")
-        self.registry.current = s.num
+        if s.owner == "admin":
+            self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
         if said_model == "gpt" or s.engine == "codex":
@@ -882,11 +954,24 @@ class Bridge:
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
+    async def _spend_loop(self) -> None:
+        """每 10 分钟读本机 Claude Code 记录新写的部分（第一次要读几 GB，放后台线程）。"""
+        while True:
+            try:
+                n = await asyncio.to_thread(self.spend.scan)
+                await asyncio.to_thread(self.spend.save)
+                log.debug("本机消耗：新读 %d 条", n)
+            except Exception:  # noqa: BLE001
+                log.warning("读本机 Claude Code 消耗失败", exc_info=True)
+            await asyncio.sleep(600)
+
     async def _gpt_usage_loop(self) -> None:
         """额度：Claude 的每 10 分钟读一次（重启后不用等第一轮做完，侧栏一打开就有）；有 GPT 对话时 GPT 的也读。"""
         while True:
             try:
                 await self.runner.refresh_usage(force=True)
+                if week := self.runner.limits.get("seven_day"):
+                    self.spend.snap(round(week[0] * 100, 1))   # 刚读到的本周额度 %，换算比例用
             except Exception:  # noqa: BLE001
                 log.debug("读 Claude 额度失败", exc_info=True)
             if any(s.engine == "codex" for s in self.registry.visible()):
@@ -966,6 +1051,7 @@ class Bridge:
         if self.cfg.auto_cleanup:
             asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
+        asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等

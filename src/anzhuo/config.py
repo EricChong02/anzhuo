@@ -45,6 +45,8 @@ class Config:
     auto_review: bool = False  # 危险命令交给 AI 审核员判断；false = 都等你点“允许”（默认）
     review_policy: str = ""  # 你额外授权审核员放行的事（比如“推送到我自己仓库的 dev 分支可以放行”）
     auto_cleanup: bool = False  # 每天自动归档旧对话记录、清空旧临时文件夹，每月派一次 AI 体检（见 docs/配置参考.md）
+    accounts: dict[str, dict] = field(default_factory=dict)
+    task_grouping: bool = False  # opt-in: classification sends short metadata to a model
     timezone: str = ""  # 定时任务用的时区（如 Asia/Shanghai）；空 = 这台电脑当前的时区
 
     @property
@@ -81,6 +83,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         review_policy=str(raw.get("review_policy", "")),
         auto_cleanup=bool(raw.get("auto_cleanup", False)),
         timezone=str(raw.get("timezone", "")),
+        accounts=dict(raw.get("accounts", {})),
+        task_grouping=bool(raw.get("task_grouping", False)),
     )
 
 
@@ -145,3 +149,19 @@ def write_web_hash(user: str, pw_hash: str) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(json.dumps(store))
     os.chmod(path, 0o600)
+
+
+def web_accounts(cfg: Config) -> dict[str, dict]:
+    accounts = cfg.accounts or ({cfg.web_user: {"role": "admin", "root": ""}} if cfg.web_user else {})
+    if accounts and sum(a.get("role") == "admin" for a in accounts.values()) != 1:
+        raise ValueError("accounts 必须有且只有一个 admin")
+    out = {}
+    for name, a in accounts.items():
+        role = "admin" if a.get("role") == "admin" else "user"
+        if role == "user" and (sys.platform != "darwin" or not a.get("root")):
+            raise ValueError("受限账号仅支持 macOS，且必须设置独立 root")
+        share = float(a.get("share", 0.2))
+        if not 0 < share <= 1:
+            raise ValueError("账号 share 必须大于0且不超过1")
+        out[name] = {**a, "role": role, "share": share, "hash": read_web_hash(name)}
+    return out

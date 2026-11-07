@@ -1,6 +1,6 @@
 [project]
 name = "anzhuo"
-version = "0.1.0"
+version = "0.2.0"
 description = "远窗：在手机或网页上给电脑里的 Claude Code / Codex 派活、收结果"
 readme = "README.md"
 license = { text = "MIT" }
