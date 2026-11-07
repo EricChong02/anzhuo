@@ -628,6 +628,7 @@ def test_relay(tmp_path, monkeypatch, engine):
 
     monkeypatch.setattr(Runner, "_run", fake_run)
     monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(Runner, "refresh_gpt_usage", no_usage)   # 装了 Codex 的电脑上别真去查额度
 
     async def go():
         b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")

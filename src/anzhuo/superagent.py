@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from claude_agent_sdk import tool
 
 from . import folders
+from .acp import ENGINES as ACP_ENGINES, available as acp_available, is_acp
 from .dingtalk import Incoming
 from .sessions import Session
 
@@ -59,9 +60,9 @@ RULES = """
 
 WORKER_RULES = """
 这件事是“总管”派给你的，用户通过总管跟你沟通。按下面的约定汇报：
-- 这一轮结束前调用一次 mcp__anzhuo__report：state 选 ready（做完了，有结果能看、能用）、waiting（这轮做完了，等后续消息再接着做）、blocked（卡住了，要用户给东西、权限或决定才能继续）、failed（做不成）、dropped（不用做：已经有人做了、问题不成立）；summary 一两句话写结论。
+- 这一轮结束前调用一次 report 工具（Claude 里叫 mcp__anzhuo__report）：state 选 ready（做完了，有结果能看、能用）、waiting（这轮做完了，等后续消息再接着做）、blocked（卡住了，要用户给东西、权限或决定才能继续）、failed（做不成）、dropped（不用做：已经有人做了、问题不成立）；summary 一两句话写结论。
 - 要用户拍板时，在 report 里填 question：一个具体问题，可带 A/B/C 选项和推荐；state 用 waiting。一次只问一个。问完能先做的照做。
-- “这件事”就是最开始交给你的那件活。之后收到的话：是对这件事的修改、补充、追问、对你问题的回答，就接着做；是一件和它无关的新任务（哪怕是点名交给你的），调用 mcp__anzhuo__handback 写明原因，然后直接结束这一轮，不要回答它、不要去做——总管会另开对话去做。
+- “这件事”就是最开始交给你的那件活。之后收到的话：是对这件事的修改、补充、追问、对你问题的回答，就接着做；是一件和它无关的新任务（哪怕是点名交给你的），调用 handback 工具（Claude 里叫 mcp__anzhuo__handback）写明原因，然后直接结束这一轮，不要回答它、不要去做——总管会另开对话去做。
 """
 
 # 总管不亲自干活：改文件、跑命令、上网查、派子助手都不行（读文件、找文件夹还可以）
@@ -72,8 +73,8 @@ DENY_REASON = "你是总管，不亲自干活。用 new_session 开个对话去�
 RECOVER = ("（远窗重启了，打断了你上一轮。先看看工作文件夹、git 状态和你已经做过的外部操作（提交、推送、发消息），"
            "确认做到哪了，做过的别再做一遍，然后接着做完；最后照约定调用 report。）")
 FOLLOW = "\n\n（经总管转来。先对照你这件事判断：属于这件事就接着做，最后调用 report；是和它无关的新任务就调用 handback 退回，不要去做。）"
-NUDGE = ("结束前还没汇报。属于这件事：调用 mcp__anzhuo__report（state + 一两句 summary，要用户拍板就填 question）；"
-         "这句话不属于这件事：调用 mcp__anzhuo__handback。调用后再结束。")
+NUDGE = ("结束前还没汇报。属于这件事：调用 report 工具（state + 一两句 summary，要用户拍板就填 question）；"
+         "这句话不属于这件事：调用 handback 工具。调用后再结束。")
 
 
 def must_report(turn, nudged: bool) -> str:
@@ -119,7 +120,7 @@ def state(bridge: "Bridge", s: Session) -> str:
 
 def brief(bridge: "Bridge", s: Session) -> dict:
     return {"num": s.num, "name": s.name, "folder": folders.display(Path(s.cwd)), "state": state(bridge, s),
-            "engine": "GPT" if s.engine == "codex" else "Claude", "awaiting": s.awaiting,
+            "engine": "GPT" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "Claude", "awaiting": s.awaiting,
             "last": s.last_summary, "from_router": bool(s.boss)}
 
 
@@ -143,6 +144,8 @@ def ensure(bridge: "Bridge") -> Session:
     s = Session(num=num, name=NAME, cwd=str(cwd), model=MODELS.get(bridge.cfg.simple_model, bridge.cfg.simple_model),
                 role=ROUTER, pinned=True, renamed=True, titled=True, worked=True)
     bridge.registry.add(s)
+    if not bridge.registry.get(bridge.registry.current):   # 钉钉里不带编号的话默认交给“当前对话”：先让它是总管
+        bridge.registry.current = s.num
     bridge.registry.save()
     log.info("总管已开好：#%s", num)
     return s
@@ -233,9 +236,9 @@ def tools(bridge: "Bridge", router: Session) -> list:
 
     @tool("new_session", "开一个新对话去做一件事，立刻开工。task 写用户的原话（可加一句背景）；"
           "folder 可写文件夹短名、完整路径或文件夹名里的几个字，不写就用临时文件夹；"
-          "engine 只在用户点名时填：claude 或 gpt；model 只在用户点名时填：opus / sonnet / haiku / fable。",
+          "engine 只在用户点名时填：claude、gpt 或 kimi；model 只在用户点名时填：opus / sonnet / haiku / fable（只对 Claude）。",
           {"type": "object", "properties": {"task": {"type": "string"}, "folder": {"type": "string"},
-                                            "engine": {"type": "string", "enum": ["claude", "gpt"]},
+                                            "engine": {"type": "string", "enum": ["claude", "gpt", *ACP_ENGINES]},
                                             "model": {"type": "string"}}, "required": ["task"]})
     async def new_session(args):
         from .app import MODELS
@@ -254,7 +257,10 @@ def tools(bridge: "Bridge", router: Session) -> list:
                 cwd = cands[0]
                 if spec != str(cwd):   # 用户说的是短名 / 名字：告诉它说的就是当前文件夹，免得在里面再建一个同名的
                     task = f"（用户说的“{spec}”就是你现在的工作文件夹 {cwd}）\n{task}"
-        model = "gpt" if args.get("engine") == "gpt" else MODELS.get(str(args.get("model") or "").lower())
+        engine = str(args.get("engine") or "")
+        if is_acp(engine) and not acp_available(engine):
+            return _error(f"这台电脑上没装 {ACP_ENGINES[engine]['name']}，换个引擎或问用户。")
+        model = engine if engine == "gpt" or is_acp(engine) else MODELS.get(str(args.get("model") or "").lower())
         num = reg.reserve_num()
         if cwd is None:
             cwd = folders.scratch_dir(bridge.cfg, num)

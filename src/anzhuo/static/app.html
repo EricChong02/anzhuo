@@ -694,6 +694,9 @@ mark{background:rgba(224,165,54,.25)}
 }
 /* 系统要求“降低透明度”时，玻璃都变实 */
 @media (prefers-reduced-transparency:reduce){:root{--card:var(--panel);--ctl:var(--panel);--ctl-hi:var(--panel);--glass-lo:var(--panel);--pop:var(--bg)}}
+/* 模型菜单开着时输入框不磨砂：带 backdrop-filter 的元素会成为 fixed 子元素的定位参照，手机上的底部面板会贴着输入框往上弹、
+   撞到标题栏；菜单自己的磨砂也只能糊到输入框里面，看着是透明的 */
+.composer:has(.mmenu){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 @media (prefers-reduced-motion:reduce){.pbar i.doing::before,.pbar i.doing::after,.running .dot::after,.ccard.running .dot::after{animation:none}}
 
 /* 状态光点：轻一点。小的实点 + 一圈很淡的光晕，没有珠子高光；在做的那圈光晕慢慢呼吸 */
@@ -819,7 +822,7 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 .dock::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);
   -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
   -webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px)}
-.newv .dock::before{content:none}
+.newv .dock{isolation:auto} .newv .dock::before{content:none}   /* 新对话页没有底板：不隔离，免得往下弹的菜单被文件夹按钮盖住 */
 .composer:focus-within{background:rgba(255,255,255,.80)}
 @media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
 /* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边 */
@@ -1267,7 +1270,8 @@ function renderUsage(u) {
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
-const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
+const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>'
+  : e && e !== 'claude' ? `<span class="eng" title="用 ${esc(e)} 做的">${e === 'kimi' ? 'Kimi' : esc(e)}</span>` : '';
 // 总管（super_agent）：给总管的消息开头的标记；“期间的情况”拆成一张折叠卡，后面的话照常显示
 const SA_TAGS = ['【回报】', '【退回】', '【要用户定】', '【重启】'];
 function saSplit(it) {
@@ -1584,11 +1588,15 @@ function renderModel(st, onPick, isNew) {
   const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
   const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(label(k))}</b></span>${ok}</button>`;
-  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt');
-  if (!isNew && st.model && st.model !== 'gpt' && !claude.includes(st.model)) claude.push(st.model);
-  const gptChat = !isNew && st.model === 'gpt';
-  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+  // 别家助手（走 ACP 的 Kimi 等）：每家一组、一行；开对话时选，对话里不换
+  const alt = modelOpts.map(m => m[0]).filter(k => !['opus', 'sonnet', 'haiku', 'fable', 'gpt'].includes(k));
+  const altRows = ks => ks.length ? `<div class="lb">其他助手</div>${ks.map(row).join('')}` : '';
+  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt' && !alt.includes(k));
+  if (!isNew && st.model && st.model !== 'gpt' && !alt.includes(st.model) && !claude.includes(st.model)) claude.push(st.model);
+  const gptChat = !isNew && st.model === 'gpt', altChat = !isNew && alt.includes(st.model);
+  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` + altRows(alt)
     : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : altChat ? altRows([st.model])
     : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(label(st.model))} · ${esc(ename)}${ICON.chev}</button>`

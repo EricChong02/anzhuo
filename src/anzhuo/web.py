@@ -28,6 +28,7 @@ from .push import Push
 from .speech import Speech
 from .sessions import COMPACT, Session
 from .cards import parse_decision
+from .acp import ENGINES as ACP_ENGINES, is_acp, available as acp_available
 from .sessions import NOISE
 from .commands import Cmd
 from .dingtalk import Incoming
@@ -108,7 +109,7 @@ def model_options() -> list[list[str]]:
     from .app import MODELS
     from .codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        ["gpt", display_model(configured_model()) or "GPT"]]
+        ["gpt", display_model(configured_model()) or "GPT"]] + [[k, v["name"]] for k, v in ACP_ENGINES.items() if acp_available(k)]
 
 def _md(text: str) -> str:
     """回复里的 Markdown 粗略转成 HTML：转义后只处理加粗、行内代码和链接，其余保留换行。"""
@@ -968,7 +969,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                    "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
-                                  "models": [m for m in model_options() if not fenced or m[0] != "gpt"],
+                                  "models": [m for m in model_options() if not fenced or m[0] in ("opus", "sonnet", "haiku", "fable")],
                                   "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "task_grouping": getattr(b.cfg, "task_grouping", False), "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
@@ -980,6 +981,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         home = str(Path.home())
         seen, out = {str(Path(v).expanduser()) for v in b.cfg.folders.values()}, []   # 配了短名的文件夹已经在菜单里，不再重复列
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.role == "router":   # 总管的文件夹不是干活的地方
+                continue
             p = str(Path(s.cwd).expanduser())
             if p in seen or p == home or p.startswith(scratch):
                 continue
@@ -994,6 +997,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b = self.bridge
         scratch, home = str(Path(b.cfg.scratch_root).expanduser()), str(Path.home())
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.role == "router":   # 总管的文件夹不是干活的地方
+                continue
             p = str(Path(s.cwd).expanduser())
             if p == home or p.startswith(scratch):
                 return ""
@@ -1077,7 +1082,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     def _search_items(self, s) -> list[dict]:
         """一个对话里能搜的话（你说的、它每轮的回复），按记录文件变没变缓存住，不用每次重读几十 MB 的记录。"""
-        if s.engine == "codex":
+        if s.engine != "claude":
             key = ("x", len(list(self.turns_dir.glob(f"{s.num}-*.json"))))
         else:
             p = thread.transcript_path(s.claude_id) if s.claude_id else None
@@ -1087,7 +1092,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return hit[1]
         items: list[dict] = []
         try:
-            if s.engine == "codex":
+            if s.engine != "claude":
                 items = self._codex_history(s.num)
             elif s.claude_id:
                 items = thread.history(thread.full_messages(s.claude_id, s.cwd), limit=100000)
@@ -1237,15 +1242,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _saved_items(self, s):
         b, num = self.bridge, s.num
         # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
-        lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
-        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
+        lt = b.runner.last.get(num) if s.engine != "claude" and hasattr(b.runner, "last") else None
+        key = (s.claude_id or s.codex_id or s.acp_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
                lt.ended if lt else 0, self._cc_mtime(s))
         cached = self._threads.get(num)
         if cached and cached[0] == key:
             items = cached[1]
         else:
             items = []
-            if s.engine == "codex":
+            if s.engine != "claude":
                 items = thread.attach_records(self._codex_history(num), self._records(num))
             elif s.claude_id:
                 try:
@@ -1338,7 +1343,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             s.relay_suggested = True
             b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
-                 "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
+                 "mkey": "gpt" if s.engine == "codex" else s.engine if is_acp(s.engine) else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
@@ -1558,7 +1563,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         model, effort = self._model_effort(data)
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
-        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" else model, effort=effort,
+        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" or is_acp(model or "") else model, effort=effort,
                        owner=owner, root=str(root))
         return web.json_response({"ok": True, "num": before})
 
@@ -1567,7 +1572,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """网页上选的模型（opus / sonnet / haiku）和深度（low…max）；没选或不认得的返回 None。"""
         from .app import EFFORTS, MODELS
         m = str(data.get("model") or "")
-        return ("gpt" if m == "gpt" else MODELS.get(m)), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
+        return ("gpt" if m == "gpt" else m if is_acp(m) else MODELS.get(m)), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
 
     async def _api_settings(self, request: web.Request) -> web.Response:
         """改某个对话的模型和思考深度，下一轮起生效（正在做的这一轮不变）。"""
@@ -1577,7 +1582,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not s:
             raise web.HTTPNotFound()
         model, effort = self._model_effort(await request.json())
-        if model == "gpt" or (s.engine == "codex" and model):
+        if model == "gpt" or is_acp(model or "") or (s.engine != "claude" and model):
             model = None   # 一个对话从头到尾用同一家：中途不在 Claude 和 GPT 之间换
         s.model = model or s.model
         s.effort = effort or s.effort
@@ -1609,6 +1614,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         p = b.registry.get(int(request.match_info["num"]))
         if not p:
             raise web.HTTPNotFound()
+        if is_acp(p.engine):
+            return web.json_response({"ok": False, "error": f"{ACP_ENGINES[p.engine]['name']} 的对话暂不支持分叉"})
         to = str((await request.json()).get("to") or "")
         if p.engine == "codex":
             try:
@@ -1655,6 +1662,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(int(request.match_info["num"]))
         if not s:
             raise web.HTTPNotFound()
+        if is_acp(s.engine):
+            return web.json_response({"ok": False, "error": f"{ACP_ENGINES[s.engine]['name']} 的对话暂不支持回退"})
         data = await request.json()
         if data.get("cancel"):
             if s.forking:

@@ -310,3 +310,84 @@ def test_must_report_nudges_once():
     hook = r._stop_check(Turn(started=0, via="router"), superagent.must_report)
     assert asyncio.run(hook({"stop_hook_active": False}, None, None))["decision"] == "block"
     assert asyncio.run(hook({"stop_hook_active": True}, None, None)) == {}
+
+
+def test_dingtalk_flow(tmp_path, monkeypatch):
+    """只用钉钉（不开网页）：不带编号的话交给总管；派出去的那一轮不发钉钉；总管的回报发回钉钉；
+    总管转来的“要你定”出按钮卡，点按钮交回总管，总管再转给那个对话。"""
+    from test_bridge import msg
+    runs, b_ref = [], []
+    router_num = []
+
+    async def fake_run(self, s, job, turn):
+        runs.append((s.num, job.via, job.text))
+        b = b_ref[0]
+        if s.role == "router":
+            _, t = _tools(b)
+            said = job.text.split("\n\n")[-1]   # 前面可能带着“期间的情况”
+            if job.via == "dingtalk" and said.startswith("选"):
+                w = next(x for x in b.registry.sessions.values() if x.role != "router")
+                await t["send_to_session"]({"num": w.num, "text": said})
+                turn.final_text = f"已转给 #{w.num}。"
+            elif job.via == "dingtalk":
+                await t["new_session"]({"task": job.text})
+                turn.final_text = "已交给 #2。"
+            elif "要用户定" in job.text:
+                turn.final_text = "要你定：标题用哪个？\n\nA. 大\nB. 中\n\n推荐：B"
+            else:
+                turn.final_text = "#2 修好了，登录页按钮能点了。"
+            return
+        _, t = _tools(b, s)
+        if job.text.startswith("选"):
+            await t["report"]({"state": "ready", "summary": "按 B 改了"})
+            turn.final_text = "按 B 改了"
+        elif "标题" in job.text:
+            await t["report"]({"state": "waiting", "summary": "等你选", "question": "标题用哪个？\nA. 大\nB. 中\n推荐：B"})
+            turn.final_text = "要你定：标题用哪个？"
+        else:
+            await t["report"]({"state": "ready", "summary": "修好了"})
+            turn.final_text = "修好了"
+
+    async def no_usage(self, force=False):
+        pass
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    dt = FakeDT()
+
+    async def go():
+        b = Bridge(Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), super_agent=True), dt,
+                   data_dir=tmp_path / "data")
+        b_ref.append(b)
+        assert not b.web.enabled
+        router = superagent.find(b)
+        assert b.registry.current == router.num               # 钉钉里不带编号的话默认给总管
+        b.receipt_delay = 0
+        await b.on_raw(msg("帮我修登录页"))
+        await asyncio.sleep(0.4)
+        assert runs[0][:2] == (router.num, "dingtalk") and runs[1][1] == "router" and runs[2][1] == "report"
+        texts = " ".join(t for _, t in dt.sent)
+        assert "#2 修好了" in texts and "【回报】" not in texts    # 总管说给你听；派出去的那一轮不直接发钉钉
+
+        dt.sent.clear(), runs.clear()
+        w = next(x for x in b.registry.sessions.values() if x.role != "router")
+        _, t = _tools(b)
+        await t["send_to_session"]({"num": w.num, "text": "标题也改一下"})   # 总管转话 → worker 提问 → 回到总管 → 按钮卡
+        await asyncio.sleep(0.4)
+        oid = next(k for k in dt.cards if k.startswith(f"d{router.num}-"))
+        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
+        await asyncio.sleep(0.4)
+        to_router = [r[2] for r in runs if r[0] == router.num and r[1] == "dingtalk"]
+        assert to_router and to_router[0].startswith("【期间的情况】") and to_router[0].endswith("选 B：中")   # 点按钮交回总管，带着期间的情况
+        assert any(r[0] == w.num and r[1] == "router" and r[2].startswith("选 B") for r in runs)   # 总管转给 worker
+        assert w.ticket == "ready"
+
+    asyncio.run(go())
+
+
+def test_router_folder_not_suggested(tmp_path):
+    """新对话默认文件夹、最近用过的文件夹里不出现总管自己的文件夹。"""
+    b = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "data")
+    router = superagent.find(b)
+    router.updated = 9e12
+    assert b.web._last_folder() != router.cwd
+    assert all(f["path"] != router.cwd for f in b.web._recent_folders())

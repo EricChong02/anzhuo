@@ -20,9 +20,11 @@ from .config import DATA_DIR, Config, write_web_hash, web_accounts
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
 from .web import Web, relay_hint
+from .acp import ENGINES as ACP_ENGINES, is_acp
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
+ENGINES_ALT = ("gpt", *ACP_ENGINES)   # 不是 Claude 的引擎：开对话时选，中途不换
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 # 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
@@ -103,6 +105,8 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
         model = MODELS[m.group(1).lower()]
     elif re.search(r"(?:用|交给|让)\s*(codex|gpt|chatgpt)", text, re.I):
         model = "gpt"
+    elif re.search(r"(?:用|交给|让)\s*kimi", text, re.I):   # ACP 引擎：模型那一栏就写引擎名
+        model = "kimi"
     if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
         effort = EFFORTS[m.group(1)]
     return model, effort
@@ -405,6 +409,10 @@ class Bridge:
         self.registry.save()
         return s
 
+    def _limits(self, s: Session) -> dict:
+        """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
+        return self.runner.limits_gpt if s.engine == "codex" else {} if is_acp(s.engine) else self.runner.limits
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         if s.num in self._relaying:
             self._relaying.discard(s.num)
@@ -423,14 +431,14 @@ class Bridge:
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
-        title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
+        title, body = report.build(s.label, turn, s.cwd, self._limits(s))
         if self.web.enabled:
             try:
                 tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0] if title else "回复")
                 if not (turn.changed_files or turn.commands or turn.images or turn.is_error):
                     raise LookupError  # 闲聊、直接问答：记下来给网页对话框用，报告里不附链接
                 turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
-                title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
+                title, body = report.build(s.label, turn, s.cwd, self._limits(s))
             except LookupError:
                 pass
             except Exception:  # noqa: BLE001 - 过程页出问题不影响报告
@@ -876,15 +884,17 @@ class Bridge:
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
                     boss=boss)
         said_model, said_effort = inline_overrides(text)
-        if root and (model or said_model) == "gpt":
+        if root and (model or said_model) in ENGINES_ALT:   # 受限账号只用 Claude
             model = said_model = None
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None
+        elif is_acp(model or said_model or ""):   # 用 ACP 引擎（Kimi 等）干这件事
+            s.engine, model, said_model, s.model = (model or said_model), None, None, None
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "GPT · Codex" if s.engine == "codex" else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
+        why = "GPT · Codex" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
@@ -926,7 +936,7 @@ class Bridge:
             self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
-        if said_model == "gpt" or s.engine == "codex":
+        if said_model in ENGINES_ALT or s.engine != "claude":
             said_model = None   # 对话中途换不了 Claude / GPT；话里提到“用 codex”多半是在说别的事
         if said_model or said_effort:
             s.model = said_model or s.model
