@@ -123,8 +123,27 @@ def load(path: Path, since: float = 0) -> list[dict]:
     return out
 
 
+def relay_groups(sessions: dict) -> dict[int, int]:
+    """接力链归到最初的对话；只沿同账号的真实关系，不按名称猜测。"""
+    groups = {}
+    for num in sessions:
+        chain, current = [], num
+        while current not in chain:
+            chain.append(current)
+            session = sessions[current]
+            parent = session.relay_from
+            if parent not in sessions or sessions[parent].owner != session.owner:
+                break
+            current = parent
+        else:
+            # 损坏的循环也要稳定归组，避免死循环或重复记账。
+            current = min(chain[chain.index(current):])
+        groups[num] = current
+    return groups
+
+
 def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float | None = None,
-            rate: float | None = None) -> dict:
+            rate: float | None = None, groups: dict[int, int] | None = None) -> dict:
     """管理页要的数：每天（金额、token、轮数、当天最后的本周额度 %）、每个对话、每个账号。
     rate：每 1 美元约等于主账号周额度的百分之几（见 rate()）；页面用它把金额换成“占周额度 %”。"""
     now = now or time.time()
@@ -156,7 +175,8 @@ def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float 
             d["by_owner_tok"][r.get("owner", "admin")] = d["by_owner_tok"].get(r.get("owner", "admin"), 0) + tok
         if (r.get("limits") or {}).get("seven_day") is not None:
             d["week_pct"] = r["limits"]["seven_day"]
-        c = convs.setdefault(r["num"], {"num": r["num"], "name": names.get(r["num"]) or r.get("name") or f"#{r['num']}",
+        num = (groups or {}).get(r["num"], r["num"])
+        c = convs.setdefault(num, {"num": num, "name": names.get(num) or r.get("name") or f"#{num}",
                                         "owner": r.get("owner", "admin"), "engine": r.get("engine", "claude"),
                                         "cost": 0.0, "tokens": 0, "turns": 0, "last": 0, "models": set()})
         c["cost"] += cost

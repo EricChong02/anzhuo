@@ -227,3 +227,22 @@ def test_local_spend_feeds_rate(tmp_path):
     sp.snap(10, now - 3500)
     rows = [{"t": now - 500, "cost": 1.0, "limits": {"seven_day": 13}}]
     assert usage.rate(rows, 0, sp) == 0.5 and usage.rate(rows, 0) is None
+
+
+def test_relay_usage_groups_preserve_totals():
+    from types import SimpleNamespace
+    sessions = {n: SimpleNamespace(relay_from=p, owner=o) for n, p, o in
+                [(1, 0, "admin"), (2, 1, "admin"), (3, 2, "admin"),
+                 (4, 1, "user"), (5, 99, "admin"), (6, 7, "admin"), (7, 6, "admin")]}
+    groups = usage.relay_groups(sessions)
+    assert groups == {1: 1, 2: 1, 3: 1, 4: 4, 5: 5, 6: 6, 7: 6}
+    now = time.time()
+    rows = [{"num": n, "t": now, "cost": n, "tokens": {"total": n * 100},
+             "owner": "admin", "model": "opus"} for n in (1, 2, 3, 5)]
+    before = usage.summary(rows, {1: "原对话"}, now=now)
+    after = usage.summary(rows, {1: "原对话"}, now=now, groups=groups)
+    merged = next(c for c in after["conversations"] if c["num"] == 1)
+    assert (merged["name"], merged["cost"], merged["tokens"], merged["turns"]) == ("原对话", 6, 600, 3)
+    for key in ("days", "owners", "total_cost"):
+        assert before[key] == after[key]
+    assert len(after["conversations"]) == 2

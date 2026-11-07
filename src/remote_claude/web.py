@@ -2084,7 +2084,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         start = reset - usage.WEEK if reset and reset > time.time() else time.time() - usage.WEEK
         rate = usage.rate(usage.load(self.usage_path, start - 3 * usage.WEEK), start - 3 * usage.WEEK,
                           getattr(b, "spend", None)) or self.store.get("rate2")
-        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, rate=rate),
+        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, rate=rate,
+                                                                            groups=usage.relay_groups(b.registry.sessions)),
                                   "limits": self._limits(b.runner.limits),
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "rate": rate})
