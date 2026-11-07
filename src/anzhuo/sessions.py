@@ -1166,18 +1166,61 @@ ACP_KIND = {"read": "看", "edit": "改", "delete": "删", "move": "挪", "searc
             "think": "想：", "switch_mode": "换模式："}
 
 
+def _acp_texts(call: dict) -> list[str]:
+    """工具调用里附带的文字（各家放的地方不一样：参数 JSON、“Requesting approval to Running: …”）。"""
+    out = []
+    for c in call.get("content") or []:
+        inner = c.get("content") if isinstance(c, dict) else None
+        if isinstance(inner, dict) and isinstance(inner.get("text"), str):
+            out.append(inner["text"])
+    return out
+
+
+def _acp_input(call: dict) -> dict:
+    """这次调用的参数：有 rawInput 用它；没有就从附带的 JSON 文字里找（Kimi 开头只给标题和一段 JSON）。"""
+    raw = call.get("rawInput")
+    if isinstance(raw, dict) and raw:
+        return raw
+    for text in _acp_texts(call):
+        if text.lstrip().startswith("{"):
+            try:
+                d = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                return d
+    return {}
+
+
 def _acp_step(call: dict) -> tuple[str, str, str]:
-    """ACP 的一次工具调用 → (步骤名, 细节, 命令或文件)。"""
+    """ACP 的一次工具调用 → (步骤名, 细节, 命令或文件)。命令、路径找不到时第三项为空。"""
     kind, title = str(call.get("kind") or ""), str(call.get("title") or "")
-    raw = call.get("rawInput") if isinstance(call.get("rawInput"), dict) else {}
+    raw = _acp_input(call)
     locs = [str(x.get("path")) for x in call.get("locations") or [] if isinstance(x, dict) and x.get("path")]
-    cmd = str(raw.get("command") or raw.get("cmd") or "") if kind == "execute" else ""
-    path = locs[0] if locs else str(raw.get("path") or raw.get("file_path") or "")
+    words = [title, *_acp_texts(call)]
+    cmd = ""
     if kind == "execute":
-        return "跑命令：" + brief(cmd or title, 18), (cmd or title)[:3000], cmd or title
+        cmd = str(raw.get("command") or raw.get("cmd") or "")
+        if not cmd:   # “Running: ls -la”“Requesting approval to Running: git push”
+            cmd = next((m.group(1).strip() for w in words if (m := re.search(r"Running:\s*(.+)", w, re.S))), "")
+    path = locs[0] if locs else str(raw.get("path") or raw.get("file_path") or "")
+    if not path and kind in ("read", "edit", "delete", "move"):
+        path = next((m.group(1).strip() for w in words if (m := re.search(r"(?:Writing|Reading|Editing|Deleting|Moving)\s+(\S.*)$", w))), "")
+    if kind == "execute" and not cmd:
+        return "跑命令", title, ""
+    if kind == "execute":
+        return "跑命令：" + brief(cmd, 18), cmd[:3000], cmd
     if kind in ("read", "edit", "delete", "move") and path:
         return f"{ACP_KIND[kind]} {Path(path).name}", path, path
     return (ACP_KIND.get(kind, "") + brief(title, 18)) if title else (kind or "工具"), (json.dumps(raw, ensure_ascii=False)[:500] if raw else title), ""
+
+
+def thinking_value(effort: str, option: dict | None) -> str:
+    """远窗的思考深度（low…max）→ 这个助手“思考”配置项里最接近的取值（各家不一样：off/on、low/high/max……）。"""
+    have = [str(x.get("value")) for x in (option or {}).get("options") or []]
+    prefs = {"low": ["low", "off", "minimal"], "medium": ["medium", "high", "on"], "high": ["high", "on", "medium"],
+             "xhigh": ["xhigh", "max", "high", "on"], "max": ["max", "xhigh", "high", "on"]}.get(effort, [effort])
+    return next((v for v in prefs if v in have), "")
 
 
 async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
@@ -1216,15 +1259,25 @@ async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
             flush("think"), flush("say")
             cid = str(u.get("toolCallId") or "")
             call = calls.setdefault(cid, {})
-            call.update({x: v for x, v in u.items() if v is not None})
-            if k == "tool_call" or (not call.get("_shown") and call.get("title")):
-                call["_shown"] = True
-                label, detail, target = _acp_step(call)
+            # 只认第一次带来的参数文字：之后的 update 把 content 换成了命令输出，不能拿来找参数
+            if "_input" not in call and (got := _acp_input(u)):
+                call["_input"] = got
+            call.update({x: v for x, v in u.items() if v is not None and x != "content"})
+            call.setdefault("rawInput", call.get("_input"))
+            label, detail, target = _acp_step(call)
+            if "_at" not in call:   # 第一次：记一步；之后参数补全了（命令、文件名）就原地改这一步，不另起一步
+                call["_at"] = (len(turn.steps), len(turn.timeline))
                 turn.steps.append(label)
                 turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": detail})
-                if call.get("kind") == "execute" and target:
+            else:
+                i, j = call["_at"]
+                turn.steps[i] = label
+                turn.timeline[j].update(text=label, detail=detail)
+            if target and not call.get("_counted"):
+                call["_counted"] = True
+                if call.get("kind") == "execute":
                     turn.commands.append(target[:200])
-                elif call.get("kind") in ("edit", "delete", "move") and target:
+                elif call.get("kind") in ("edit", "delete", "move"):
                     turn.changed_files.append(target)
         elif k == "plan":
             st = {"completed": "done", "in_progress": "doing"}
@@ -1241,11 +1294,15 @@ async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
         call = prm.get("toolCall") or {}
         opts = prm.get("options") or []
         pick = lambda *kinds: next((o.get("optionId") for k in kinds for o in opts if o.get("kind") == k), None)  # noqa: E731
-        label, _, target = _acp_step({**calls.get(str(call.get("toolCallId") or ""), {}), **{x: v for x, v in call.items() if v is not None}})
-        cmd = target or label
-        if what := guard.danger(cmd):
-            if not await self.decide(s, turn, what, cmd):
-                return pick("reject_once", "reject_always")
+        known = calls.get(str(call.get("toolCallId") or ""), {})
+        # 先用之前记下的参数，再看批准请求自己带的文字（Kimi 只写“Requesting approval to Running: …”）
+        _, _, target = _acp_step(known)
+        if not target:
+            _, _, target = _acp_step({**known, **{x: v for x, v in call.items() if v is not None}})
+        kind = str(known.get("kind") or call.get("kind") or "")
+        what = guard.danger(target) if target else ("要跑命令，但看不出具体是什么" if kind == "execute" else "")
+        if what and not await self.decide(s, turn, what, target or str(call.get("title") or "")):
+            return pick("reject_once", "reject_always")
         return pick("allow_once", "allow_always")
 
     conn = AcpConn(s.engine, s.cwd, on_update, on_permission, add_dirs=s.add_dirs)
@@ -1261,8 +1318,8 @@ async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
         if s.model:
             await conn.set_option("model", s.model)
         effort = s.effort or self.default_effort or ""
-        if effort:
-            await conn.set_option("thinking", "off" if effort == "low" else "on")
+        if effort and (want := thinking_value(effort, conn.option("thinking"))):
+            await conn.set_option("thinking", want)
         model = (conn.option("model") or {}).get("currentValue") or ""
         turn.model = f"{name}（{model}）" if model else name
         text = job.text

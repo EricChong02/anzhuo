@@ -63,6 +63,7 @@ def test_full_turn_and_resume(tmp_path, fake):
         assert not t.is_error, t.error
         assert t.final_text.startswith("做完了（批准：yes）")         # 最后一段话是回复；普通命令放行一次
         assert "跑命令：ls -la" in t.steps and "改 a.txt" in t.steps
+        assert t.steps.count("跑命令：ls -la") == 1 and "跑命令" not in t.steps   # 参数后到：原地改这一步，不另起
         assert t.changed_files == [str(tmp_path / "a.txt")] and t.commands == ["ls -la"]
         assert [p["status"] for p in t.plan] == ["done", "doing"]
         assert s.context_pct == 25.0 and t.model == "假助手（fake-1）"
@@ -197,5 +198,25 @@ def test_inject_while_running_is_queued(tmp_path, fake):
             if t and t.final_text.startswith("做完了"):
                 break
         assert t.final_text.startswith("做完了"), t   # 排着的那句在下一轮做了
+
+    asyncio.run(go())
+
+
+def test_unknown_command_asks(tmp_path, fake, monkeypatch):
+    """跑命令却看不出是什么：不自动放行，交给你点头。"""
+    asked = []
+
+    async def decide(self, s, turn, what, cmd):
+        asked.append(what)
+        return False
+    monkeypatch.setattr(Runner, "decide", decide)
+
+    async def go():
+        b = _bridge(tmp_path)
+        s = Session(num=1, name="t", cwd=str(tmp_path), engine="fake")
+        b.registry.add(s)
+        b.runner.submit(s, Job(text="神秘命令", via="web"))
+        t = await _wait(b, 1)
+        assert asked and "看不出" in asked[0] and t.final_text == "没跑"
 
     asyncio.run(go())

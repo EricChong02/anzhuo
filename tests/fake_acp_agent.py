@@ -33,12 +33,20 @@ def update(sid, u):
     send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
 
 
-def ask(sid, call):
+def kimi_call(cid, title, kind, args):
+    """Kimi 的 tool_call：标题是工具名，参数只放在一段 JSON 文字里，没有 rawInput。"""
+    return {"toolCallId": cid, "title": title, "kind": kind, "status": "pending",
+            "content": [{"type": "content", "content": {"type": "text", "text": json.dumps(args, ensure_ascii=False)}}]}
+
+
+def ask(sid, call, said=""):
     nid[0] += 1
     ev = threading.Event()
     pending[nid[0]] = [ev, None]
     send({"jsonrpc": "2.0", "id": nid[0], "method": "session/request_permission", "params": {
-        "sessionId": sid, "toolCall": call, "options": [
+        "sessionId": sid, "toolCall": {"toolCallId": call["toolCallId"], "title": call["title"],
+                                       "content": [{"type": "content", "content": {"type": "text", "text": f"Requesting approval to {said}"}}]},
+        "options": [
             {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
             {"optionId": "always", "name": "Always", "kind": "allow_always"},
             {"optionId": "no", "name": "Reject", "kind": "reject_once"}]}})
@@ -62,19 +70,29 @@ def run_prompt(rid, sid, text):
         cancelled.wait(30)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
         return
-    if "push" in text:
-        call = {"toolCallId": "p1", "title": "git push", "kind": "execute", "status": "pending", "rawInput": {"command": "git push origin main"}}
+    if "神秘" in text:   # 跑命令却什么参数都不给
+        call = {"toolCallId": "m1", "title": "Bash", "kind": "execute", "status": "pending"}
         update(sid, {"sessionUpdate": "tool_call", **call})
-        ok = ask(sid, call) in ("yes", "always")
+        ok = ask(sid, call, "run something") in ("yes", "always")
+        say(sid, "跑了" if ok else "没跑")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if "push" in text:
+        call = kimi_call("p1", "Bash", "execute", {"command": "git push origin main"})
+        update(sid, {"sessionUpdate": "tool_call", **call})
+        ok = ask(sid, call, "Running: git push origin main") in ("yes", "always")
         say(sid, "推送了" if ok else "没推送")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "先看看目录"}})
     say(sid, "我先列一下文件。")
-    call = {"toolCallId": "c1", "title": "ls", "kind": "execute", "status": "pending", "rawInput": {"command": "ls -la"}}
+    call = kimi_call("c1", "Bash", "execute", {"command": "ls -la"})
     update(sid, {"sessionUpdate": "tool_call", **call})
-    granted = ask(sid, call)
-    update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed"})
+    granted = ask(sid, call, "Running: ls -la")
+    update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "c1", "title": "Running: ls -la", "status": "in_progress",
+                 "rawInput": {"command": "ls -la"}, "content": [{"type": "content", "content": {"type": "text", "text": "{}"}}]})
+    update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "c1", "status": "completed",
+                 "content": [{"type": "content", "content": {"type": "text", "text": "total 1\na.txt"}}]})
     update(sid, {"sessionUpdate": "tool_call", "toolCallId": "e1", "title": "Edit a.txt", "kind": "edit", "status": "completed",
                  "locations": [{"path": os.path.join(os.getcwd(), "a.txt")}]})
     update(sid, {"sessionUpdate": "plan", "entries": [{"content": "列文件", "priority": "high", "status": "completed"},
