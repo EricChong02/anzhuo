@@ -1268,6 +1268,16 @@ document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.u
 
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
 const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
+// 总管（super_agent）：给总管的消息开头的标记；“期间的情况”拆成一张折叠卡，后面的话照常显示
+const SA_TAGS = ['【回报】', '【退回】', '【要用户定】', '【重启】'];
+function saSplit(it) {
+  const P = '【期间的情况】';
+  if (it.who !== 'you' || !(it.text || '').startsWith(P)) return [it];
+  const cut = it.text.indexOf('\n\n');
+  const notes = (cut < 0 ? it.text : it.text.slice(0, cut)).slice(P.length).trim();
+  const rest = cut < 0 ? '' : it.text.slice(cut + 2);
+  return [{who: 'note', text: `期间的情况 · ${notes.split('\n').length} 条`, sa: notes}].concat(rest ? [{...it, text: rest}] : []);
+}
 let taskGrouping = false, taskGroupAttempt = 0;
 function groupPreferences() {
   try { return JSON.parse(localStorage.getItem('taskGroupOpen:' + (me.name || '')) || '{}'); } catch (_) { return {}; }
@@ -1933,6 +1943,7 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
+  d.items = d.items.flatMap(saSplit);
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
   // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
@@ -1943,11 +1954,13 @@ function renderThread(d) {
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
   const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
-    // 总管收到的回报（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会汇总
-    if (it.who === 'you' && it.text.startsWith('【回报】')) {
-      const [head, ...rest] = it.text.slice(4).split('\n\n');
-      return `<details class="note rpt"><summary>回报 · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
+    // 总管收到的回报、退回、提问、重启提示（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会说
+    const tag = it.who === 'you' && SA_TAGS.find(t => it.text.startsWith(t));
+    if (tag) {
+      const [head, ...rest] = it.text.slice(tag.length).split('\n\n');
+      return `<details class="note rpt"><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
     }
+    if (it.who === 'note' && it.sa) return `<details class="note rpt"><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着

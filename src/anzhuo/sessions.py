@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import mimetypes
@@ -109,6 +110,8 @@ class Session:
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
     role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
     boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
+    ticket: str = ""  # 总管派出来的：最近一次汇报的状态（ready / waiting / blocked / failed / dropped / asked / stopped / error）
+    notes: list[str] = field(default_factory=list)  # 总管：上次开口后发生的事，下次开口前一起看
 
     @property
     def label(self) -> str:
@@ -198,6 +201,8 @@ class Runner:
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
+        self.spare = asyncio.Semaphore(1)   # 预留给你接着说话的那一个名额（新开的活用不了）
+        self.use_spare = False   # 总管打开时才用预留名额
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.clients: dict[int, ClaudeSDKClient] = {}
@@ -216,11 +221,26 @@ class Runner:
         self.auto_review = False
         self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage = None
-        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed"} 或 None
+        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot"} 或 None
+        self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
+        self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
+        self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
+    @contextlib.asynccontextmanager
+    async def _slot(self, own: bool, human: bool):
+        """拿一个并行名额。own：自己有名额（总管）；human：你接着跟已有对话说话，名额满了可以用预留的那一个。"""
+        if own:
+            yield
+        elif human and self.use_spare and self.sem.locked() and not self.spare.locked():
+            async with self.spare:
+                yield
+        else:
+            async with self.sem:
+                yield
+
     def busy(self, num: int) -> bool:
-        return num in self.turns or not self.queues.get(num, asyncio.Queue()).empty()
+        return num in self.turns or num in self.waiting or num in self.finishing or not self.queues.get(num, asyncio.Queue()).empty()
 
     def submit(self, s: Session, job: Job) -> int:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
@@ -386,6 +406,23 @@ class Runner:
             return {"hookSpecificOutput": out}
         return hook
 
+    def _stop_check(self, turn: Turn, check):
+        """这一轮要结束时再看一眼：check(turn, 已经拦过一次) 返回一句话就拦下，让它先补上再结束（只拦一次）。"""
+        async def hook(data, tool_use_id, context):
+            why = check(turn, bool(data.get("stop_hook_active")))
+            return {"decision": "block", "reason": why} if why else {}
+        return hook
+
+    def _deny(self, names: set[str], reason: str = ""):
+        """不让这个对话用某些工具（总管不亲自干活）。"""
+        async def hook(data, tool_use_id, context):
+            name = str(data.get("tool_name") or "")
+            if name not in names:
+                return {}
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": reason or f"这个工具（{name}）在这里不能用。"}}
+        return hook
+
     def _fence(self, s: Session):
         """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
         root = Path(s.root).expanduser().resolve()
@@ -443,6 +480,9 @@ class Runner:
         while q and not q.empty():
             q.get_nowait()
         client = self.clients.get(num)
+        if num in self.waiting:   # 还在等名额：拿到也不做了
+            self.dropped.add(num)
+            return True
         if num in self.turns:
             self.turns[num].interrupted = True
         image_tasks = list(self.image_tasks.get(num, ()))
@@ -470,8 +510,20 @@ class Runner:
                 continue
             s.status = "queued"
             self.registry.save()
-            async with self.sem:
+            # 总管有自己的名额：派出去的对话占满并行数时，它照样能听你说话、收回报
+            own = bool(((self.role(s) if self.role else None) or {}).get("own_slot"))
+            # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
+            human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
+            self.waiting.add(num)
+            async with self._slot(own, human):
+                self.waiting.discard(num)
+                if num in self.dropped:
+                    self.dropped.discard(num)
+                    s.status = "idle"
+                    self.registry.save()
+                    continue
                 turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
+                turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
@@ -501,6 +553,7 @@ class Runner:
                         await asyncio.gather(*image_tasks, return_exceptions=True)
                     turn.ended = time.time()
                     self.last[num] = turn
+                    self.finishing.add(num)   # 结果还没处理完（查额度、通知）：仍算在忙
                     self.turns.pop(num, None)
                     self.clients.pop(num, None)
                     if (turn.is_error and s.claude_id == started_before and not turn.final_text
@@ -513,16 +566,19 @@ class Runner:
                     elif s.worked is None and started_before is None and not turn.is_error:
                         s.worked = False   # 新开的对话头一轮只聊了天
                     self.registry.save()
-            await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
-            if self.on_usage and turn.usage:
-                try:
-                    self.on_usage(s, turn)
-                except Exception:  # noqa: BLE001 - 记不上消耗不影响报告
-                    log.exception("记消耗失败")
-            job.finished = True
-            if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
-                asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
-            await self.on_done(s, turn)
+            try:
+                await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
+                if self.on_usage and turn.usage:
+                    try:
+                        self.on_usage(s, turn)
+                    except Exception:  # noqa: BLE001 - 记不上消耗不影响报告
+                        log.exception("记消耗失败")
+                job.finished = True
+                if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
+                    asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
+                await self.on_done(s, turn)
+            finally:
+                self.finishing.discard(num)
 
     async def title_all(self, records_dir: Path) -> None:
         """还没起过短名字的对话（你手动改过名的除外）一个个补上：按它最近一轮你说的话和回复起。启动时跑一次。"""
@@ -714,6 +770,8 @@ class Runner:
         role = (self.role(s) if self.role else None) or {}
         if fenced:
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self._fence(s)], timeout=60))
+        if role.get("disallowed"):   # 光靠 disallowed_tools 挡不住（bypassPermissions 下照样执行），用钩子拒掉
+            hooks.insert(0, HookMatcher(matcher=None, hooks=[self._deny(set(role["disallowed"]), role.get("deny_reason", ""))], timeout=60))
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
@@ -727,6 +785,7 @@ class Runner:
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions) + role.get("append", "")},
             disallowed_tools=list(role.get("disallowed", [])),
+            tools=role.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
             mcp_servers={"anzhuo": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
@@ -734,7 +793,8 @@ class Runner:
             thinking={"type": "adaptive", "display": "summarized"},
             include_partial_messages=True,  # 回复边写边出（网页实时看）  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
             # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
-            hooks={"PreToolUse": hooks},
+            hooks={"PreToolUse": hooks, **({"Stop": [HookMatcher(matcher=None, hooks=[self._stop_check(turn, role["on_stop"])], timeout=60)]}
+                                           if role.get("on_stop") else {})},
             **(self._fence_options(s) if fenced else {}),
         )
         last_text = ""

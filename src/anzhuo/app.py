@@ -173,11 +173,14 @@ class Bridge:
         self.photo_wait = 15.0
         self.receipt_delay = 4.0
         self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else "local"
+        self.interrupted = []   # 重启前在做 / 排队的（总管派出去的活重启后接着做）
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
                 s.status = "error"
+                self.interrupted.append(s.num)
         if cfg.super_agent:
             superagent.ensure(self)
+            self.runner.use_spare = True
         self.registry.save()
 
     def create_schedule(self, data: dict) -> dict:
@@ -935,6 +938,10 @@ class Bridge:
         await self._submit(s, text, inc)
 
     async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
+        if s.role == superagent.ROUTER and self.cfg.super_agent:
+            if inc.via in superagent.HUMAN and not inc.image_codes and not inc.local_images and await superagent.direct(self, s, text):
+                return   # “#N 话”：直接交给 #N，总管不用跑一轮
+            text = superagent.take_notes(s, text)   # 总管开口前先看“期间的情况”
         s.awaiting, s.awaiting_kind, s.limit_until = "", "", 0.0
         if text.strip() and text != COMPACT:
             shown = text.split("\n\n（下面是引用的内容")[0].strip()
@@ -1060,6 +1067,8 @@ class Bridge:
         asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
+        if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
+            asyncio.create_task(superagent.recover(self, self.interrupted))
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
                 asyncio.create_task(self._auto_resume(s.num, s.limit_until))

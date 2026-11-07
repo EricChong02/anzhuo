@@ -1280,6 +1280,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if cut is not None:
                 items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
         items += [{"who": "you", "text": o["text"], "pending": True, "age": int(time.time() - o["t"])} for o in out]
+        if s.role == "router" and s.notes:   # 总管还没看的“期间的情况”（含你用 #N 直接交出去的话）
+            items.append({"who": "note", "text": f"期间的情况 · {len(s.notes)} 条（总管下次开口前会看）", "sa": "\n".join(f"- {n}" for n in s.notes)})
         history = []
         for index, previous in enumerate(chain[:-1]):
             history += [{**it, "source_num": previous.num, "historical": True}
