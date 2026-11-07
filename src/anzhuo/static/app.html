@@ -158,6 +158,8 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .cl .md th{font-weight:500}
 .cl .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .note{align-self:center;font-size:var(--t2);color:var(--mute)}
+.note.rpt{align-self:stretch;text-align:center} .note.rpt summary{cursor:pointer;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.note.rpt .md{text-align:left;color:var(--ink);font-size:var(--t3);line-height:1.7;margin-top:8px;padding:10px 16px;border-radius:var(--r2);background:var(--plate,var(--side))}
 .imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
 .file-row{display:flex;align-items:center;gap:12px;max-width:520px}.file-row .file{flex:1;min-width:0}.file-download{flex:none;font-size:var(--t2);padding:12px 4px;margin-top:8px}
@@ -1941,6 +1943,11 @@ function renderThread(d) {
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
   const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
+    // 总管收到的回报（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会汇总
+    if (it.who === 'you' && it.text.startsWith('【回报】')) {
+      const [head, ...rest] = it.text.slice(4).split('\n\n');
+      return `<details class="note rpt"><summary>回报 · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
+    }
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
