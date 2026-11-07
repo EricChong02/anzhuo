@@ -85,3 +85,25 @@ def test_group_cache_avoids_repeat_model_calls(tmp_path, monkeypatch):
         await task_groups.classify([{'num':1,'title':'新标题'}],[],cache)
         assert len(calls)==2
     asyncio.run(go())
+
+
+def test_course_sections_share_one_group():
+    assert task_groups.normalize('一豆一像素·第二节') == '一豆一像素'
+    assert task_groups.normalize('一豆一像素·第三小节') == '一豆一像素'
+    assert task_groups.normalize('一豆一像素·整体与素材') == '一豆一像素'
+    assert task_groups.normalize('数据可视化·第二节') == '数据可视化'
+    assert task_groups.normalize('远窗') == '远窗'
+    raw='{"groups":[{"name":"一豆一像素·第二节","nums":[1]},{"name":"一豆一像素·第三节","nums":[2]}]}'
+    assert task_groups.parse(raw,{1,2}) == {1:'一豆一像素',2:'一豆一像素'}
+
+
+def test_cached_course_groups_merge_without_model(tmp_path, monkeypatch):
+    import hashlib
+    item={'num':1,'title':'像素课'}
+    sig=hashlib.sha256(json.dumps(item,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    cache=tmp_path/'cache.json'
+    cache.write_text(json.dumps({'1':{'sig':sig,'group':'一豆一像素·第五节'}}))
+    async def forbidden(*args): raise AssertionError('旧分类合并不应调用模型')
+    monkeypatch.setattr(task_groups,'_classify',forbidden)
+    result,_=asyncio.run(task_groups.classify([item],[],cache))
+    assert result == {1:'一豆一像素'}

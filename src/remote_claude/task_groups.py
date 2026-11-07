@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import hashlib
+import re
 from pathlib import Path
 import requests
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
@@ -14,12 +15,17 @@ SYSTEM = """把工作对话按具体任务归组，帮助用户从零散对话�
 强规则：
 1. 远窗、remote-claude、小E的界面、接力、额度、模型、账号、发布、开源等改动全部统一叫“远窗”，不能再拆远窗维护和远窗额度。
 2. CyberScope的课程库、发布、倒计时、听课席、试课反馈、平台Bug等通用功能统一叫“CyberScope平台改动”，不要按功能再拆。
-3. 具体某一节课的内容、页面、美术、动画、视频修改按课程名和节次分组，例如“一豆一像素·第二节”；同一节的不同修改合并。没法确定节次的同课程工作归“一豆一像素·整体与素材”。其他课程同理。
+3. 同一门主题课必须只有一个分组，例如“一豆一像素”“数据可视化”。第一小节、第二小节、第三节、整体素材、动画、视频等都合并到课程名下面；绝对不能按小节、节次、素材类型再拆分。
 4. 信息考试、信考、考试模拟练习软件的工作统一叫“信考模拟软件”。
 5. 其余按稳定工作对象合并，例如“机房与设备维护”“学校工作与材料”“AI与技术调研”“资讯与日常讨论”；不要把每条资讯、一次查询或单个故障独立建组。仅当明确是独立持续项目才另外建组。
 优先复用已有分组名称。名称简体中文，2至24字。手动分组仅作参考，不得改动。接力已视为一个对话。
 仅返回JSON对象 {"groups":[{"name":"任务名","nums":[对话编号]}]}。
 待分类的每个编号恰好出现一次，不得输出其他编号。"""
+
+
+def normalize(name: str) -> str:
+    """把旧的自动小节分组归回课程名；手动分组由调用方保留。"""
+    return re.sub(r"[·・•：:]\s*(?:第[一二三四五六七八九十百零两\d]+(?:小节|节|章|部分).*|整体与素材)$", "", name).strip() or name
 
 
 def parse(raw: str, nums: set[int]) -> dict[int, str]:
@@ -35,7 +41,7 @@ def parse(raw: str, nums: set[int]) -> dict[int, str]:
         for num in group["nums"]:
             if type(num) is not int or num not in nums or num in out:
                 raise ValueError("invalid or duplicate conversation")
-            out[num] = name.strip()
+            out[num] = normalize(name.strip())
     if set(out) != nums:
         raise ValueError("missing conversations")
     return out
@@ -52,7 +58,7 @@ def _deepseek(prompt, key):
 
 
 async def _classify(items: list[dict], existing: list[str]) -> tuple[dict[int, str], str]:
-    prompt = json.dumps({"existing_groups": existing[:100], "conversations": items}, ensure_ascii=False)
+    prompt = json.dumps({"existing_groups": sorted({normalize(n) for n in existing})[:100], "conversations": items}, ensure_ascii=False)
     nums = {item["num"] for item in items}
     key = await asyncio.to_thread(translate._deepseek_key)
     if key:
@@ -85,7 +91,7 @@ async def classify(items: list[dict], existing: list[str], cache: Path | None = 
             and isinstance(saved[str(i["num"])].get("group"), str)}
     missing = [i for i in items if i["num"] not in hits]
     if not missing:
-        return hits, "已缓存分类"
+        return {num: normalize(name) for num, name in hits.items()}, "已缓存分类"
     result, model = await _classify(missing, sorted(set(existing) | set(hits.values())))
     if cache:
         for num, group in result.items():
@@ -94,4 +100,4 @@ async def classify(items: list[dict], existing: list[str], cache: Path | None = 
         tmp = cache.with_suffix(".tmp")
         tmp.write_text(json.dumps(saved, ensure_ascii=False))
         tmp.replace(cache)
-    return {**hits, **result}, model
+    return {num: normalize(name) for num, name in {**hits, **result}.items()}, model

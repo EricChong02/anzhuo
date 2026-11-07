@@ -143,25 +143,30 @@ def relay_groups(sessions: dict) -> dict[int, int]:
 
 
 def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float | None = None,
-            rate: float | None = None, groups: dict[int, int] | None = None) -> dict:
+            rate: float | None = None, groups: dict[int, int] | None = None, since: float | None = None) -> dict:
     """管理页要的数：每天（金额、token、轮数、当天最后的本周额度 %）、每个对话、每个账号。
     rate：每 1 美元约等于主账号周额度的百分之几（见 rate()）；页面用它把金额换成“占周额度 %”。"""
     now = now or time.time()
     lt = time.localtime(now)
     today0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
-    start = today0 - (days - 1) * DAY
+    start = today0 - (days - 1) * DAY if since is None else since
+    chart_start = today0 - (days - 1) * DAY
+    if since is not None:
+        lt_start = time.localtime(start)
+        chart_start = time.mktime((lt_start.tm_year, lt_start.tm_mon, lt_start.tm_mday, 0, 0, 0, 0, 0, -1))
+        days = max(1, int(round((today0 - chart_start) / DAY)) + 1)
     daily = []
     for i in range(days):
-        d0 = start + i * DAY
+        d0 = chart_start + i * DAY
         daily.append({"day": time.strftime("%m-%d", time.localtime(d0)), "cost": 0.0, "tokens": 0, "turns": 0,
                       "gpt_tokens": 0, "week_pct": None, "by_owner": {}, "by_owner_tok": {}})
     convs: dict[int, dict] = {}
     owners: dict[str, dict] = {}
     for r in sorted(rows, key=lambda x: x.get("t", 0)):
         t = r.get("t", 0)
-        if t < start:
+        if t < start or t > max(now, round(now, 1)):  # 记录时间按0.1秒取整，允许同一瞬间的取整误差
             continue
-        i = min(days - 1, int((t - start) // DAY))
+        i = min(days - 1, int((t - chart_start) // DAY))
         d = daily[i]
         cost, tok = float(r.get("cost") or 0), int((r.get("tokens") or {}).get("total") or 0)
         gpt = r.get("engine") == "codex"
@@ -226,6 +231,14 @@ def reset_epoch(text: str | None, now: float | None = None) -> float | None:
         except ValueError:
             pass
     return min(cands, key=lambda t: abs(t - now)) if cands else None
+
+
+def week_start(reset: float | None, now: float | None = None) -> float | None:
+    """额度读数给出的周重置时刻（通常是下一次）→ 当前周期起点。"""
+    if reset is None:
+        return None
+    now = now if now is not None else time.time()
+    return reset + ((now - reset) // WEEK) * WEEK
 
 
 def rate(rows: list[dict], since: float, spend=None) -> float | None:

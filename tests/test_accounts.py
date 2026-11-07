@@ -246,3 +246,46 @@ def test_relay_usage_groups_preserve_totals():
     for key in ("days", "owners", "total_cost"):
         assert before[key] == after[key]
     assert len(after["conversations"]) == 2
+
+
+def test_usage_current_cycle_exact_boundary_and_relay():
+    now=time.mktime((2026,11,7,17,0,0,0,0,-1))
+    start=time.mktime((2026,11,5,10,30,0,0,0,-1))
+    assert usage.week_start(start+usage.WEEK,now)==start
+    assert usage.week_start(start,now)==start
+    assert usage.week_start(start+usage.WEEK,start+usage.WEEK)==start+usage.WEEK
+    assert usage.week_start(None,now) is None
+    rows=[{'t':t,'num':n,'cost':cost,'tokens':{'total':100},'engine':'claude'}
+          for t,n,cost in [(start-1,1,50),(start,1,1),(now,2,2),(now+1,2,99)]]
+    out=usage.summary(rows,{1:'整条任务'},now=now,since=start,groups={2:1},rate=2)
+    assert out['since']==start and out['total_cost']==3
+    assert len(out['days'])==3 and sum(d['cost'] for d in out['days'])==3
+    assert len(out['conversations'])==1 and out['conversations'][0]['turns']==2
+    assert out['total_cost']*out['rate']==6
+
+
+def test_admin_week_range_and_unknown_reset(tmp_path,monkeypatch):
+    from remote_claude.web import Web
+    from remote_claude.sessions import Registry, Session
+    now=time.mktime((2026,11,7,17,0,0,0,0,-1))
+    start=time.mktime((2026,11,5,10,30,0,0,0,-1))
+    monkeypatch.setattr('remote_claude.web.time.time',lambda:now)
+    async def go():
+        reg=Registry(tmp_path/'sessions.json')
+        reg.add(Session(num=reg.reserve_num(),name='任务',cwd=str(tmp_path)))
+        w=Web('http://x',0,tmp_path)
+        runner=NS(limits={'seven_day':(.3,time.strftime('%m月%d日 %H:%M',time.localtime(start+usage.WEEK)))},limits_gpt={'seven_day':(.1,'')})
+        w.bridge=NS(registry=reg,runner=runner)
+        w.store['rate2']=2
+        for t,cost in [(start-1,50),(start,1),(now,2),(now+1,99)]:
+            usage.append(w.usage_path,{'t':t,'num':1,'cost':cost,'tokens':{'total':100}})
+        week=json.loads((await w._api_admin(NS(query={'period':'week'},cookies={}))).text)
+        rolling=json.loads((await w._api_admin(NS(query={'days':'7'},cookies={}))).text)
+        assert week['week_available'] and week['period_start']==start
+        assert week['usage']['total_cost']==3 and week['usage']['rate']==2
+        assert rolling['usage']['total_cost']==53 and rolling['period']=='days'
+        runner.limits={}
+        unknown=json.loads((await w._api_admin(NS(query={'period':'week'},cookies={}))).text)
+        assert not unknown['week_available'] and unknown['period_start'] is None
+        assert unknown['usage']['conversations']==[]
+    asyncio.run(go())

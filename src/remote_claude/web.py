@@ -1079,6 +1079,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         rows = []
         owner = request.get("owner", "admin")
         fenced = owner != "admin"
+        regrouped = False
+        for member in b.registry.sessions.values():
+            if member.owner == owner and member.task_group and not member.task_group_manual:
+                group = task_groups.normalize(member.task_group)
+                if group != member.task_group:
+                    member.task_group = group
+                    regrouped = True
+        if regrouped:
+            b.registry.save()
+
         for s in [x for x in b.registry.sessions.values() if not x.hidden and x.owner == owner]:
             if self._relay_latest(s).num != s.num:
                 continue
@@ -2181,9 +2191,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 await b.runner.refresh_gpt_usage()
             except Exception:  # noqa: BLE001
                 log.debug("读 GPT 额度失败", exc_info=True)
+        now = time.time()
+        current_week = request.query.get("period") == "week"
         days = max(7, min(90, int(request.query.get("days") or 30)))
+        week = b.runner.limits.get("seven_day")
+        reset = usage.reset_epoch(week[1], now=now) if week else None
+        cycle_start = usage.week_start(reset, now=now)
         names = {n: s.name for n, s in b.registry.sessions.items()}
-        rows = usage.load(self.usage_path, time.time() - (days + 1) * 86400)
+        rows = usage.load(self.usage_path, (cycle_start if cycle_start is not None else now) if current_week else now - (days + 1) * 86400)
+        if current_week and cycle_start is None:
+            rows = []
         me = request.cookies.get(COOKIE, "")
         accts = []
         for name, a in self.accounts.items():
@@ -2191,16 +2208,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                           "disabled": name in self.store.get("disabled", []), "me": name == request["acct"],
                           "owner": self.owner_key(name), "quota": self.quota(name),
                           "devices": [d for d in self._device_rows(me, None) if d["account"] == name]})
-        week = b.runner.limits.get("seven_day")
-        reset = usage.reset_epoch(week[1]) if week else None
-        start = reset - usage.WEEK if reset and reset > time.time() else time.time() - usage.WEEK
+        start = cycle_start if cycle_start is not None else now - usage.WEEK
         rate = usage.rate(usage.load(self.usage_path, start - 3 * usage.WEEK), start - 3 * usage.WEEK,
                           getattr(b, "spend", None)) or self.store.get("rate2")
-        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, rate=rate,
+        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, now=now, rate=rate,
+                                                                            since=(cycle_start if cycle_start is not None else now) if current_week else None,
                                                                             groups=usage.relay_groups(b.registry.sessions)),
                                   "limits": self._limits(b.runner.limits),
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
-                                  "rate": rate})
+                                  "period": "week" if current_week else "days", "week_available": cycle_start is not None,
+                                  "period_start": cycle_start if current_week else None, "rate": rate})
 
     async def _api_admin_act(self, request: web.Request) -> web.Response:
         """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""
