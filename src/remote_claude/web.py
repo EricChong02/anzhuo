@@ -1426,11 +1426,17 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if item.get("model"):
                 item["model_label"] = display_model(item["model"])
                 item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
+        relay_busy = bool(turn) or b.runner.busy(num)
+        relaying = num in getattr(b, "_relaying", ())
+        recommendation = relay_hint(s, relay_busy, relaying)
+        if recommendation and recommendation["kind"] in ("long", "cold") and not s.relay_suggested:
+            s.relay_suggested = True
+            b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
-                 "tokens": s.context_tokens, "relay": relay_hint(s, bool(turn) or b.runner.busy(num), num in getattr(b, "_relaying", ())),
+                 "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (t[:80] or "（图片）") for j in b.runner.queued(num) for t in (j.parts or [j.text])]
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
@@ -1440,7 +1446,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
                                   "limit": limit, "engine": s.engine, "feedback": s.feedback or None, "relay_to": s.relay_to or None,
-                                  "can_relay": bool(s.claude_id or s.codex_id) and not s.relay_to,
+                                  "can_relay": s.relay_suggested and bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:
@@ -2135,7 +2141,16 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _api_relay(self, request: web.Request) -> web.Response:
         if not self._same_origin(request):
             raise web.HTTPForbidden()
-        msg = self.bridge.relay(int(request.match_info["num"]), via="web")
+        num = int(request.match_info["num"])
+        s = self.bridge.registry.get(num)
+        if not s:
+            raise web.HTTPNotFound()
+        if num not in self.bridge._relaying:
+            if self.bridge.runner.busy(num):
+                return web.json_response({"ok": False, "message": "正在回答或还有排队消息，请等回答结束后再接力。"}, status=409)
+            if not s.relay_suggested and not relay_hint(s, False, False):
+                return web.json_response({"ok": False, "message": "这个对话暂时没有接力建议。"}, status=409)
+        msg = self.bridge.relay(num, via="web")
         return web.json_response({"ok": True, "message": msg})
 
     async def _api_stop(self, request: web.Request) -> web.Response:

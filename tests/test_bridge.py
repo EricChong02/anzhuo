@@ -775,6 +775,19 @@ def test_relay(tmp_path, monkeypatch):
         b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
         b.registry.add(Session(num=6, name="做课封面和目录", cwd=str(tmp_path), claude_id="sid", model="claude-opus-5-5",
                                effort="high", context_tokens=300_000))
+        from remote_claude.sessions import Job
+        from remote_claude.report import Turn
+        old = b.registry.get(6)
+        old.context_tokens = 1000
+        assert "没有接力建议" in b.relay(6)
+        old.context_tokens = 300_000
+        b.runner.turns[6] = Turn(started=1)
+        assert "等回答结束" in b.relay(6) and 6 not in b._relaying
+        b.runner.turns.pop(6)
+        b.runner.queues[6] = asyncio.Queue()
+        b.runner.queues[6].put_nowait(Job(text="排队消息"))
+        assert "等回答结束" in b.relay(6) and 6 not in b._relaying
+        b.runner.queues[6].get_nowait()
         assert "交接说明" in b.relay(6)
         assert "正在写" in b.relay(6)              # 点两次只写一份
         await asyncio.sleep(0.2)

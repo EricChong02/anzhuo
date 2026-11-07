@@ -1216,22 +1216,27 @@ function renderQuota() {
 }
 
 const wan = n => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + ' 万' : String(n);
+let relayReady = 0;
 let relayWait = 0;   // 点了接力、还在这个对话里等：新对话开好就自动过去
 async function startRelay(num) {
+  if (relayReady !== num) return;
+  relayReady = 0;
+  ['relayTop', 'relayGo', 'relayBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
   relayWait = num;
   const r = await api('relay/' + num, {}).catch(() => null);
   if (!r) { relayWait = 0; toast('没交出去，再点一次'); }
-  else if (r.message) toast(r.message);
+  else { if (!r.ok) relayWait = 0; if (r.message) toast(r.message); }
   lastKey = ''; loadThread(); loadSessions();
 }
 // 对话长了、或隔了一个多小时回来：在输入框上方提示接力到新对话（点“不用”就记住，直到对话再长一截或又隔了一阵）
 function renderRelay(d) {
   const el = $('#relay'); if (!el) return;
   const r = d.usage && d.usage.relay;
-  const h = $('#relayHead');   // 顶栏常驻：点过“不用”或没到提示门槛，也随时能接力
+  relayReady = d.can_relay && !d.live && !d.usage?.busy ? d.num : 0;
+  const h = $('#relayHead');   // 建议过才出现，回答进行中禁用
   if (h) {
     const run = r && r.kind === 'running';
-    h.innerHTML = d.can_relay || run ? `<button class="pill" id="relayTop" title="写交接说明，开新对话接着做" ${run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
+    h.innerHTML = d.usage?.relay_suggested || run ? `<button class="pill" id="relayTop" title="写交接说明，开新对话接着做" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
     if ($('#relayTop')) $('#relayTop').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
   }
   if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => openSession(d.relay_to)); }
@@ -1261,8 +1266,8 @@ function renderUsage(u) {
       <button class="pill" id="compactBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩，大约一分钟' : u.compacting === 'queued' ? '已排队：手上的做完就压'
         : u.busy ? '做完才能压缩' : '压缩上下文'}</button>
-      <button class="pill" id="relayBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.busy || !u.tokens || (u.relay && u.relay.kind === 'running') ? 'disabled' : ''}>${
-        u.relay && u.relay.kind === 'running' ? '<i class="spin"></i>正在写交接说明' : '接力到新对话'}</button></div>` : '');
+      ${u.relay_suggested || u.relay?.kind === 'running' ? `<button class="pill" id="relayBtn" style="width:100%;justify-content:center;margin-top:8px" ${u.busy || u.relay?.kind === 'running' ? 'disabled' : ''}>${
+        u.relay?.kind === 'running' ? '<i class="spin"></i>正在写交接说明' : u.busy ? '回答结束后才能接力' : '接力到新对话'}</button>` : ''}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); startRelay(sel); };
   if ($('#compactBtn')) $('#compactBtn').onclick = async e => {

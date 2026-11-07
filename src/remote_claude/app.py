@@ -20,7 +20,7 @@ from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, save_web_hash, web_accounts
 from .dingtalk import DingTalk, Incoming, parse_incoming
 from .report import Turn
-from .web import Web
+from .web import Web, relay_hint
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
@@ -380,6 +380,10 @@ class Bridge:
             return f"已经接力到 #{s.relay_to} 了。"
         if num in self._relaying:
             return "正在写交接说明，写完自动开新对话。"
+        if self.runner.busy(num):
+            return "正在回答或还有排队消息，请等回答结束后再接力。"
+        if not s.relay_suggested and not relay_hint(s, False, False):
+            return "这个对话暂时没有接力建议。"
         self._relaying.add(num)
         ahead = self.runner.submit(s, Job(text=RELAY, via=via))
         return "正在写交接说明" + (f"，等手上 {ahead} 件做完再写" if ahead else "") + "，写完自动开新对话。"

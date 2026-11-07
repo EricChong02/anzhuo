@@ -103,6 +103,7 @@ class Session:
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
     claude_usage: dict = field(default_factory=dict)  # Claude 报的这个会话累计金额和各模型 token（接着上次的会话也累计），每轮记差值
+    relay_suggested: bool = False  # 已在空闲时建议过接力，之后进行中只显示禁用按钮
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）

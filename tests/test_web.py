@@ -238,7 +238,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None}
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "relay_suggested": False}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
@@ -1005,4 +1005,42 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
         sessions[2].relay_to = 1
         assert len(w._relay_chain(sessions[2])) == 3
         assert w._relay_latest(sessions[0]) is not None
+    asyncio.run(go())
+
+
+def test_relay_only_after_advice_and_between_answers(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    async def go():
+        reg=Registry(tmp_path/'sessions.json')
+        s=reg.add(Session(num=reg.reserve_num(), name='长对话', cwd=str(tmp_path), engine='codex', codex_id='native',context_tokens=300_000))
+        turns={1:Turn(started=time.time())}
+        queued=[]
+        runner=NS(turns=turns,last={},limits={},default_effort='medium',compacting=lambda n:'',
+                  busy=lambda n:bool(turns or queued),queued=lambda n:queued)
+        def rejected(*args,**kwargs): raise AssertionError('忙碌时不应提交接力')
+        w=Web('http://x',0,tmp_path)
+        w.bridge=NS(registry=reg,runner=runner,outgoing={},_relaying=set(),relay=rejected)
+        request=NS(match_info={'num':'1'},headers={})
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay'] and not result['usage']['relay_suggested']
+        turns.clear()
+        result=json.loads((await w._api_thread(request)).text)
+        assert result['can_relay'] and result['usage']['relay_suggested']
+        assert Registry(tmp_path/'sessions.json').get(1).relay_suggested
+        turns[1]=Turn(started=time.time())
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay'] and result['usage']['relay_suggested']
+        assert (await w._api_relay(request)).status==409
+        turns.clear()
+        from remote_claude.sessions import Job
+        queued.append(Job(text='排队消息'))
+        result=json.loads((await w._api_thread(request)).text)
+        assert not result['can_relay']
+        assert (await w._api_relay(request)).status==409
+        queued.clear()
+        s.context_tokens = 1000  # 建议触发过，即使上下文下降也保留入口
+        result = json.loads((await w._api_thread(request)).text)
+        assert result['can_relay'] and result['usage']['relay_suggested']
     asyncio.run(go())
