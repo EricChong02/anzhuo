@@ -245,7 +245,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
             assert b.said == []                                                    # 钉钉不转述你在网页说的话
             t7 = await (await c.get("/_x/api/thread/7")).json()
-            assert t7["items"][-1] == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
+            assert {k: v for k, v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
             # 新对话“在哪做”：接着做某门课 / 小E 自动判断 / 不碰文件

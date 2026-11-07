@@ -1013,7 +1013,8 @@ function watchStatus() {
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let me = {name: '', role: 'admin', root: ''};
-let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set();
+let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {};
+const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
 
 // Mac 连不上（睡着、断网、小E 在更新）时阿里云回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
 function setConn(st) {
@@ -1621,7 +1622,7 @@ function openSession(num, fromPop) {
   feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
   feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
   $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
-  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now()}; (pending[num] ||= []).push(p); return p; });
+  wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now(), base: saidBase(num, text)}; (pending[num] ||= []).push(p); return p; });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
 
@@ -1909,14 +1910,15 @@ function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
-  const said = {has: t => saidList.some(x => x.startsWith(t.slice(0, 40)))};   // 记录里可能多了“（附件已存到…）”，按开头比
+  const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
+  lastSaid[d.num] = sayCount;
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
   (pending[d.num] || []).forEach(p => { if ((p.imgs || []).length) sentImgs.set(p.text.trim(), p.imgs); });  // 刚发的图记着（服务器那边的待发只有字）
   const localImgs = sentImgs;
   // 服务器那边也报了这条“待发”（插话、排队）时，网页自己先摆的那条就不再重复显示
   const srvPend = d.items.filter(i => i.who === 'you' && i.pending).map(i => i.text.trim());
   const inSrv = t => srvPend.some(x => x.startsWith(t.slice(0, 40)) || t.startsWith(x.slice(0, 40)));
-  pending[d.num] = (pending[d.num] || []).filter(p => !said.has(p.text.trim()));
+  pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
   const replies = d.items.filter(i => i.who === 'claude');
@@ -1933,7 +1935,7 @@ function renderThread(d) {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
       const req = d.live && (d.live.request || '').replace(/…$/, '');
-      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : '已送到';
+      const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : (it.age > 30 ? '没开工' : '已送到');
       const before = prevEnd(idx);
       const btns = ib('copy', '复制') + (isQ || (!it.pending && before) ? ib('back', '回退') : '') + (!it.pending && before !== null ? ib('fork', '分叉') : '');
       return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${d.num}/${r}`))}${esc(it.text)}</div>
@@ -1960,7 +1962,7 @@ function renderThread(d) {
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
-    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? '已送到' : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
+    + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? (Date.now() - p.t > 30000 && !d.live ? '没开工' : '已送到') : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
   if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
     const L = d.live, first = L.total - L.steps.length + 1;
@@ -2067,7 +2069,7 @@ function renderThread(d) {
     document.querySelectorAll('.opt').forEach(x => x.disabled = true);
     b.querySelector('.k').innerHTML = '<i class="spin"></i>';
     const text = `选 ${b.dataset.k}：${b.dataset.v}`;
-    (pending[d.num] ||= []).push({text, t: Date.now()});
+    (pending[d.num] ||= []).push({text, t: Date.now(), base: saidBase(d.num, text)});
     await api('send', {num: d.num, text}); lastKey = ''; loadThread(); loadSessions();
   });
   tickSilence();   // 先填好“没动静”那行，再定位置
@@ -2095,7 +2097,7 @@ function previewPill(dir, url, it, d) {
 }
 // 快捷回答：先显示出去，3 秒内能撤回（点错了不至于真发出去）
 function quickSend(num, text, label) {
-  const item = {text, t: Date.now(), quick: true};
+  const item = {text, t: Date.now(), quick: true, base: saidBase(num, text)};
   (pending[num] ||= []).push(item); lastKey = ''; loadThread();
   const timer = setTimeout(async () => { item.quick = false; lastKey = ''; loadThread();
     const r = await api('send', {num, text}).catch(() => null); if (r && r.ok) item.acked = true; else { pending[num] = (pending[num] || []).filter(p => p !== item); toast('没发出去，再点一次'); }

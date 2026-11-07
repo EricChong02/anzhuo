@@ -142,6 +142,8 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                 items.append({"who": "you", "text": text.strip()})
             if getattr(m, "uuid", ""):
                 items[-1]["uuid"] = m.uuid
+                if times is not None:
+                    items[-1]["ts"] = (times or {}).get(m.uuid, 0.0)
         elif m.type == "assistant" and isinstance(content, list):
             end = getattr(m, "uuid", "") or end
             for b in content:

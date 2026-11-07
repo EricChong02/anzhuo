@@ -1291,14 +1291,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
         # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
-        said = [re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()) for it in items if it["who"] == "you"]
+        # 只认发出之后才写进记录的那条：同一句话（比如“批准”按钮）再发一次，不会被旧的那条误认成已处理
+        said = [(re.sub(r"^\[(?:\d+ 张)?图片\]\s*", "", it["text"].strip()), it.get("ts") or 0.0) for it in items if it["who"] == "you"]
         out = b.outgoing.get(num, [])
-        out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) for x in said)]
+        out[:] = [o for o in out if not any(x.startswith(o["text"].strip()[:40]) and (not ts or ts >= o["t"] - 5) for x, ts in said)]
         if s.rewind_at:   # 点过“回到这里”：那条之后的先收起来，下一句从那里接着；还没说下一句前能撤销
             cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
             if cut is not None:
                 items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
-        items += [{"who": "you", "text": o["text"], "pending": True} for o in out]
+        items += [{"who": "you", "text": o["text"], "pending": True, "age": int(time.time() - o["t"])} for o in out]
         for it in items:
             if it["who"] == "claude":
                 it["text"] = self._zh_or_later(it["text"])
