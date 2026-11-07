@@ -172,7 +172,7 @@ def test_direct_hash_goes_to_worker(tmp_path, monkeypatch):
         runs.clear()
         await b._submit(router, f"#{w.num} 选 B", web(f"#{w.num} 选 B"))
         await asyncio.sleep(0.2)
-        assert runs[0][:2] == (w.num, "router") and runs[0][2].startswith("选 B") and superagent.FOLLOW in runs[0][2]   # 直接交给 worker，总管没跑
+        assert runs[0][:2] == (w.num, "router") and runs[0][2].startswith("选 B") and superagent.follow(router) in runs[0][2]   # 直接交给 worker，总管没跑
         assert runs[1][0] == router.num and runs[1][2].startswith("【期间的情况】")   # 它的回报到总管时带着“用户直接说的”
         assert "用户直接对" in runs[1][2] and "【回报】" in runs[1][2]
         runs.clear()
@@ -391,3 +391,57 @@ def test_router_folder_not_suggested(tmp_path):
     router.updated = 9e12
     assert b.web._last_folder() != router.cwd
     assert all(f["path"] != router.cwd for f in b.web._recent_folders())
+
+
+def test_one_router_per_account_and_name(tmp_path):
+    """每个账号只有一个总管：收起（删）了重启找回来，不另开；配置里的名字用在列表和提示词里。"""
+    b = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "data")
+    r = superagent.find(b)
+    r.hidden = True
+    b.registry.save()
+    b2 = Bridge(_cfg(tmp_path, super_agent_name="管家"), FakeDT(), data_dir=tmp_path / "data")
+    routers = [s for s in b2.registry.sessions.values() if s.role == "router"]
+    assert len(routers) == 1 and routers[0].num == r.num and not routers[0].hidden and routers[0].name == "管家"
+    role = superagent.role(b2, routers[0])
+    assert "你是“管家”" in role["append"]
+    w = Session(num=9, name="w", cwd=str(tmp_path), boss=r.num)
+    b2.registry.add(w)
+    assert "“管家”（总管）派给你" in superagent.role(b2, w)["append"]
+    assert superagent.follow(routers[0]).startswith("\n\n（经管家转来。")
+    assert superagent.FOLLOW_CUT.sub("", "查天气" + superagent.follow(routers[0])) == "查天气"
+
+
+def test_engine_catalog_and_rules(tmp_path, monkeypatch):
+    from anzhuo import acp
+    monkeypatch.setitem(acp.ENGINES, "kimi", {"name": "Kimi", "cmd": ["python"]})   # 当作装了
+    monkeypatch.setitem(acp.MODELS_SEEN, "kimi", {"models": ["glm-5.3", "k3"], "current": "glm-5.3"})
+    b = Bridge(_cfg(tmp_path, super_agent_routing="写代码用 claude opus；查资料用 kimi glm-5.3"), FakeDT(), data_dir=tmp_path / "data")
+    text = superagent.role(b, superagent.find(b))["append"]
+    assert "engine=claude" in text and "opus" in text and "engine=kimi" in text and "glm-5.3、k3" in text
+    assert "写代码用 claude opus；查资料用 kimi glm-5.3" in text
+
+
+def test_new_session_engine_and_model(tmp_path, monkeypatch):
+    from anzhuo import acp
+    monkeypatch.setitem(acp.ENGINES, "kimi", {"name": "Kimi", "cmd": ["python"]})
+    monkeypatch.setitem(acp.MODELS_SEEN, "kimi", {"models": ["glm-5.3", "k3"], "current": "glm-5.3"})
+    runs, b_ref, pushes = [], [], []
+    _setup(monkeypatch, runs, b_ref, None)
+
+    async def go():
+        b = _bridge(tmp_path, b_ref, pushes)
+        _, t = _tools(b)
+        assert (await t["new_session"]({"task": "x", "engine": "nope"}))["isError"]
+        bad = await t["new_session"]({"task": "x", "engine": "kimi", "model": "gpt-9"})
+        assert bad["isError"] and "glm-5.3、k3" in _out(bad)                    # 模型名不对：列出能填的
+        out = _out(await t["new_session"]({"task": "查资料", "engine": "kimi", "model": "glm-5.3"}))
+        await asyncio.sleep(0.2)
+        k = next(s for s in b.registry.sessions.values() if s.name.startswith("查资料"))
+        assert k.engine == "kimi" and k.model == "glm-5.3" and "用 Kimi（模型：glm-5.3）" in out
+        out = _out(await t["new_session"]({"task": "写代码", "engine": "claude", "model": "opus"}))
+        await asyncio.sleep(0.2)
+        c = next(s for s in b.registry.sessions.values() if s.name.startswith("写代码"))
+        assert c.engine == "claude" and "opus" in c.model and "用 Claude" in out
+        assert (await t["new_session"]({"task": "x", "engine": "claude", "model": "gpt-4"}))["isError"]
+
+    asyncio.run(go())

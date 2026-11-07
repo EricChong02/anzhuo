@@ -875,7 +875,7 @@ class Bridge:
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None, model: str | None = None, effort: str | None = None,
-                     owner: str = "admin", root: str = "", boss: int = 0) -> None:
+                     owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None) -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
@@ -888,8 +888,8 @@ class Bridge:
             model = said_model = None
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None
-        elif is_acp(model or said_model or ""):   # 用 ACP 引擎（Kimi 等）干这件事
-            s.engine, model, said_model, s.model = (model or said_model), None, None, None
+        elif is_acp(model or said_model or ""):   # 用 ACP 引擎（Kimi 等）干这件事；engine_model 是它自己的模型名（总管指定的）
+            s.engine, model, said_model, s.model = (model or said_model), None, None, engine_model
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
@@ -1077,6 +1077,9 @@ class Bridge:
         asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
+        if self.cfg.super_agent:   # 记下各个 ACP 助手有哪些模型，总管派活时能挑
+            from .acp import probe_all
+            asyncio.create_task(probe_all(str(self.data_dir / "router")))
         if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
             asyncio.create_task(superagent.recover(self, self.interrupted))
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等

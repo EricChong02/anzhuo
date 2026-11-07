@@ -47,6 +47,8 @@ class Config:
     auto_cleanup: bool = False  # 每天自动归档旧对话记录、清空旧临时文件夹，每月派一次 AI 体检（见 docs/配置参考.md）
     accounts: dict[str, dict] = field(default_factory=dict)
     task_grouping: bool = False  # opt-in: classification sends short metadata to a model
+    super_agent_name: str = ""  # 总管叫什么（空 = “总管”）；网页里改名也行，配置里写了以配置为准
+    super_agent_routing: str = ""  # 你定的分派规则（一段话）：什么活用哪个引擎、哪个模型，总管没被点名时照这个选
     super_agent: bool = False  # 默认关闭。打开后多一个置顶的“总管”对话：你只跟它说，它开新对话派活、转达、汇总回报
     timezone: str = ""  # 定时任务用的时区（如 Asia/Shanghai）；空 = 这台电脑当前的时区
 
@@ -87,6 +89,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         accounts=dict(raw.get("accounts", {})),
         task_grouping=bool(raw.get("task_grouping", False)),
         super_agent=bool(raw.get("super_agent", False)),
+        super_agent_name=str(raw.get("super_agent_name", "")),
+        super_agent_routing=str(raw.get("super_agent_routing", "")),
     )
 
 

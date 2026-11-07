@@ -1320,6 +1320,8 @@ async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
         effort = s.effort or self.default_effort or ""
         if effort and (want := thinking_value(effort, conn.option("thinking"))):
             await conn.set_option("thinking", want)
+        from .acp import remember
+        remember(s.engine, conn.option("model"))   # 总管派活时知道它有哪些模型
         model = (conn.option("model") or {}).get("currentValue") or ""
         turn.model = f"{name}（{model}）" if model else name
         text = job.text

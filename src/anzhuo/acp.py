@@ -23,6 +23,41 @@ ENGINES: dict[str, dict] = {
 }
 
 
+# 各引擎见过的模型：{引擎: {"models": [...], "current": 默认}}（开会话时它会报一次；启动时探一下）
+MODELS_SEEN: dict[str, dict] = {}
+
+
+def remember(engine: str, option: dict | None) -> None:
+    if option and option.get("options"):
+        MODELS_SEEN[engine] = {"models": [str(x.get("value")) for x in option["options"] if x.get("value")],
+                               "current": str(option.get("currentValue") or "")}
+
+
+async def probe(engine: str, cwd: str) -> None:
+    """开一个空会话看看它有哪些模型（不说话、不花额度），看完能删就删掉这个空会话。"""
+    conn = AcpConn(engine, cwd, lambda u: None)
+    try:
+        await conn.start()
+        await conn.open_session(None)
+        remember(engine, conn.option("model"))
+        if (conn.caps.get("sessionCapabilities") or {}).get("delete") is not None:
+            try:
+                await conn.request("session/delete", {"sessionId": conn.session_id}, timeout=20)
+            except AcpError:
+                pass
+    except Exception:  # noqa: BLE001 - 探不到就算了，派活时照样能用默认模型
+        log.debug("探 %s 的模型失败", engine, exc_info=True)
+    finally:
+        await conn.close()
+
+
+async def probe_all(cwd: str) -> None:
+    Path(cwd).mkdir(parents=True, exist_ok=True)
+    for engine in ENGINES:
+        if available(engine):
+            await probe(engine, cwd)
+
+
 def is_acp(engine: str) -> bool:
     return engine in ENGINES
 

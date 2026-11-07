@@ -1323,7 +1323,7 @@ function renderSide() {
     g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
     return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
   }).join('');
-  const routerHtml = routers.length ? `<div class="label">总管</div>${routers.map(row).join('')}` : '';
+  const routerHtml = routers.length ? `<div class="label">${esc(routers.length > 1 ? '总管' : routers[0].name)}</div>${routers.map(row).join('')}` : '';
   $('#list').innerHTML = routerHtml + priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
     const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
     const running = xs.filter(s => s.status === 'running').length;
