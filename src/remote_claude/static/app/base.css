@@ -367,7 +367,7 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 /* 接力到新对话 */
 .relay{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accsoft);color:var(--ink);border-radius:var(--r1);padding:8px 8px 8px 12px;margin:0 0 6px;font-size:var(--t2);line-height:1.55}
 .relay .rt{flex:1 1 220px;min-width:0}
-.relay .rb{display:flex;gap:6px;flex:none;margin-left:auto}
+.relay .rb{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:100%;margin-left:auto}
 .relay button{height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
 .relay button.on{background:var(--acc);color:var(--on-acc)}
 .relay.running{background:none;color:var(--mute);padding:2px 8px 6px}

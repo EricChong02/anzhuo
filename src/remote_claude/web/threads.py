@@ -246,7 +246,7 @@ class ThreadsMixin:
         relay_busy = bool(turn) or b.runner.busy(num)
         relaying = num in b.relays.writing
         recommendation = relay_hint(s, relay_busy, relaying, cfg=getattr(b, "cfg", None))
-        if recommendation and recommendation["kind"] in ("long", "cold") and not s.relay_suggested:
+        if recommendation and recommendation["kind"] in ("long", "cold", "compact") and not s.relay_suggested:
             s.relay_suggested = True
             b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),

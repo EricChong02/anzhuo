@@ -25,14 +25,20 @@ RELAY = """这个对话太长了，要换到一个新对话接着做。请写一
 4. 正在做的和接下来几步；
 5. 关键路径、命令、账号位置、踩过的坑；
 6. 还等用户决定的问题。
-只回复交接说明本身，用 Markdown，2000 字以内；不要调用任何工具，不要再做别的事。"""
+长短看任务：简单的几百字就够；复杂的把约束、决定、证据和文件路径写全，宁可长一点，也别让新对话重新查找、重新试错。
+只回复交接说明本身，用 Markdown；不要调用任何工具，不要再做别的事。"""
 
 CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
+COMPACT_AT = 70        # 上下文用到七成：活没做完就先压缩，不急着接力
 
 
 def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None) -> dict | None:
-    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。
-    门槛见配置 relay_long（上下文太长）、relay_cold（缓存过期又不短）。"""
+    """该不该提示“接力到新对话”。返回 {kind: long/cold/compact, tokens, hours, pct, key}；key 用来记你点过“不用”。
+    门槛见配置 relay_long（上下文太长）、relay_cold（缓存过期又不短）。
+    同一件事接着做大多在读缓存，便宜；接力要另写交接、重建缓存、下一棒还得重新找材料。所以提示只问“这一段做完了吗”：
+    - long：上下文到 relay_long，一段做完再接力，没做完就接着说；
+    - compact：上下文用到 COMPACT_AT%，没做完先压缩、做完了再接力（窗口快满，不能再接着拖）；
+    - cold：缓存过期又不短，接着说要整段重写，换件事正好接力。"""
     if relaying:
         return {"kind": "running"}
     long_at, cold_at = getattr(cfg, "relay_long", Config.relay_long), getattr(cfg, "relay_cold", Config.relay_cold)
@@ -42,6 +48,8 @@ def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None
     idle = (now or time.time()) - s.updated
     if engines.get(s.engine).cache_hint and idle > CACHE_TTL:
         return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
+    if (pct := s.context_pct or 0) >= COMPACT_AT:
+        return {"kind": "compact", "tokens": tk, "pct": round(pct), "key": f"compact{int(pct) // 10}"}
     if tk >= long_at:
         return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
     return None

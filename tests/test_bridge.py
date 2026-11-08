@@ -833,6 +833,19 @@ def test_relay_hint():
     assert relay_hint(s, False, False, now) is None                # 已经接力过
 
 
+def test_relay_hint_compact_when_window_nearly_full():
+    """上下文用到七成：提示先压缩（活没做完）、做完再接力；1M 窗口的对话 12 万时还是只问“这一段做完了吗”。"""
+    from remote_claude.relay import RELAY, relay_hint
+    from remote_claude.sessions import Session
+    now = 1_000_000.0
+    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=150_000, context_pct=75.0, updated=now - 60)
+    h = relay_hint(s, False, False, now)
+    assert h["kind"] == "compact" and h["pct"] == 75 and h["key"] == "compact7"
+    s.context_pct = 15.0
+    assert relay_hint(s, False, False, now)["kind"] == "long"
+    assert "2000 字" not in RELAY and "宁可长一点" in RELAY   # 交接说明不硬限字数
+
+
 def test_new_session_model_by_kind(tmp_path, monkeypatch):
     """新开对话没指定模型：按分派员判断的档位照分工表挑；定方案用 design 档，判断不出来时代码仓按开发算。"""
     from remote_claude import router, split

@@ -106,12 +106,18 @@ function renderRelay(d) {
   el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
   if (off) return;
   if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在整理上下文…'; return; }
-  const t = wan(r.tokens), alts = d.relay_targets || [];
+  const t = wan(r.tokens), alts = d.relay_targets || [], squeeze = r.kind === 'compact';
   el.innerHTML = `<span class="rt">${r.kind === 'cold'
     ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省${alts.length ? '；这时换模型也不多花' : ''}。`
-    : `这个对话已约 ${t} token，每说一句都要重读一遍。告一段落或换件事时，接力到新对话更省也更准。`}</span>
-    <span class="rb"><button class="on" id="relayGo">接力到新对话</button>${alts.map(a => relayAlt(a, '换 ' + a.label)).join('')}<button id="relayNo">不用</button></span>`;
+    : squeeze ? `上下文已用 ${r.pct}%，快满了。这件事还没做完就先压缩，留下要点接着做；这一段做完了再接力到新对话。`
+    : `这个对话已约 ${t} token。这一段做完了吗？做完了再接力到新对话，更省也更准；还在做就接着说，不用管。`}</span>
+    <span class="rb">${squeeze ? '<button class="on" id="relayCompact">压缩上下文</button>' : ''}<button class="${squeeze ? '' : 'on'}" id="relayGo">接力到新对话</button>${alts.map(a => relayAlt(a, '换 ' + a.label)).join('')}<button id="relayNo">不用</button></span>`;
   $('#relayGo').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  if ($('#relayCompact')) $('#relayCompact').onclick = async e => {
+    e.currentTarget.disabled = true; localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true;
+    const res = await api('compact/' + d.num, {}).catch(() => null); toast(res?.message || (res ? '已交给它，进度看对话里' : '没交出去，再点一次'));
+    lastKey = ''; loadThread();
+  };
   bindRelayAlts(el, d.num);
   $('#relayNo').onclick = () => { localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true; };
 }
