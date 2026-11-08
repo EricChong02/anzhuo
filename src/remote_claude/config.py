@@ -58,9 +58,8 @@ class Config:
     super_agent_name: str = ""  # 总管叫什么（空 = “总管”）；网页里改名也行，配置里写了以配置为准
     super_agent_routing: str = ""  # 你定的分派规则（一段话）：什么活用哪个引擎、哪个模型，总管没被点名时照这个选
     timezone: str = ""  # 定时任务用的时区（如 Asia/Shanghai）；空 = 这台电脑当前的时区
-    # ---- 试课预览（做课专属）----
-    preview_upstream: str = "http://127.0.0.1:8000"  # 试课预览转给本机哪个 CyberScope 后端
-    preview_root: str = ""  # 该后端 /workspace/ 对应的课程根；改了这里面的课就附“试课预览”链接
+    # 扩展的配置：[ext.名字] 一节原样交给 extensions/名字/（写了这一节才开那个扩展；enabled = false 关掉）
+    ext: dict[str, dict] = field(default_factory=dict)
     # 网页账号：名字 → {role: admin / user, root: user 只能在这个文件夹里干活, share: user 的周额度比例}；
     # 密码指纹在钥匙串（scripts/set_account.py）。没写就只有 web_user 一个 admin（老配置照旧能用）
     accounts: dict[str, dict] = field(default_factory=dict)
@@ -76,7 +75,7 @@ def _split_table(raw, legacy=None) -> dict[str, dict]:
     return normalize(raw, legacy)
 
 
-_DERIVED = {"web_base", "web_prefix", "preview_upstream", "accounts", "split"}   # 要另外换算的，下面单独处理
+_DERIVED = {"web_base", "web_prefix", "accounts", "split"}   # 要另外换算的，下面单独处理
 
 
 def _coerce(kind: str, v):
@@ -106,7 +105,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
     if web_prefix and not web_prefix.startswith("/"):
         web_prefix = "/" + web_prefix
     kw["web_prefix"] = web_prefix.rstrip("/")
-    kw["preview_upstream"] = str(raw.get("preview_upstream", Config.preview_upstream)).rstrip("/")
+    kw["ext"] = {str(k): dict(v) for k, v in (raw.get("ext") or {}).items() if isinstance(v, dict)}
     # 周额度比例新写法 share，老写法 week_share，两种都认
     kw["accounts"] = {str(k): {**v, **({"share": v["week_share"]} if "week_share" in v and "share" not in v else {})}
                       for k, v in (raw.get("accounts") or {}).items()}

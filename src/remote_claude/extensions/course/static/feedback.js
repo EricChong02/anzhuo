@@ -80,7 +80,7 @@
   let libP = null;
   const lib = () => libP || (libP = new Promise((ok, bad) => {
     if (window.modernScreenshot) return ok(window.modernScreenshot);
-    const sc = document.createElement('script'); sc.src = '/_x/shot.js';
+    const sc = document.createElement('script'); sc.src = '/_x/ext/course/static/vendor/modern-screenshot.js';
     sc.onload = () => ok(window.modernScreenshot); sc.onerror = () => { libP = null; bad(new Error('截图工具没加载上')); };
     document.head.appendChild(sc);
   }));
@@ -214,7 +214,7 @@
       send.disabled = true; later.disabled = true; send.textContent = '正在交…';
       const items = [...queue(), ...((ta.value.trim() || images.length) ? [cur()] : [])];
       try {
-        const r = await fetch('/_x/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        const r = await fetch('/_x/ext/course/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({course: courseUrl, items})});
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || '没交出去');
@@ -242,7 +242,7 @@
     if (!courseUrl || !stEl) return;
     if (document.hidden) { timer = setTimeout(poll, 8000); return; }
     let d = null;
-    try { d = await (await fetch('/_x/api/course?course=' + encodeURIComponent(courseUrl))).json(); } catch (e) {}
+    try { d = await (await fetch('/_x/ext/course/api/course?course=' + encodeURIComponent(courseUrl))).json(); } catch (e) {}
     const sent = load(SENT);
     stEl.className = 'xe-st'; stEl.hidden = true; stEl.onclick = null;
     if (d && d.num) {

@@ -86,7 +86,9 @@
 # root = "~/remote-window"
 # share = 0.2  # 主账号 Claude 周额度的20%；估算未校准时不能精确限制（老写法 week_share 也认）
 
-# ───────── 试课预览（做课专属）─────────
-# 改到课程根里的课就附“试课”链接；外网只转本机 CyberScope 的课程预览页和预览要用的几个接口
-# preview_upstream = "http://127.0.0.1:8000"
-# preview_root = "~/path/to/courses"
+# ───────── 扩展 ─────────
+# 私有功能放在 src/remote_claude/extensions/名字/，写了 [ext.名字] 这一节才开；enabled = false 关掉。
+# 例：做课扩展（改到课程根里的课就附“试课”链接；外网只转本机 CyberScope 的课程预览页和预览要用的几个接口）
+# [ext.course]
+# upstream = "http://127.0.0.1:8000"
+# root = "~/path/to/courses"

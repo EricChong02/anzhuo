@@ -18,9 +18,13 @@ def with_prefix(text: str, prefix: str = "") -> str:
     return text
 
 
-def app_html(prefix: str = "") -> str:
-    """单文件前端。"""
-    return with_prefix(APP_PATH.read_text(), prefix)
+def app_html(prefix: str = "", scripts: list[str] = ()) -> str:
+    """单文件前端。scripts = 扩展的前端脚本地址（已带前缀），排在主脚本后面加载，用 window.XE 挂到界面上。"""
+    text = with_prefix(APP_PATH.read_text(), prefix)
+    if scripts:
+        tags = "".join(f'<script src="{src}"></script>' for src in scripts)
+        text = text.replace("</body>", tags + "</body>", 1) if "</body>" in text else text + tags
+    return text
 
 
 def settings_js(prefix: str = "") -> str:

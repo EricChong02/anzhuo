@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -14,7 +15,8 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, engines, folders, report, router, split, superagent, translate, usage
+from . import cards, engines, ext, folders, report, router, split, superagent, translate, usage
+from .events import Bus
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
@@ -31,6 +33,17 @@ RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E �
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
 
 log = logging.getLogger(__name__)
+QUOTA_TIGHT, QUOTA_URGENT = 0.75, 0.9   # 5 小时或本周用到这么多：偏紧 / 告急（P3.5 的调度器再按消耗速度细分）
+
+
+def _util(v) -> float | None:
+    return float(v[0]) if isinstance(v, (list, tuple)) and v and isinstance(v[0], (int, float)) else None
+
+
+def quota_level(limits: dict) -> str:
+    """额度（{"five_hour": (已用比例, 重置时间), ...}）在哪一档：看用得最多的那一项。"""
+    worst = max((u for v in limits.values() if (u := _util(v)) is not None), default=0.0)
+    return "告急" if worst >= QUOTA_URGENT else "偏紧" if worst >= QUOTA_TIGHT else "充足"
 
 
 class Bridge:
@@ -74,10 +87,18 @@ class Bridge:
         self.board_lock = asyncio.Lock()
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
-        self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
+        self.web = Web(cfg.web_base, cfg.web_port, data_dir,
                        watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash,
                        web_prefix=cfg.web_prefix)
         self.web.bridge = self
+        # 事件：一轮做完、额度变档……谁关心谁订阅（events.py）；扩展在这之后加载，也能订阅
+        self.events = Bus()
+        self.events.on("turn_done", self._relay_written, order=10)
+        self.events.on("turn_done", self._schedule_ran, order=20)
+        self.events.on("turn_report", lambda s, turn: superagent.on_turn_done(self, s, turn), order=10)
+        self.events.on("quota", self._quota_said, order=90)
+        self._quota: dict[str, str] = {}   # 各家额度现在在哪一档（充足 / 偏紧 / 告急 / 撞线）
+        self.web.exts = self.exts = ext.load(self)
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
         self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
@@ -325,7 +346,7 @@ class Bridge:
     def _relay_open(self, p: Session, note: str) -> Session:
         now = time.time()
         s = Session(num=self.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
-                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, category=p.category, pinned=p.pinned,
+                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, pinned=p.pinned, ext=copy.deepcopy(p.ext),
                     task_group=p.task_group, task_group_manual=p.task_group_manual,
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
@@ -339,14 +360,45 @@ class Bridge:
         """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
         return engines.get(s.engine).limits(self.runner)
 
-    async def _turn_done(self, s: Session, turn: Turn) -> None:
+    def _relay_written(self, s: Session, turn: Turn) -> None:
+        """写交接说明的那一轮做完：开接力的新对话。"""
         if s.num in self._relaying:
             self._relaying.discard(s.num)
             note = (turn.final_text or "").strip()
             if not (turn.is_error or turn.interrupted) and note:
                 self._relay_open(s, note)
+
+    def _schedule_ran(self, s: Session, turn: Turn) -> None:
         if turn.schedule_id:
             self.schedules.finish(turn.schedule_id, turn.schedule_run_id, turn.error or ("任务未完成" if turn.is_error or turn.interrupted else ""))
+
+    # ---------- 额度变档（事件 quota）----------
+    async def _quota_level(self, engine: str, level: str, num: int | None = None) -> None:
+        """记下某家额度到了哪一档；变了才发事件。"""
+        prev = self._quota.get(engine, "充足")
+        if level == prev:
+            return
+        self._quota[engine] = level
+        await self.events.emit("quota", engine=engine, level=level, prev=prev,
+                               limits=dict(engines.get(engine).limits(self.runner)), num=num)
+
+    async def _quota_check(self) -> None:
+        """刚读过额度：各家按用了多少分档。撞线的要等撞线的对话都到点恢复了，才按用量重新分档。"""
+        now = time.time()
+        for eng in engines.known():
+            if not eng.has_quota:
+                continue
+            if self._quota.get(eng.key) == "撞线" and any(
+                    s.limit_until > now and engines.get(s.engine) is eng for s in self.registry.visible()):
+                continue
+            await self._quota_level(eng.key, quota_level(eng.limits(self.runner)))
+
+    def _quota_said(self, engine: str, level: str, prev: str, limits: dict, num: int | None = None) -> None:
+        e = engines.get(engine)
+        log.info("%s 额度：%s → %s %s", e.label, prev, level, {k: round(v[0] * 100) for k, v in limits.items() if _util(v) is not None})
+
+    async def _turn_done(self, s: Session, turn: Turn) -> None:
+        await self.events.emit("turn_done", s, turn)   # 接力、定时任务、扩展各自订阅（见 events.py）
         if turn.request == "压缩上下文" and not turn.is_error:
             before = self._compact_from.pop(s.num, None)
             after = s.context_pct
@@ -364,8 +416,8 @@ class Bridge:
                 if not (turn.changed_files or turn.commands or turn.images or turn.is_error):
                     raise LookupError  # 闲聊、直接问答：记下来给网页对话框用，报告里不附链接
                 turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
-                turn.links += [(f"试课：{name}", self.web.link(url))
-                               for name, url in self.web._turn(tid).get("previews", [])]
+                turn.links += [(f"{x['label']}：{x['title']}" if x.get("title") else x["label"], self.web.link(x["url"]))
+                               for x in self.web.links_of(self.web._turn(tid) or {})]
                 title, body = report.build(s.label, turn, s.cwd, self._limits(s))
             except LookupError:
                 pass
@@ -378,9 +430,10 @@ class Bridge:
         if turn.is_error and (until := limit_reset(turn.error or turn.final_text)):
             s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
             asyncio.create_task(self._auto_resume(s.num, until))
+            await self._quota_level(s.engine, "撞线", num=s.num)
         self.registry.save()
-        if await superagent.on_turn_done(self, s, turn):
-            return   # 总管派的活：先回报给总管，由总管告诉你
+        if await self.events.claim("turn_report", s, turn):
+            return   # 别人接了（总管派的活：先回报给总管，由总管告诉你）
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
@@ -428,6 +481,12 @@ class Bridge:
         """额度恢复后一分钟，替你说一句“继续”（你点了“别自动接”、或已经自己接着说了就不说）。"""
         await asyncio.sleep(max(0.0, until + 60 - time.time()))
         s = self.registry.get(num)
+        if s:
+            try:
+                await engines.get(s.engine).refresh_quota(self.runner, force=True)
+            except Exception:  # noqa: BLE001
+                log.debug("读额度失败", exc_info=True)
+            await self._quota_check()   # 撞线的那家：到点了就按用量回到 充足 / 偏紧（发 quota 事件）
         if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden:
             return
         s.limit_until = 0.0
@@ -616,7 +675,7 @@ class Bridge:
             if not self.web.enabled:
                 return await self.say("网页", "网页没有开启（配置里 web = false）。")
             return await self.say("网页", f"远窗网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
-                                          "里面有在做的课（一点就试课）和最近每一轮的完整过程。")
+                                          "里面有所有对话和最近每一轮的完整过程。")
         if cmd.kind == "compact":
             return await self.compact(cmd.num)
         if cmd.kind == "quota":
@@ -1013,6 +1072,7 @@ class Bridge:
                     await eng.refresh_quota(self.runner, force=True)
                 except Exception:  # noqa: BLE001
                     log.debug("读 %s 额度失败", eng.label, exc_info=True)
+            await self._quota_check()
             await asyncio.sleep(600)
 
     async def _cleanup_loop(self) -> None:
@@ -1050,7 +1110,7 @@ class Bridge:
         await self._start(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
                           model=MODELS["sonnet"], effort="low")
         if s := self.registry.get(num):
-            s.name, s.renamed, s.category = f"{time.strftime('%-m')} 月清理体检", True, "杂事"
+            s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
             self.registry.save()
 
     def _dingtalk_client(self):

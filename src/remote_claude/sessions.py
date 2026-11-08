@@ -57,7 +57,6 @@ class Session:
     codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
     acp_id: str = ""  # ACP 引擎（Kimi 等）那边的会话编号（接着上次聊）
     pinned: bool = False  # 网页里置顶
-    category: str = ""  # 你手动归的类别（做课/平台/案头/杂事）；空 = 按文件夹自动分
     task_group: str = ""  # 具体任务分组，模型生成或手动指定
     task_group_manual: bool = False  # 手动指定后模型不覆盖
     renamed: bool = False  # 你手动改过名：自动起名不再动它
@@ -71,7 +70,7 @@ class Session:
     rewind_note: str = ""  # 回到这里时顺带说明（收起了几条、文件退没退）
     fork_from: int = 0  # 从哪个对话分叉出来的（编号）
     forking: bool = False  # 分叉出来还没说第一句：下一句从 rewind_at 那条接着、另起一个 Claude 对话（原对话不动）
-    feedback: dict = field(default_factory=dict)  # 最近一次试课反馈在哪一屏：{course, section, screen, where}，回复里的试课链接直接跳回那屏
+    ext: dict = field(default_factory=dict)  # 扩展存在这个对话上的数据：扩展名 → 它自己的字典（见 ext.Api.data）
     owner: str = "admin"  # 哪个网页账号的对话；钉钉里的都算 admin。两个账号互相看不到对方的对话
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
@@ -154,7 +153,7 @@ class Job:
     text: str
     images: list[Path] = field(default_factory=list)
     finished: bool = False
-    via: str = ""  # 从哪说的（web / dingtalk / feedback / auto）
+    via: str = ""  # 从哪说的（web / dingtalk / auto，或扩展的名字）
     parts: list[str] = field(default_factory=list)  # 还没开工时你连着说的几句并成了这一件（网页上照旧一句一句显示）
 
 

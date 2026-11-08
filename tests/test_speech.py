@@ -99,7 +99,7 @@ def test_generation_deduplicates_and_deleting_a_session_cancels_only_its_jobs(tm
 
 def test_authenticated_generation_stream_download_range_and_delete(tmp_path, monkeypatch):
     async def go():
-        w = Web('http://x.example', 0, tmp_path, '', '', user='u', pw_hash=hash_password('p', iters=1000))
+        w = Web('http://x.example', 0, tmp_path, user='u', pw_hash=hash_password('p', iters=1000))
         s = Session(num=6, name='朗读', cwd=str(tmp_path))
         w.bridge = NS(registry=NS(get=lambda n: s if n == 6 else None, save=lambda: None, current=6),
                       runner=NS(turns={}, busy=lambda n: False))
@@ -277,7 +277,7 @@ def test_lost_player_expires_but_active_stream_is_retained(tmp_path, monkeypatch
 
 def test_release_api_is_authenticated_origin_checked_and_bound_to_request(tmp_path,monkeypatch):
     async def go():
-        w=Web('http://x.example',0,tmp_path,'','',user='u',pw_hash=hash_password('p',iters=1000))
+        w=Web('http://x.example',0,tmp_path,user='u',pw_hash=hash_password('p',iters=1000))
         session=Session(num=1,name='释放测试',cwd=str(tmp_path))
         w.bridge=NS(registry=NS(get=lambda n:session))
         tid=w.save_turn('#1 测试',Turn(started=100,ended=120,final_text='正在等待的回复。'),'/tmp','完成')

@@ -49,7 +49,7 @@ def test_two_accounts_isolated(tmp_path):
             su = await (await cu.get("/_x/api/sessions")).json()
             assert [s["num"] for s in sa["sessions"]] == [a.num] and sa["me"]["role"] == "admin"
             assert [s["num"] for s in su["sessions"]] == [u.num] and su["me"]["role"] == "user"
-            assert su["folders"] == [] and su["drafts"] == [] and all(m[0] != "gpt" for m in su["models"])
+            assert su["folders"] == [] and su["ext"] == {} and all(m[0] != "gpt" for m in su["models"])
             # 对方的对话当作没有
             assert (await cu.get(f"/_x/api/thread/{a.num}")).status == 404
             assert (await ca.get(f"/_x/api/thread/{u.num}")).status == 404

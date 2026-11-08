@@ -1,8 +1,8 @@
-"""小E 网页：完整过程页和试课预览。只听本机端口，经 SSH 反向隧道挂到阿里云（如 https://xiaoe.ericlab.cn）。
+"""小E 网页：对话框、完整过程页、管理页。只听本机端口，经 SSH 反向隧道挂到阿里云（如 https://xiaoe.ericlab.cn）。
 
 进门：固定网址 + 账号密码，登录一次这台设备 30 天免登录（Cookie）。密码只存 PBKDF2 指纹（钥匙串），
 同一来源连错 5 次锁 15 分钟、所有来源一小时内错 30 次全体锁一小时。
-试课预览只转本机 CyberScope 的课程预览页、静态文件和预览要用的几个接口；教师台、学生数据、WebSocket 一律不转。
+扩展（ext.py）能在 /_x/ext/名字/ 下加地址、接住没登记的地址（兜底，排在最后）、往主页面加脚本。
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-import aiohttp
 from aiohttp import web
 
 from . import engines, schedules, thread, translate, usage, task_groups
@@ -37,6 +36,7 @@ from .dingtalk import Incoming
 from .folders import display, readable
 from .report import EFFORT_CN, LIMIT_CN, model_name
 from .relay import relay_hint
+from .ext import STATIC_FILE, Routes
 
 log = logging.getLogger(__name__)
 
@@ -60,10 +60,10 @@ def check_password(password: str, stored: str) -> bool:
         return False
 
 DESK_FRESH = 300  # 电脑端对话的记录在这么多秒内被写过，就当电脑上可能还开着
-PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给试课预览
+PREFIX = "/_x"  # 小E 自己的页面都在这下面，其余路径留给扩展的兜底（没有就 404）
 PUBLIC = (f"{PREFIX}/login", f"{PREFIX}/icon.png", f"{PREFIX}/icon-512.png", f"{PREFIX}/manifest.json", f"{PREFIX}/sw.js",
           f"{PREFIX}/health")
-# 受限账号（role = user）能用的页面和接口；别的（历史记录、试课、定时、浏览文件夹、接电脑端对话、管理页）一律不给
+# 受限账号（role = user）能用的页面和接口；别的（历史记录、扩展、定时、浏览文件夹、接电脑端对话、管理页）一律不给
 USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/api/push", f"{PREFIX}/api/logout",
                f"{PREFIX}/api/devices", f"{PREFIX}/api/devices/logout", f"{PREFIX}/api/sessions", f"{PREFIX}/api/events",
                f"{PREFIX}/api/uimg/{{num}}/{{uuid}}/{{k}}", f"{PREFIX}/api/thread/{{num}}", f"{PREFIX}/api/manage/{{num}}",
@@ -73,23 +73,6 @@ USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/a
                f"{PREFIX}/api/rewind/{{num}}", f"{PREFIX}/api/fork/{{num}}", f"{PREFIX}/api/unqueue/{{num}}",
                f"{PREFIX}/api/presence", f"{PREFIX}/t/{{tid}}", f"{PREFIX}/t/{{tid}}/img/{{i}}", f"{PREFIX}/t/{{tid}}/file/{{i}}",
                "/dl/{tid}/{i}", "/dl/{tid}/{i}/pages", "/dl/{tid}/{i}/p/{name}"}
-
-CATS = ("做课", "平台", "案头", "杂事")
-
-
-def category(s, folders: dict) -> str:
-    """对话归哪一类：你手动归过的为准；否则按文件夹自动分（课程根 → 做课、平台仓库 → 平台、案头自己 → 案头，其余杂事）。"""
-    if s.category in CATS:
-        return s.category
-    cwd = str(Path(s.cwd).expanduser())
-    under = lambda key: bool(folders.get(key)) and (cwd + "/").startswith(str(Path(folders[key]).expanduser()) + "/")
-    if "remote-claude" in cwd or "案头" in s.name or "远窗" in s.name or "小E" in s.name:
-        return "案头"
-    if under("课程根"):
-        return "做课"
-    if under("平台"):
-        return "平台"
-    return "杂事"
 
 def display_model(model_id: str) -> str:
     """统一网页名称，保留未知型号；兼容早先保存的 GPT（实际型号）。"""
@@ -110,56 +93,6 @@ def model_options() -> list[list[str]]:
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
         [e.key, (display_model(configured_model()) or e.label) if e is engines.CODEX else e.label]
         for e in engines.known() if e.pick_model == "own" and (e is engines.CODEX or e.available())]
-
-# 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
-PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",
-               "/api/ping", "/api/logs", "/api/fault")
-PREVIEW_PAGES = {"/studio-preview.html", "/lecture-preview.html"}
-COURSE_DIRS = ("/workspace/", "/courses/")  # 课件本身（草稿在 /workspace/，上架的在 /courses/）
-# CyberScope 只让“本机直连”读做课工作区（/workspace/ 课件、判题、草稿课列表），带代理来源头的一律当外来（auth.is_trusted_local）。
-# 进得了这里的人已经过了小E 的一次性链接登录，所以只对这三类请求去掉来源头；其余（含教师接口）照旧带着，后端照旧当外来。
-FEEDBACK_PAGES = ("/studio-preview.html",)  # 试课页：小E 转发时插一个“反馈这一屏”按钮（static/feedback.js）
-LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
-PROXY_SOURCE = {"x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"}
-HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
-       "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
-
-
-def preview_allowed(method: str, path: str) -> bool:
-    if ".." in path or path.startswith("/ws"):
-        return False
-    if path.startswith("/api/"):
-        return any(path == a or (a.endswith("/") and path.startswith(a)) or path.startswith(a + "/")
-                   for a in PREVIEW_API)
-    if method not in ("GET", "HEAD"):
-        return False
-    if path == "/" or path.endswith(".html"):
-        # 平台页面只放两张预览页；课件里每一节的内容也是 .html（fragments/section-N.html、课的 index.html），放行课程目录下的
-        return path in PREVIEW_PAGES or path.startswith(COURSE_DIRS)
-    return True
-
-
-def course_previews(files: list[str], root: str) -> list[tuple[str, str]]:
-    """改到的文件属于课程根里的哪几节课 → (课名, 预览地址)。"""
-    if not root:
-        return []
-    base = Path(root).expanduser().resolve()
-    out: dict[str, str] = {}
-    for f in files:
-        p = Path(f).expanduser()
-        try:
-            p.resolve().relative_to(base)
-        except ValueError:
-            continue
-        for d in [p.parent, *p.parents]:
-            if d == base or base not in d.resolve().parents:
-                break
-            if (d / "course.json").is_file():
-                rel = d.resolve().relative_to(base).as_posix()
-                out[d.name] = f"/studio-preview.html?course={quote(f'/workspace/{rel}/course.json')}"
-                break
-    return list(out.items())
-
 
 def _md(text: str) -> str:
     """回复里的 Markdown 粗略转成 HTML：转义后只处理加粗、行内代码和链接，其余保留换行。"""
@@ -228,7 +161,7 @@ def _said_has(recorded: str, sent: str) -> bool:
 
 
 class Web:
-    def __init__(self, base: str, port: int, data_dir: Path, preview_upstream: str = "", preview_root: str = "",
+    def __init__(self, base: str, port: int, data_dir: Path,
                  user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
                  save_hash=None, web_prefix: str = ""):
         # 子路径挂载：被别的面板反代透传时，整站挂在 {web_prefix}/... 下（见 config.example.toml 的 web_prefix）。空 = 根路径，现状不变
@@ -247,13 +180,11 @@ class Web:
         self.all_fails: list[float] = []
         self.base = base.rstrip("/")
         self.port = port
-        self.preview_upstream = preview_upstream.rstrip("/")
-        self.preview_root = preview_root
         self.turns_dir = data_dir / "turns"
         self.store_path = data_dir / "web.json"
         self.push = Push(data_dir / "push.json", self.base or "https://localhost", mirror=watch_host)
         self.store = self._load()
-        self._client: aiohttp.ClientSession | None = None
+        self.exts: list = []   # 加载了的扩展（ext.py；Bridge 加载好了放进来）
         # 鉴权用的路径集合按前缀重算：PUBLIC / USER_ROUTES 是按 /_x 写的模块常量，挂了子路径就整体平移
         # （/dl 不在 /_x 命名空间里，路由挂到 {web_prefix}/dl，鉴权集合要跟着搬，不然非管理员下文件会被 403）
         def _shift(p: str) -> str:
@@ -283,8 +214,6 @@ class Web:
         self._zh_failed: set[str] = set()
         self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
         self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
-        self._courses: tuple[float, list] = (0.0, [])
-        self._course_list: tuple[float, list] = (0.0, [])
 
     def watching(self, num: int) -> bool:
         """你正开着这个对话、页面在前台（网页每 15 秒报一次）：做完就不再弹通知、不发钉钉。"""
@@ -664,11 +593,40 @@ class Web:
             "started": turn.started, "ended": turn.ended, "schedule_id": turn.schedule_id, "schedule_run_id": turn.schedule_run_id, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
-            "previews": course_previews(files, self.preview_root), "translated": turn.translated,
+            "links": self._turn_links(files, turn), "translated": turn.translated,
         }
         self.turns_dir.mkdir(parents=True, exist_ok=True)
         (self.turns_dir / f"{tid}.json").write_text(json.dumps(rec, ensure_ascii=False))
         return tid
+
+    def _turn_links(self, files: list[str], turn) -> list[dict]:
+        out = []
+        for e in self.exts:
+            try:
+                out += [dict(x, ext=e.name) for x in e.turn_links(files, turn) or []]
+            except Exception:  # noqa: BLE001 - 扩展出错不影响记录
+                log.exception("扩展 %s 算链接出错", e.name)
+        return out
+
+    def links_of(self, rec: dict) -> list[dict]:
+        """这一轮回复附的链接 [{label, url, title, icon, key, ext}]；老样子的记录先让扩展改成现在的样子。"""
+        for e in self.exts:
+            try:
+                e.upgrade_record(rec)
+            except Exception:  # noqa: BLE001
+                log.exception("扩展 %s 读老记录出错", e.name)
+        return [x for x in rec.get("links") or [] if isinstance(x, dict) and x.get("url")]
+
+    def _ext_data(self, hook: str, *args) -> dict:
+        """各扩展附在接口里的数据：{扩展名: 数据}，没有的不放。"""
+        out = {}
+        for e in self.exts:
+            try:
+                if (got := getattr(e, hook)(*args)) is not None:
+                    out[e.name] = got
+            except Exception:  # noqa: BLE001
+                log.exception("扩展 %s 的 %s 出错", e.name, hook)
+        return out
 
     def _turn(self, tid: str) -> dict | None:
         if not re.fullmatch(r"\d+-\d+", tid):
@@ -694,7 +652,9 @@ class Web:
 
     async def _app_page(self, request: web.Request) -> web.Response:
         from .webui import app_html
-        return web.Response(text=app_html(self.web_prefix), content_type="text/html", headers={"Cache-Control": "no-store"})
+        admin = self.role(request.get("acct", "")) == "admin"
+        scripts = [f"{self.px}/ext/{e.name}/static/{f}" for e in self.exts for f in e.scripts] if admin else []
+        return web.Response(text=app_html(self.web_prefix, scripts), content_type="text/html", headers={"Cache-Control": "no-store"})
 
     async def _icon(self, request: web.Request) -> web.StreamResponse:
         name = "icon-512.png" if request.path.endswith("512.png") else "icon.png"
@@ -765,7 +725,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             except (OSError, json.JSONDecodeError, KeyError, ValueError):
                 continue
         reg = getattr(self.bridge, "registry", None) if self.bridge else None
-        folders = getattr(getattr(self.bridge, "cfg", None), "folders", {}) if self.bridge else {}
         last = lambda r: r.get("ended") or r.get("started") or 0
         rows = []
         for num, rs in sorted(convs.items(), key=lambda kv: -max(map(last, kv[1])))[:60]:
@@ -774,8 +733,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if s and s.owner != "admin":
                 continue
             name = s.name if s else re.sub(r"^#\d+\s*", "", rs[0].get("label", "")) or f"#{num}"
-            bits = [category(s, folders)] if s else []
-            bits += [f"{len(rs)} 轮", time.strftime("%m-%d %H:%M", time.localtime(last(rs[0]))), rs[0].get("title", "")]
+            bits = [f"{len(rs)} 轮", time.strftime("%m-%d %H:%M", time.localtime(last(rs[0]))), rs[0].get("title", "")]
             if s and s.hidden:
                 bits.append("已删除")
             turns = "".join(
@@ -785,8 +743,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             rows.append(f'<div class="card"><a href="{self.px}/?s={num}"><b>{html.escape(name)}</b></a>'
                         f'<div class="meta">{html.escape(" · ".join(b for b in bits if b))}</div>'
                         f'<details><summary class="meta">每一轮</summary><ul>{turns}{more}</ul></details></div>')
-        drafts = [f'<a class="btn" href="{html.escape(d["url"])}">试课：{html.escape(d["title"])}</a>' for d in self._drafts()[:6]]
-        top = f"<h1>最近的课</h1><p>{''.join(drafts)}</p>" if drafts else ""
+        top = "".join(self._ext_data("history_top").values())
         return self._page("远窗 · 历史记录", top + "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
                           + ("".join(rows) or "<p class='meta'>还没有记录。</p>"))
 
@@ -800,9 +757,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                f"<h1>{html.escape(r['title'])}：{html.escape(r['request'] or r['label'])}</h1>",
                f"<p class='meta'>{html.escape(r['label'])} · {when} 起 · {mins} 分钟 · "
                f"{html.escape(display(Path(r['cwd'])))} · {html.escape(r.get('model') or '')}</p>"]
-        if r.get("previews"):
-            out.append("<p>" + "".join(f'<a class="btn" href="{html.escape(u)}">试课：{html.escape(n)}</a>'
-                                       for n, u in r["previews"]) + "</p>")
+        if links := self.links_of(r):
+            out.append("<p>" + "".join(f'<a class="btn" href="{html.escape(x["url"])}">{html.escape(x.get("label") or "打开")}'
+                                       + (f'：{html.escape(x["title"])}' if x.get("title") else "") + "</a>" for x in links) + "</p>")
         if r.get("error"):
             out.append(f"<div class='card'><b>出错原因</b>：{html.escape(r['error'])}</div>")
         if r.get("final_text"):
@@ -885,47 +842,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             raise web.HTTPNotFound()
         return web.FileResponse(out / name, headers={"Cache-Control": "private, max-age=86400"})
 
-    # ---------- 试课预览：转给本机 CyberScope ----------
-    def _moved_course(self, course: str) -> str:
-        """/workspace/_drafts/<课>/course.json 已不在（课上架挪进 topics/）→ 新地址；没挪就空。"""
-        m = re.fullmatch(r"/workspace/_drafts/([^/]+)/course\.json", course)
-        root = Path(self.preview_root).expanduser() if self.preview_root else None
-        if not m or not root or (root / "_drafts" / m[1] / "course.json").is_file():
-            return ""
-        hit = next((p for p in sorted((root / "topics").glob(f"*/{m[1]}/course.json"))), None)
-        return f"/workspace/{hit.relative_to(root).as_posix()}" if hit else ""
-
-    async def _proxy(self, request: web.Request) -> web.StreamResponse:
-        if not self.preview_upstream or not preview_allowed(request.method, request.path):
-            return self._page("不开放", "<h1>这个地址不开放</h1><p class='meta'>外网只能打开课程预览。</p>", 403)
-        if self._client is None:
-            self._client = aiohttp.ClientSession(auto_decompress=False, timeout=aiohttp.ClientTimeout(total=120))
-        drop = HOP | (PROXY_SOURCE if request.path.startswith(LOCAL_ONLY) else set())
-        inject = request.method == "GET" and request.path in FEEDBACK_PAGES
-        if inject and (moved := self._moved_course(request.query.get("course", ""))):
-            return web.HTTPFound(request.rel_url.update_query(course=moved).path_qs)  # 早先记下的草稿链接：课上架后跳到新位置
-        if inject:
-            drop = drop | {"accept-encoding", "if-none-match", "if-modified-since"}  # 要改页面，取不压缩、完整的一份
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in drop}
-        try:
-            async with self._client.request(request.method, self.preview_upstream + request.rel_url.path_qs,
-                                            headers=headers, data=await request.read(), allow_redirects=False) as up:
-                if inject and up.status == 200 and "text/html" in up.headers.get("Content-Type", ""):
-                    page = (await up.read()).decode("utf-8", "replace")
-                    tag = f'<script src="{PREFIX}/feedback.js"></script>'
-                    page = page.replace("</body>", tag + "</body>", 1) if "</body>" in page else page + tag
-                    return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-store"})
-                resp = web.StreamResponse(status=up.status, headers={
-                    k: v for k, v in up.headers.items() if k.lower() not in HOP | {"set-cookie"}})
-                await resp.prepare(request)
-                async for chunk in up.content.iter_chunked(64 * 1024):
-                    await resp.write(chunk)
-                await resp.write_eof()
-                return resp
-        except aiohttp.ClientError:
-            return self._page("预览没开", "<h1>本机的课程预览没开</h1><p class='meta'>Mac 上的 CyberScope（8000 端口）"
-                              "没在运行。在钉钉里让远窗帮你启动，或回到电脑前双击“做课.command”。</p>", 502)
-
     # ---------- 网页对话框的接口 ----------
     def _turn_paths(self, num: int) -> list[Path]:
         s = self.bridge.registry.get(num) if self.bridge and hasattr(self.bridge, "registry") else None
@@ -962,7 +878,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"{self.web_prefix}/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
-                out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "previews": r.get("previews", []), "files": fs,
+                out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "links": self.links_of(r), "files": fs,
                             "checkpoint_before": r.get("checkpoint_before", ""), "checkpoint_after": r.get("checkpoint_after", ""), "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{self.px}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
@@ -996,46 +912,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                           "ts": lt.ended, "elapsed": max(0, lt.ended - lt.started) if lt.ended >= lt.started else None,
                           "steps": len(lt.steps), "process": []})
         return items[-300:]
-
-    def _drafts(self) -> list[dict]:
-        """课程根里的课，最近改过的在前：草稿（_drafts/）和已上架的（topics/专题/）都算。
-        每门课标上走到哪了：草稿 / 上架了但学生看不到 / 已发布；发布后又改过的标“有改动没发布”。15 秒算一次。"""
-        at, cached = self._course_list
-        if time.time() - at < 15:
-            return cached
-        root = Path(self.preview_root).expanduser() if self.preview_root else None
-        if not root or not root.is_dir():
-            return []
-        try:
-            pub = json.loads((root / "_published.json").read_text()).get("courses") or {}
-        except (OSError, json.JSONDecodeError, AttributeError):
-            pub = {}
-        out = []
-        for cj in [*root.glob("_drafts/*/course.json"), *root.glob("topics/*/*/course.json")]:
-            d = cj.parent
-            try:
-                j = json.loads(cj.read_text())
-            except (OSError, json.JSONDecodeError):
-                j = {}
-            # 课的改动多在 fragments/ 和几个主文件里，目录本身的时间不准
-            mtime = 0.0
-            for f in [cj, d / "cues.md", d / "教案.md", d / "index.html", d / "index.js", *d.glob("fragments/*")]:
-                try:
-                    mtime = max(mtime, f.stat().st_mtime)
-                except OSError:
-                    pass
-            rel = d.relative_to(root).as_posix()
-            vis = ((j.get("catalog") or {}).get("visibility") if isinstance(j, dict) else "") or ""
-            p = pub.get(d.name) if isinstance(pub.get(d.name), dict) else {}
-            pub_at = ((p.get("since") or {}).get("version") or 0) if p else 0
-            stage = "draft" if rel.startswith("_drafts/") else "published" if vis == "published" else "hidden"
-            out.append({"title": (j.get("title") if isinstance(j, dict) else "") or d.name, "dir": d.name, "rel": rel,
-                        "mtime": int(mtime), "stage": stage, "pub_at": int(pub_at),
-                        "dirty": bool(stage == "published" and pub_at and mtime > pub_at + 120),
-                        "url": f"/studio-preview.html?course={quote(f'/workspace/{rel}/course.json')}"})
-        out.sort(key=lambda x: x["mtime"], reverse=True)
-        self._course_list = (time.time(), out)
-        return out
 
     async def _api_task_groups(self, request):
         if not self._same_origin(request):
@@ -1127,15 +1003,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
-                         "pinned": s.pinned, "category": category(s, b.cfg.folders), "manual_cat": s.category in CATS, "role": s.role,
+                         "pinned": s.pinned, "role": s.role,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         acct = request.get("acct", "")
         me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
-        return web.json_response({"sessions": rows, "drafts": [] if fenced else self._drafts(),
-                                  "courses": [] if fenced else await self._course_cards(rows), "me": me,
+        extra = {} if fenced else await asyncio.to_thread(self._ext_data, "sessions_extra", rows)   # 扩展可能要翻文件
+        return web.json_response({"sessions": rows, "ext": extra, "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
                                   "models": [m for m in model_options() if not fenced or m[0] in ("opus", "sonnet", "haiku", "fable")],
@@ -1210,8 +1086,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 return web.json_response({"ok": False, "error": "任务分组名称需为2到24字"}, status=400)
             for member in self._relay_chain(s):
                 member.task_group, member.task_group_manual = val, True
-        elif act == "category":
-            s.category = val if val in CATS else ""
         elif act == "delete":
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，先停下再删"})
@@ -1373,7 +1247,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         out: dict[str, list] = {"title": [], "said": [], "deleted": []}
         owner = request.get("owner", "admin")
         for s in sorted((x for x in b.registry.sessions.values() if x.owner == owner), key=lambda x: -x.updated):
-            row = {"num": s.num, "name": s.name, "category": category(s, b.cfg.folders), "updated": s.updated,
+            row = {"num": s.num, "name": s.name, "updated": s.updated,
                    "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
             if ql in s.name.lower():
                 out["deleted" if s.hidden else "title"].append(row)
@@ -1528,7 +1402,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"num": num, "name": chain[0].name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
-                                  "limit": limit, "engine": s.engine, "feedback": s.feedback or None, "relay_to": s.relay_to or None,
+                                  "limit": limit, "engine": s.engine, "ext": self._ext_data("thread_extra", s), "relay_to": s.relay_to or None,
                                   "can_relay": s.relay_suggested and bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
@@ -1694,11 +1568,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return web.json_response({"ok": True, "injected": busy})
         folder = str(data.get("folder") or "").strip()
         kind = None
-        course = str(data.get("course") or "").strip()
-        if course and (c := next((d for d in self._drafts() if d["dir"] == course), None)):
-            # 接着做某门课：在课程根里开，并说明是哪门课，免得它去猜
-            folder, kind = str(Path(self.preview_root).expanduser()), "dev"
-            inc.text = text = f"（这件事是关于课程《{c['title']}》，目录 {c['rel']}/）\n{text}"
+        if pre := await self._ext_prepare(data, text):
+            # 扩展接了（比如“接着做某门课”）：照它说的文件夹、开场白、档位开
+            folder, kind = str(pre.get("folder") or ""), pre.get("kind")
+            inc.text = text = str(pre.get("text") or text)
         elif folder == "auto":
             # 让小E 看话判断在哪做；判断不出或不涉及文件夹就用空白的临时文件夹
             from . import router
@@ -1721,6 +1594,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         before = b.registry.next_num
         await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind, model=model, effort=effort)
         return web.json_response({"ok": True, "num": before if b.registry.get(before) else None})
+
+    async def _ext_prepare(self, data: dict, text: str) -> dict | None:
+        for e in self.exts:
+            try:
+                if got := await e.prepare_new(data, text):
+                    return got
+            except Exception:  # noqa: BLE001
+                log.exception("扩展 %s 新开前处理出错", e.name)
+        return None
 
     async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str]) -> web.Response:
         """受限账号说话：只能在自己的对话里接着说，或在自己的文件夹里新开；不分派、不排定时、不用 GPT。"""
@@ -1773,144 +1655,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         self.bridge.registry.save()
         self._threads.pop(s.num, None)
         return web.json_response({"ok": True})
-
-    async def _feedback_js(self, request: web.Request) -> web.Response:
-        return web.Response(text=(Path(__file__).parent / "static" / "feedback.js").read_text(),
-                            content_type="application/javascript", headers={"Cache-Control": "no-cache"})
-
-    async def _shot_js(self, request: web.Request) -> web.Response:
-        """试课页“加截图”框选截取用的截图库（modern-screenshot，MIT），点了才加载。"""
-        return web.Response(text=(Path(__file__).parent / "static" / "vendor" / "modern-screenshot.js").read_text(),
-                            content_type="application/javascript", headers={"Cache-Control": "max-age=86400"})
-
-    def _course_session(self, cdir: str, title: str):
-        """试课反馈交给谁：在课程根里、发过这门课试课链接的对话最准；其次看对话名和标题重合多少字。挑最近动过的。"""
-        root = Path(self.preview_root).expanduser().resolve() if self.preview_root else None
-        pairs = lambda t: {t[i:i + 2] for i in range(len(t) - 1)}  # 两字片段，比如“淘宝”“数据”“工程”
-        want = pairs(re.sub(r"\W", "", title))
-        best, best_key = None, None
-        for s in self.bridge.registry.visible():
-            try:
-                inside = root is not None and Path(s.cwd).expanduser().resolve().is_relative_to(root)
-            except OSError:
-                inside = False
-            if not inside:
-                continue
-            linked = any(f"/{cdir}/" in u for r in self._records(s.num) for _, u in r.get("previews", []))
-            said = re.sub(r"\W", "", " ".join([s.name or "", s.last_summary or ""]))
-            overlap = len(want & pairs(said)) + (5 if cdir in said else 0)
-            if not linked and overlap < 3:
-                continue
-            key = (linked, overlap >= 3, s.updated)
-            if best_key is None or key > best_key:
-                best, best_key = s, key
-        return best
-
-    async def _api_feedback(self, request: web.Request) -> web.Response:
-        """试课页上“反馈这一屏”：带上课、节、屏，交给做这门课的对话；没有就在课程根里新开一个。"""
-        if not self._same_origin(request):
-            raise web.HTTPForbidden()
-        data = await request.json()
-        # 课可能放在专题子文件夹里：topics/bx1/data-l02/course.json，取最后一层当课名，中间的算进路径
-        m = re.match(r"^/workspace/((?:_drafts|topics)(?:/[^/]+)*?)/([^/.][^/]*)/course\.json$", str(data.get("course") or ""))
-        if not m or ".." in m.group(1).split("/"):
-            return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
-        cdir = m.group(2)
-        title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
-        # 一次可以带几处（试课页上“先记下”攒的），每处：节、屏、说了什么、截图
-        notes = [x for x in (data.get("items") or [data]) if isinstance(x, dict)][:12]
-        lines, images = [], []
-        for x in notes:
-            where = self._where(m.group(1), cdir, x)
-            text = str(x.get("text") or "").strip()
-            imgs = await self._save_images({"images": (x.get("images") or [])[:max(0, 6 - len(images))]})
-            images += imgs
-            lines.append((where, x.get("section") or "未知", (text or "见截图") + (f"（附图 {len(imgs)} 张）" if imgs and len(notes) > 1 else "")))
-        if data.get("ask") and lines:
-            where, sec, text = lines[-1]
-            q = text if text != "见截图" else "这一屏是想让学生做什么、学到什么？在这一节里起什么作用？"
-            msg = f"（试课提问）《{title}》{where}（{m.group(1)}/{cdir}，节 id {sec}）：\n{q}\n\n先别改，对照教案用几句话说清楚就行。"
-        elif len(lines) == 1:
-            where, sec, text = lines[0]
-            msg = f"（试课反馈）《{title}》{where}（{m.group(1)}/{cdir}，节 id {sec}）：\n{text}\n\n改完截图给我看这一屏。"
-        else:
-            msg = (f"（试课反馈）《{title}》共 {len(lines)} 处（{m.group(1)}/{cdir}）：\n"
-                   + "\n".join(f"{i}. {w}（节 id {sec}）：{t}" for i, (w, sec, t) in enumerate(lines, 1))
-                   + "\n\n一处一处改，改完把改过的几屏截图给我看。")
-        last = notes[-1] if notes else {}
-        b = self.bridge
-        inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=msg, local_images=images,
-                       via="feedback")
-        b.record("你（试课提问）" if data.get("ask") else "你（试课反馈）", msg, images=len(images))
-        spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"), "step": last.get("step"),
-                "where": self._where(m.group(1), cdir, last), "t": time.time()}
-        s = self._course_session(cdir, title)
-        if s:
-            s.feedback = spot   # 记下最后一处在哪：改好后回复里的试课链接直接跳回这一屏
-            await b._message(Cmd("message", num=s.num, text=msg), inc, routed=True)
-            return web.json_response({"ok": True, "num": s.num, "name": s.name})
-        before = b.registry.next_num
-        root = str(Path(self.preview_root).expanduser())
-        await b._new([root], msg, inc, note="（试课反馈新开）", kind="dev")
-        s = b.registry.get(before)
-        if s:
-            s.feedback = spot
-            b.registry.save()
-        return web.json_response({"ok": bool(s), "num": before, "name": s.name if s else "新对话"})
-
-    def _where(self, parent: str, cdir: str, x: dict) -> str:
-        """“第 2 节「数据从哪来」第 3 屏”：页面没读到节名时，小E 自己从课程文件里查。"""
-        sec_no, sec_title, screen = x.get("section_no") or 0, str(x.get("section_title") or ""), x.get("screen")
-        if not sec_title and x.get("section"):
-            try:
-                secs = json.loads((Path(self.preview_root).expanduser() / parent / cdir / "course.json").read_text()).get("sections") or []
-                k = next(i for i, y in enumerate(secs) if y.get("id") == x["section"])
-                sec_no, sec_title = k + 1, secs[k].get("title") or ""
-            except (OSError, ValueError, StopIteration, AttributeError):
-                pass
-        # “老师讲课”模式下停在这一屏的第几步（封面 / 进屏 / 第 k 步，和 cues.md 的叫法一致）；学生视角整屏全显示，不带
-        step, steps = x.get("step"), x.get("steps")
-        name = ""
-        if isinstance(screen, int) and screen >= 0 and isinstance(step, int) and isinstance(steps, int) and 0 <= step <= steps and steps > 0:
-            name = str(x.get("step_name") or "")[:8] if step == 0 else f"第 {step} 步"
-            name = f"的{name or '进屏'}（共 {steps} 步）"
-        return "".join([f"第 {sec_no} 节「{sec_title}」" if sec_no else "",
-                        f"第 {int(screen) + 1} 屏{name}" if isinstance(screen, int) and screen >= 0 else ""])
-
-    async def _course_cards(self, rows: list[dict]) -> list[dict]:
-        """侧栏顶上的“课”：最近动过的几门课，各自是哪个对话在做、做到哪了。30 秒算一次（要翻每个对话的记录）。"""
-        at, cards = self._courses
-        if time.time() - at > 30:
-            cards = []
-            for d in self._drafts()[:5]:
-                try:
-                    s = await asyncio.to_thread(self._course_session, d["dir"], d["title"])
-                except Exception:  # noqa: BLE001
-                    s = None
-                cards.append(dict(d, num=s.num if s else None))
-            self._courses = (time.time(), cards)
-        by = {r["num"]: r for r in rows}
-        return [dict(c, status=by[c["num"]]["status"] if c["num"] in by else "", detail=by[c["num"]]["detail"] if c["num"] in by else "",
-                     name=by[c["num"]]["name"] if c["num"] in by else "") for c in cards]
-
-    async def _api_course(self, request: web.Request) -> web.Response:
-        """试课页右下角的小条：这门课是哪个对话在改、改到哪了、改完没有。"""
-        course = request.query.get("course", "")
-        m = re.match(r"^/workspace/((?:_drafts|topics)(?:/[^/]+)*?)/([^/.][^/]*)/course\.json$", course)
-        if not m:
-            return web.json_response({"num": None})
-        cdir = m.group(2)
-        title = next((d["title"] for d in self._drafts() if d["dir"] == cdir), cdir)
-        s = await asyncio.to_thread(self._course_session, cdir, title)
-        if not s:
-            return web.json_response({"num": None})
-        b = self.bridge
-        turn = b.runner.turns.get(s.num)
-        state = "running" if turn or b.runner.busy(s.num) else ("awaiting" if s.awaiting and s.awaiting_kind != "suggest" else "idle")
-        step = (turn.plan and next((x["text"] for x in turn.plan if x["status"] == "doing"), "")) or (turn.steps[-1] if turn and turn.steps else "") if turn else ""
-        return web.json_response({"num": s.num, "name": s.name, "state": state, "step": step,
-                                  "minutes": int((time.time() - turn.started) // 60) if turn else 0,
-                                  "updated": s.updated, "feedback": s.feedback or None})
 
     async def _api_presence(self, request: web.Request) -> web.Response:
         """网页每 15 秒报一次“我正开着 #N 看”；切走、锁屏时报不在。"""
@@ -2146,7 +1890,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 continue
             t = b.runner.turns.get(s.num)
             out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
-                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.category, s.task_group, s.task_group_manual, s.limit_until,
+                        bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.task_group, s.task_group_manual, s.limit_until,
                         s.rewind_at, s.auto_resume))
         return json.dumps(out, ensure_ascii=False, default=str)
 
@@ -2392,10 +2136,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{P}/icon-512.png", self._icon)
         app.router.add_get(f"{P}/manifest.json", self._manifest)
         app.router.add_get(f"{P}/sw.js", self._sw)
-        app.router.add_get(f"{P}/feedback.js", self._feedback_js)   # 试课反馈（做课专属）
-        app.router.add_get(f"{P}/shot.js", self._shot_js)
-        app.router.add_post(f"{P}/api/feedback", self._api_feedback)
-        app.router.add_get(f"{P}/api/course", self._api_course)
         app.router.add_get(f"{P}/health", self._health)
         app.router.add_get(f"{P}/api/push/key", self._api_push_key)
         app.router.add_post(f"{P}/api/push", self._api_push)
@@ -2450,9 +2190,42 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if self.web_prefix:
             app.router.add_get(self.web_prefix, self._to_app)
             app.router.add_get(f"{self.web_prefix}/", self._to_app)
-        if not self.web_prefix:   # 其余地址都交给试课预览（必须最后注册）；挂在子路径下时不转
-            app.router.add_route("*", "/{tail:.*}", self._proxy)
+        # 扩展：各自的地址在 /_x/ext/名字/ 下（只给管理员），static/ 里的文件在 /_x/ext/名字/static/…
+        fallbacks = []
+        for e in self.exts:
+            r = Routes(app, P, e.name, allow_fallback=not self.web_prefix)
+            app.router.add_get(r.url("/static/{file:.+}"), self._ext_static)
+            try:
+                e.routes(r)
+            except Exception:  # noqa: BLE001
+                log.exception("扩展 %s 加地址出错", e.name)
+            fallbacks += r.fallbacks
+        if fallbacks:   # 其余地址交给扩展的兜底（必须最后注册；只认第一个）；没有扩展接就 404
+            app.router.add_route("*", "/{tail:.*}", fallbacks[0])
+        app.on_cleanup.append(self._ext_close)
         return app
+
+    async def _ext_static(self, request: web.Request) -> web.StreamResponse:
+        name = request.path[len(self.px) + len("/ext/"):].split("/", 1)[0]
+        e = next((x for x in self.exts if x.name == name), None)
+        file = request.match_info["file"]
+        if not e or not STATIC_FILE.fullmatch(file) or ".." in file.split("/"):
+            raise web.HTTPNotFound()
+        path = e.static_dir / file
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        if path.suffix == ".js":   # 脚本里写的 /_x/ 地址跟着子路径前缀走（和主页面一样）
+            from .webui import with_prefix
+            return web.Response(text=with_prefix(path.read_text(encoding="utf-8"), self.web_prefix),
+                                content_type="application/javascript", headers={"Cache-Control": "no-cache"})
+        return web.FileResponse(path, headers={"Cache-Control": "max-age=86400"})
+
+    async def _ext_close(self, app) -> None:
+        for e in self.exts:
+            try:
+                await e.close()
+            except Exception:  # noqa: BLE001
+                log.exception("扩展 %s 收尾出错", e.name)
 
     async def start(self) -> None:
         runner = web.AppRunner(self.app(), access_log=None)

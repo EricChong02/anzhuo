@@ -314,7 +314,7 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .bempty{padding:18px;text-align:center;color:var(--mute);font-size:var(--t3)}
 .newv .dock{position:static;padding:0}
 
-/* 侧栏的课 */
+/* 侧栏里扩展的卡片（比如课） */
 .ccard{display:flex;align-items:center;border-radius:var(--r1);margin:0 0 2px}
 .ccard .cgo{flex:1;min-width:0;display:flex;text-align:left;padding:9px 10px;border-radius:var(--r1)}
 .ccard .tx{min-width:0;flex:1} .ccard .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--t3)}
@@ -341,7 +341,7 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
     font-size:var(--t1);line-height:1;padding:6px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:5}}
 .note.rw{display:flex;align-items:center;gap:10px;background:var(--accsoft);color:var(--acc);border-radius:var(--rf);padding:6px 6px 6px 14px;text-align:left}
 .note.rw button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
-/* 回复底下：事实一行 + 过程 / 试课 + ⋯ */
+/* 回复底下：事实一行 + 过程 / 扩展的链接 + ⋯ */
 .cl .acts{align-items:center} .facts{font-size:var(--t2);color:var(--mute);margin-right:4px}
 .pill small{color:var(--mute);font-size:var(--t1);max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cl .acts .ibs{margin-left:-6px}
@@ -946,8 +946,8 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 <div class="app" id="app">
   <aside class="side">
     <div class="brand"><span class="mk"><svg class="l" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mblc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbls" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#c3d1dd"/><stop offset=".55" stop-color="#dde5eb"/><stop offset="1" stop-color="#eef2f4"/></linearGradient><radialGradient id="mblg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#3a66a3" stop-opacity=".9"/><stop offset=".42" stop-color="#5179b0" stop-opacity=".45"/><stop offset=".66" stop-color="#5179b0" stop-opacity=".17"/><stop offset=".84" stop-color="#5179b0" stop-opacity=".05"/><stop offset="1" stop-color="#5179b0" stop-opacity="0"/></radialGradient><linearGradient id="mblp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".50"/><stop offset="1" stop-color="#fff" stop-opacity=".22"/></linearGradient><filter id="mblb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mblc)"><rect width="512" height="512" fill="url(#mbls)"/><rect width="512" height="512" fill="url(#mblg)"/><rect width="512" height="512" fill="url(#mblp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".8" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#2c5594" opacity=".6" filter="url(#mblb)"/><circle cx="384" cy="128" r="24" fill="#f7fbff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".95" stroke-width="6"/></svg><svg class="d" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true"><defs><clipPath id="mbdc"><rect width="512" height="512" rx="116"/></clipPath><linearGradient id="mbds" x1="0" y1="0" x2=".4" y2="1"><stop offset="0" stop-color="#26323f"/><stop offset=".55" stop-color="#18212b"/><stop offset="1" stop-color="#10161d"/></linearGradient><radialGradient id="mbdg" gradientUnits="userSpaceOnUse" cx="384" cy="128" r="300"><stop offset="0" stop-color="#6f9be0" stop-opacity=".85"/><stop offset=".42" stop-color="#4f7fc6" stop-opacity=".45"/><stop offset=".66" stop-color="#4f7fc6" stop-opacity=".17"/><stop offset=".84" stop-color="#4f7fc6" stop-opacity=".05"/><stop offset="1" stop-color="#4f7fc6" stop-opacity="0"/></radialGradient><linearGradient id="mbdp" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#fff" stop-opacity=".03"/></linearGradient><filter id="mbdb" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="16"/></filter></defs><g clip-path="url(#mbdc)"><rect width="512" height="512" fill="url(#mbds)"/><rect width="512" height="512" fill="url(#mbdg)"/><rect width="512" height="512" fill="url(#mbdp)"/><path d="M256 0v512M0 256h512" stroke="#fff" stroke-opacity=".2" stroke-width="5"/><circle cx="384" cy="128" r="62" fill="#7aa6ea" opacity=".6" filter="url(#mbdb)"/><circle cx="384" cy="128" r="24" fill="#eef4ff"/></g><rect x="3" y="3" width="506" height="506" rx="113" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="6"/></svg></span><b>远窗</b><div class="conn" id="conn" role="status" aria-live="polite"><i></i><span class="cs">连接中…</span></div><button class="icon-btn" id="moreBtn" title="更多" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></button><button class="icon-btn" id="newBtn" title="新对话"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div>
-    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话和课：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
-    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="courses"></div><div id="list"></div>
+    <label class="find" id="find"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="text" placeholder="搜对话：标题、说过的话" autocomplete="off" enterkeyhint="search"><button class="clr" id="qclr" aria-label="清空">×</button></label>
+    <div class="scroll"><button class="item" id="pushBtn" hidden><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="nm">开启手机通知</span></button><div id="extSide"></div><div id="list"></div>
       <button id="logoutBtn" hidden></button>
     </div>
     <div class="quota" id="quota" hidden></div>
@@ -977,6 +977,21 @@ const ICON = {
   step: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>',
   say: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
   dots: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>',
+};
+// 扩展挂接点：扩展的脚本排在这个脚本后面加载（只给管理员），用 XE.on 订阅界面上的时刻、XE.lib 用核心的小工具。
+//   sessions(d)        刚拿到对话列表（d.ext.名字 是后端扩展附的数据），在画侧栏之前
+//   side({query})      画侧栏：扩展往 #extSide 里自己的那块画（搜索时 query 不空）
+//   search(q) → {html, wire}   搜索结果里加一段（排在对话结果前面）；wire() 在放进页面后调
+//   thread(d)          对话打开 / 刷新完（d.ext.名字 是后端附的；#headActs 是标题栏右边留给扩展的位置）
+//   link(x, it, d) → x 回复底下的链接按钮画之前改一改（比如换地址、换按钮上的字）
+//   where(preset) → [{v, ic, t, send}]   新对话“在哪做”菜单临时加的项；选了它，发送时带上 send（不带 folder）
+const XE = {
+  _subs: {},
+  on(name, fn) { (this._subs[name] ||= []).push(fn); },
+  emit(name, ...a) { for (const fn of this._subs[name] || []) { try { fn(...a); } catch (e) { console.warn('扩展', name, e); } } },
+  collect(name, ...a) { const out = []; for (const fn of this._subs[name] || []) { try { const r = fn(...a); if (r) out.push(...[].concat(r)); } catch (e) { console.warn('扩展', name, e); } } return out; },
+  pipe(name, x, ...a) { for (const fn of this._subs[name] || []) { try { x = fn(x, ...a) || x; } catch (e) { console.warn('扩展', name, e); } } return x; },
+  lib: {},   // 核心的小工具，脚本末尾填好（esc、api、sheet、openSession、openNew……）
 };
 let openProc = new Set(), anchor = null;   // 点开/收起时让点的那一行留在原位
 // 工作过程：展开过的思考记在 unclamp 里（按内容认），重画时保持展开；还在翻译的显示“翻译中…”，译好一次出中文
@@ -1035,7 +1050,7 @@ function watchStatus() {
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let me = {name: '', role: 'admin', root: ''};
-let stick = false, sessions = [], folders = [], drafts = [], courses = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
+let stick = false, sessions = [], folders = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
 const coarsePhone = () => matchMedia('(max-width:600px) and (pointer:coarse)').matches;
 const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
 
@@ -1292,51 +1307,6 @@ document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.u
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
 const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>'
   : e && e !== 'claude' ? `<span class="eng" title="用 ${esc(e)} 做的">${({kimi: 'Kimi', deepseek: 'DeepSeek'})[e] || esc(e)}</span>` : '';
-// 侧栏顶上的“课”：最近动过的几门课，哪个对话在做、做到哪了；点卡片进对话（没有就新开一个接着做），右边 ▶ 直接试课
-// 没在改时说这门课走到哪了：草稿 / 上架了但学生看不到 / 已发布；发布后又改过就提醒还没发布
-const stageText = c => c.stage === 'draft' ? '草稿' : c.stage === 'hidden' ? '已上架 · 学生看不到' : c.dirty ? '有改动没发布' : c.stage === 'published' ? '已发布' : '';
-const courseState = c => c.num && (c.status === 'running' || c.status === 'queued') ? `#${c.num} 在改 · ${(c.detail || '').replace(/^在做 · /, '')}`
-  : c.num && c.status === 'awaiting' ? `#${c.num} 等你定` : c.num && c.status === 'paused' ? `#${c.num} ${c.detail}`
-  : [stageText(c), agoDays(c.mtime).replace('动过', '改过')].filter(Boolean).join(' · ');
-let coursesFolded = false;
-try { coursesFolded = localStorage.getItem('coursesFolded') === '1'; } catch (e) {}
-function renderCourses() {
-  const cs = courses.slice(0, query ? 0 : 2);
-  $('#courses').innerHTML = cs.length ? `<button class="course-toggle" aria-expanded="${!coursesFolded}" aria-controls="courseCards"><span>课</span>${ICON.chev}</button><div id="courseCards" ${coursesFolded ? 'hidden' : ''}>` + cs.map(c =>
-    `<div class="ccard ${c.status || 'none'} ${c.dirty && !['running', 'queued', 'awaiting'].includes(c.status) ? 'dirty' : ''}"><button class="cgo" data-n="${c.num || ''}" data-d="${esc(c.dir)}">
-      <span class="tx"><div class="nm">${esc(c.title)}</div></span></button>
-      <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`).join('')
-    + (drafts.length > cs.length ? `<button class="call" id="callBtn">${ICON.list}<span>课程库 · 全部 ${drafts.length} 节</span></button>` : '') + '</div>' : '';
-  const toggle = $('#courses .course-toggle');
-  if (toggle) toggle.onclick = () => { coursesFolded = !coursesFolded; try { localStorage.setItem('coursesFolded', coursesFolded ? '1' : '0'); } catch (e) {} renderCourses(); };
-  document.querySelectorAll('#courses .cgo').forEach(b => b.onclick = () => b.dataset.n ? openSession(+b.dataset.n) : openNew(false, 'c:' + b.dataset.d));
-  if ($('#callBtn')) $('#callBtn').onclick = courseLib;
-}
-// 课程库里的任何一节：▶ 试课；点名字去改——有对话在改这节就进那个对话，没有就新开一个接着做
-const libRow = c => `<div class="ccard"><button class="cgo lib" data-d="${esc(c.dir)}" data-rel="${esc(c.rel)}">
-    <span class="tx"><div class="nm">${esc(c.title)}</div><div class="st">${esc([stageText(c), agoDays(c.mtime).replace('动过', '改过')].filter(Boolean).join(' · '))}</div></span></button>
-    <a class="cplay" href="${esc(c.url)}" target="_blank" title="试课" aria-label="试课">${ICON.play}</a></div>`;
-const libMatch = (c, q) => (c.title + ' ' + c.dir).toLowerCase().includes(q.trim().toLowerCase());
-async function goCourse(b, after) {
-  let num = null;
-  try { num = (await api('course?course=' + encodeURIComponent(`/workspace/${b.dataset.rel}/course.json`))).num; } catch (e) {}
-  if (after) after();
-  num ? openSession(num) : openNew(false, 'c:' + b.dataset.d);
-}
-function courseLib() {
-  const el = sheet(`<div class="bhead"><b>课程库</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
-    <label class="find lfind"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="lq" type="text" placeholder="找课：课名里的几个字" autocomplete="off" enterkeyhint="search"></label>
-    <div class="blist" id="blist"></div>`);
-  el.querySelector('.box').classList.add('browse');
-  const draw = () => {
-    const q = $('#lq').value, cs = q.trim() ? drafts.filter(c => libMatch(c, q)) : drafts;
-    $('#blist').innerHTML = cs.map(libRow).join('') || `<div class="bempty">没有叫“${esc(q)}”的课</div>`;
-    $('#blist').querySelectorAll('.cgo').forEach(b => b.onclick = () => goCourse(b, () => el.remove()));
-  };
-  $('#bx').onclick = () => el.remove();
-  $('#lq').oninput = draw;
-  draw();
-}
 // 总管（super_agent）：给总管的消息开头的标记；“期间的情况”拆成一张折叠卡，后面的话照常显示
 const SA_TAGS = ['【回报】', '【退回】', '【要用户定】', '【重启】'];
 function saSplit(it) {
@@ -1362,7 +1332,7 @@ async function organizeTasks(force = false) {
   finally { taskGrouping = false; await loadSessions(); }
 }
 function renderSide() {
-  renderCourses();
+  XE.emit('side', {query});
   if (query) return renderSearch();
   const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
       <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
@@ -1608,12 +1578,11 @@ async function renderSearch() {
     <div class="st"><span class="dot"></span>${engTag(r.engine)}${del ? (r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}</div>
     ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
   const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
-  const cs = drafts.filter(c => libMatch(c, q));
-  const lib = cs.length ? `<div class="label">课（${cs.length}）</div>` + cs.slice(0, 5).map(libRow).join('') : '';
+  const extra = XE.collect('search', q), lib = extra.map(x => x.html || '').join('');
   $('#list').innerHTML = `<div class="sres"></div>` + (lib + parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
     || `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>`);
   wireRows();
-  $('#list').querySelectorAll('.cgo.lib').forEach(b => b.onclick = () => goCourse(b));
+  extra.forEach(x => x.wire && x.wire());
 }
 { let t = 0; $('#q').oninput = e => { clearTimeout(t); const v = e.target.value; $('#find').classList.toggle('has', !!v); t = setTimeout(() => setQuery(v), 300); }; }
 $('#q').onkeydown = e => { if (e.key === 'Escape') { e.target.value = ''; setQuery(''); } };
@@ -1632,7 +1601,7 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
+  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; XE.emit('sessions', d); renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
@@ -2062,7 +2031,7 @@ function renderThread(d) {
     if (it.who === 'note') return it.rewind
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
-      ...(it.previews || []).map(([n, u]) => previewPill(n, u, it, d))].join('');
+      ...(it.links || []).map(x => linkPill(x, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>${/\.pdf$/i.test(f.name) ? `<a class="file-download" href="${esc(f.url)}?download=1" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a>` : ''}</div>`).join('');
@@ -2191,11 +2160,10 @@ function renderThread(d) {
   renderRelay(d);
   const hint = $('#hint'), fh = d.five_hour, risky = fh && fh.pct >= 90 && d.usage && (d.usage.mkey || 'opus') === 'opus' && !d.live && !d.limit;
   if (hint) { hint.hidden = !risky; hint.textContent = risky ? `5 小时额度已用 ${fh.pct}%${fh.reset ? ` · ${fh.reset} 重置` : ''}` : ''; }
-  const last = [...d.items].reverse().find(it => it.who === 'claude' && (it.previews || []).length);
-  const lastPrev = last && previewLink(last.previews[0][0], last.previews[0][1], last, d);
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
-  $('#headActs').innerHTML = last ? `<a class="pill" href="${esc(lastPrev.url)}" target="_blank" title="${esc(lastPrev.title)}">${ICON.play}<span>试课</span></a>` : '';
+  $('#headActs').innerHTML = '';
+  XE.emit('thread', d);   // 标题栏右边留给扩展
   $('#ta').placeholder = d.live && d.live.compact ? '说点什么…' : d.live ? '插话…' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
   document.querySelectorAll('.opt').forEach(b => b.onclick = async () => {
@@ -2215,19 +2183,10 @@ function renderThread(d) {
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
 
-// 试课链接：标上是哪门课；这门课你在试课页反馈过、这条回复是反馈之后改的，就直接跳回你反馈的那一屏
-function previewLink(dir, url, it, d) {
-  const c = courses.find(x => x.dir === dir) || drafts.find(x => x.dir === dir), title = c ? c.title : dir;
-  const fb = d.feedback;
-  if (fb && fb.section && url.includes(encodeURIComponent(fb.course).replace(/%2F/g, '%2F')) && (!it.ts || it.ts > fb.t)) {
-    const u = url + `&xe_sec=${encodeURIComponent(fb.section)}` + (Number.isInteger(fb.screen) && fb.screen >= 0 ? `&xe_scr=${fb.screen}` : '');
-    return {url: u, title, label: `回到${(fb.where || '那一屏').replace(/「[^」]*」/, '').replace(/\s+/g, '')}`};
-  }
-  return {url, title, label: '试课'};
-}
-function previewPill(dir, url, it, d) {
-  const x = previewLink(dir, url, it, d);
-  return `<a class="pill" href="${esc(x.url)}" target="_blank" title="${esc(x.title)}">${ICON.play}<span>${esc(x.label)}</span><small>${esc(x.title)}</small></a>`;
+// 回复底下的链接按钮（扩展附的）：扩展可以先改一改地址和字
+function linkPill(x0, it, d) {
+  const x = XE.pipe('link', {...x0}, it, d);
+  return `<a class="pill" href="${esc(x.url)}" target="_blank" title="${esc(x.title || '')}">${ICON[x.icon] || ICON.list}<span>${esc(x.label || '打开')}</span>${x.title ? `<small>${esc(x.title)}</small>` : ''}</a>`;
 }
 // 快捷回答：先显示出去，3 秒内能撤回（点错了不至于真发出去）
 function quickSend(num, text, label) {
@@ -2642,16 +2601,11 @@ function wireComposer(sendFn, onSent, onOpening) {
 
 const WHERE_ICON = {
   auto: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>',
-  course: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8.5 4 2-4 2z"/></svg>',
   folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  plat: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10"/><path d="M7 8h6M7 12h10"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg>',
   desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
 };
-const FOLDER_SAY = {  // 设置里的文件夹短名 → 说人话；没列的按原名放在菜单最后
-  '课程根': ['folder', '做课'],
-  '平台': ['plat', 'CyberScope'],
-};
+const FOLDER_SAY = {};  // 设置里的文件夹短名 → [图标, 说人话]：列了的才放进“在哪做”菜单（扩展往里加）
 function agoDays(t) {
   const d = Math.floor((Date.now() / 1000 - t) / 86400);
   return d < 1 ? '今天动过' : d < 2 ? '昨天动过' : `${d} 天前动过`;
@@ -2950,13 +2904,12 @@ function pwSheet(account) {
 function openNew(fromPop, preset) {
   setTimeout(connectEvents);
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
-  // 菜单只留 自动 / 聊天 / 做课 / CyberScope / 电脑端对话 / 浏览文件夹…，不写解释的小字（2026-11-02、11-03 庄毅定）；
-  // 从侧栏点课、或浏览选中的文件夹，只作为“这次选的”临时加一项，排在浏览前面
+  // 菜单只留 自动 / 聊天 / FOLDER_SAY 里列的文件夹 / 电脑端对话 / 浏览文件夹…，不写解释的小字（2026-11-02、11-03 庄毅定）；
+  // 扩展给的（比如从侧栏点课）、或浏览选中的文件夹，只作为“这次选的”临时加一项，排在浏览前面
   const opts = [{v: 'auto', ic: 'auto', t: '自动'}, {v: 'scratch', ic: 'chat', t: '聊天'},
     ...Object.keys(FOLDER_SAY).filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1]}))];
   const choose = o => { const k = opts.findIndex(x => x.once); if (k >= 0) opts.splice(k, 1); opts.push({...o, once: true}); };
-  const pc = (preset || '').startsWith('c:') && drafts.find(x => 'c:' + x.dir === preset);
-  if (pc) choose({v: preset, ic: 'course', t: `接着做《${pc.title}》`});
+  XE.collect('where', preset).forEach(choose);
   let pick = preset && opts.some(o => o.v === preset) ? preset : 'auto', menu = false;
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>新对话</b></div></div>
     <div class="newv"><h1>要做什么？</h1>${composerHTML('说说要做什么')}<div class="wbar" id="wbar"></div></div>`;
@@ -2990,7 +2943,7 @@ function openNew(fromPop, preset) {
   const ms = {model: 'auto', effort: ''};   // 深度空 = 没动过，照分工表或默认
   renderModel(ms, () => {}, true);
   const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(ms.effort ? {effort: ms.effort} : {})});
-  wireComposer((text, onProg, attachments) => sendApi({...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, ...attachments}, onProg),
+  wireComposer((text, onProg, attachments) => sendApi({...((opts.find(o => o.v === pick) || {}).send || {folder: pick}), ...extra(), text, ...attachments}, onProg),
     null, (text, imgs) => {
       // 一按发送就进“正在开”：你的话先摆出来，说清楚在等什么、能不能走开（开好了自动进去）
       const old = $('#opening'); if (old) old.remove(); if (text === null) return;
@@ -3021,7 +2974,9 @@ if (window.visualViewport) {
   addEventListener('focusout', () => setTimeout(fit, 60));
 }
 
-(async () => {
+Object.assign(XE.lib, {$, esc, ICON, api, sheet, toast, openSession, openNew, ago, agoDays, WHERE_ICON, FOLDER_SAY});
+// 等扩展的脚本（排在这个脚本后面）都跑完再开始，它们才订阅得上第一次拿列表
+const boot = async () => {
   await loadSessions();
   const m = location.hash.match(/^#s(\d+)/);
   if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
@@ -3049,5 +3004,6 @@ if (window.visualViewport) {
       if (nums[j] !== sel) openSession(nums[j]);
     }
   });
-})();
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 </script></body></html>

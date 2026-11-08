@@ -1,4 +1,4 @@
-"""小E 网页：一次性链接登录、过程页、试课预览的放行名单与转发。"""
+"""小E 网页：登录、过程页、对话框接口（做课扩展的在 test_ext_course.py）。"""
 import asyncio
 import re
 import time
@@ -8,52 +8,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from remote_claude.report import Turn
-from remote_claude.web import Web, check_password, course_previews, hash_password, preview_allowed
-
-
-def test_preview_allowed():
-    ok = [("GET", "/studio-preview.html"), ("GET", "/engine/x.js"), ("GET", "/workspace/_drafts/a/course.json"),
-          ("POST", "/api/lesson-preview/check"), ("GET", "/api/drafts"), ("GET", "/assets/a.css"),
-          ("GET", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/courses/topics/bx1/a/index.html")]
-    bad = [("GET", "/teacher.html"), ("GET", "/"), ("GET", "/api/teacher/classes"), ("GET", "/api/students"),
-           ("GET", "/api/draftsx"), ("GET", "/ws/teacher"), ("POST", "/engine/x.js"), ("GET", "/../etc/passwd"),
-           ("GET", "/library.html"), ("POST", "/api/login"), ("GET", "/student.html"),
-           ("POST", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/workspace/../teacher.html")]
-    assert all(preview_allowed(m, p) for m, p in ok)
-    assert not any(preview_allowed(m, p) for m, p in bad)
-
-
-def test_course_list_stages(tmp_path):
-    """侧栏“课”：草稿和已上架的都列，标出走到哪了；发布后又改过的标出来。"""
-    import json, os
-    def course(rel, vis="hidden", t=0):
-        d = tmp_path / rel
-        (d / "fragments").mkdir(parents=True)
-        (d / "course.json").write_text(json.dumps({"title": rel.split("/")[-1].upper(), "catalog": {"visibility": vis}}))
-        os.utime(d / "course.json", (t, t))
-    now = time.time()
-    course("_drafts/a", t=now - 10)
-    course("topics/bx1/b", "published", t=now - 100)
-    course("topics/bx1/c", "published", t=now - 5000)
-    course("topics/bx2/d", t=now - 9000)
-    (tmp_path / "_published.json").write_text(json.dumps({"courses": {"b": {"since": {"version": now - 4000}},
-                                                                      "c": {"since": {"version": now - 4000}}}}))
-    w = Web("http://x", 0, tmp_path / "data", "", str(tmp_path))
-    got = {d["dir"]: (d["stage"], d["dirty"], d["rel"]) for d in w._drafts()}
-    assert [d["dir"] for d in w._drafts()] == ["a", "b", "c", "d"]
-    assert got == {"a": ("draft", False, "_drafts/a"), "b": ("published", True, "topics/bx1/b"),
-                   "c": ("published", False, "topics/bx1/c"), "d": ("hidden", False, "topics/bx2/d")}
-    assert "/workspace/topics/bx1/b/course.json" in w._drafts()[1]["url"].replace("%2F", "/")
-
-
-def test_course_previews(tmp_path):
-    lesson = tmp_path / "_drafts" / "l01"
-    (lesson / "fragments").mkdir(parents=True)
-    (lesson / "course.json").write_text("{}")
-    files = [str(lesson / "fragments" / "s1.html"), str(lesson / "course.json"), "/elsewhere/a.py"]
-    got = course_previews(files, str(tmp_path))
-    assert got == [("l01", "/studio-preview.html?course=/workspace/_drafts/l01/course.json")]
-    assert course_previews(files, "") == []
+from remote_claude.web import Web, check_password, hash_password
 
 
 def test_password_hash():
@@ -62,7 +17,7 @@ def test_password_hash():
     assert check_password("020928", h) and not check_password("020929", h) and not check_password("x", "坏的")
 
 
-def test_login_pages_and_proxy(tmp_path):
+def test_login_pages(tmp_path):
     seen = {}
 
     async def upstream(request):
@@ -76,8 +31,7 @@ def test_login_pages_and_proxy(tmp_path):
         up_app.router.add_route("*", "/{tail:.*}", upstream)
         up = TestServer(up_app)
         await up.start_server()
-        w = Web("http://x.example", 0, tmp_path, f"http://127.0.0.1:{up.port}", "",
-                user="18000000000", pw_hash=hash_password("pw-ok", iters=1000))
+        w = Web("http://x.example", 0, tmp_path, user="18000000000", pw_hash=hash_password("pw-ok", iters=1000))
         img = tmp_path / "shot.png"
         img.write_bytes(b"\x89PNG")
         t = Turn(started=time.time() - 120, ended=time.time(), request="改<封面>", final_text="**做了什么**：改了标题",
@@ -89,7 +43,7 @@ def test_login_pages_and_proxy(tmp_path):
         try:
             r = await c.get(f"/_x/t/{tid}", allow_redirects=False)            # 没登录 → 登录页，带着回来的地址
             assert r.status == 302 and r.headers["Location"].startswith("/_x/login?next=")
-            assert (await c.get("/api/drafts")).status == 401
+            assert (await c.get("/whatever", allow_redirects=False)).status == 302   # 没登记的地址：没登录也先要登录
             login = await (await c.get(r.headers["Location"])).text()
             assert 'autocomplete="current-password"' in login
             bad = await c.post("/_x/login", data={"username": "18000000000", "password": "错", "next": "/x"},
@@ -104,19 +58,7 @@ def test_login_pages_and_proxy(tmp_path):
             assert (await c.get(f"/_x/t/{tid}/img/5")).status == 404
             assert (await c.get("/", allow_redirects=False)).headers["Location"] == "/_x/"
             assert "开发" in await (await c.get("/_x/history")).text()
-            w.preview_root = str(tmp_path / "root")
-            (tmp_path / "root" / "_drafts" / "l9").mkdir(parents=True)
-            (tmp_path / "root" / "_drafts" / "l9" / "course.json").write_text('{"title": "淘宝 2003"}')
-            idx = await (await c.get("/_x/history")).text()
-            assert "试课：淘宝 2003" in idx and "/workspace/_drafts/l9/course.json" in idx
-            r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
-            assert await r.text() == "PREVIEW<script src=\"/_x/feedback.js\"></script>" and seen["cookie"] is None and seen["path"].startswith("/studio-preview")
-            await c.get("/workspace/a/course.json", headers={"X-Forwarded-For": "1.2.3.4"})
-            await c.get("/api/teacher/answers", headers={"X-Forwarded-For": "1.2.3.4"})
-            assert seen["xff"]["/workspace/a/course.json"] is None          # 课件当本机直连
-            assert seen["xff"]["/api/teacher/answers"] == "1.2.3.4"         # 教师接口照旧当外来
-            assert (await c.get("/teacher.html")).status == 403
-            assert (await c.get("/api/teacher/classes")).status == 403
+            assert (await c.get("/studio-preview.html")).status == 404      # 没有扩展接：没登记的地址一律 404
             # 登录后跳转只认本站路径，不能借登录页跳到外站
             r = await c.get("/_x/login?next=//evil.example/x", allow_redirects=False)
             assert r.headers["Location"] == "/_x/"
@@ -134,8 +76,6 @@ def test_login_pages_and_proxy(tmp_path):
         finally:
             await c.close()
             await up.close()
-            if w._client:
-                await w._client.close()
 
     asyncio.run(go())
 
@@ -162,8 +102,8 @@ def test_thread_history():
                       "process": [{"k": "say", "text": "我先看看"}, {"k": "do", "text": "看 文件", "detail": ""},
                                   {"k": "do", "text": "改 文件", "detail": ""}]},
                      {"who": "you", "text": "好的"}]
-    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "previews": [["l01", "/p"]]}])
-    assert items[2]["tid"] == "6-1" and items[2]["previews"] == [["l01", "/p"]]
+    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "links": [{"label": "试课", "url": "/p"}]}])
+    assert items[2]["tid"] == "6-1" and items[2]["links"] == [{"label": "试课", "url": "/p"}]
 
 
 def test_chat_api(tmp_path, monkeypatch):
@@ -216,10 +156,7 @@ def test_chat_api(tmp_path, monkeypatch):
             self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
 
     async def go():
-        root = tmp_path / "root"
-        (root / "_drafts" / "c1").mkdir(parents=True)
-        (root / "_drafts" / "c1" / "course.json").write_text('{"title": "淘宝 2003"}')
-        w = Web("http://x.example", 0, tmp_path, "", str(root), user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = b = FakeBridge()
         b.registry.get = lambda n: b.registry.sessions.get(n)
         c = TestClient(TestServer(w.app()))
@@ -248,11 +185,9 @@ def test_chat_api(tmp_path, monkeypatch):
             assert {k: v for k, v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
-            # 新对话“在哪做”：接着做某门课 / 小E 自动判断 / 不碰文件
+            # 新对话“在哪做”：小E 自动判断 / 不碰文件（“接着做某门课”见 test_ext_course.py）
             d = await (await c.get("/_x/api/sessions")).json()
-            assert d["drafts"][0]["dir"] == "c1" and d["drafts"][0]["title"] == "淘宝 2003"
-            await c.post("/_x/api/send", json={"text": "封面改大", "course": "c1"})
-            assert b.new[-1] == ([str(root)], "（这件事是关于课程《淘宝 2003》，目录 _drafts/c1/）\n封面改大")
+            assert d["ext"] == {}
             from remote_claude import folders, router
             async def fake_route(text, *a, **k):
                 return router.Route("new", None, "课程根", "", "dev", "")
@@ -317,7 +252,7 @@ def test_files_delivered_and_uploaded(tmp_path):
     from types import SimpleNamespace as NS
 
     async def go():
-        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         src = tmp_path / "tmpdir" / "研究生毕业证.pdf"
         src.parent.mkdir()
         src.write_bytes(b"%PDF-1.4 fake")
@@ -409,73 +344,6 @@ def test_process_translation_no_flip(tmp_path, monkeypatch):
     assert w._zh_proc({"k": "think", "text": en}) == {"k": "think", "text": en}
 
 
-def test_course_feedback(tmp_path):
-    """试课页反馈：带上课、节、屏，交给正在做这门课的对话；没有就在课程根新开。试课页里插了反馈按钮的脚本。"""
-    from types import SimpleNamespace as NS
-    from remote_claude.sessions import Session
-    root = tmp_path / "root"
-    (root / "_drafts" / "c1").mkdir(parents=True)
-    (root / "_drafts" / "c1" / "course.json").write_text('{"title": "淘宝 2003"}')
-    s6 = Session(num=6, name="做课：淘宝 2003 数据工程师", cwd=str(root))
-    s7 = Session(num=7, name="清理下载", cwd=str(tmp_path))
-
-    class B:
-        user_id, sent, new = "me", [], []
-        registry = NS(visible=lambda owner="admin": [s6, s7], get=lambda n: None, next_num=8)
-
-        def record(self, *a, **k):
-            pass
-
-        async def _message(self, cmd, inc, routed=False):
-            self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
-
-        async def _new(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
-            self.new.append((tokens, text))
-
-    async def go():
-        w = Web("http://x.example", 0, tmp_path, "", str(root), user="u", pw_hash=hash_password("p", iters=1000))
-        w.bridge = b = B()
-        c = TestClient(TestServer(w.app()))
-        await c.start_server()
-        try:
-            await c.post("/_x/login", data={"username": "u", "password": "p"})
-            assert "反馈这一屏" in await (await c.get("/_x/feedback.js")).text()
-            png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
-            r = await (await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2",
-                                                               "section_no": 2, "section_title": "数据从哪来", "screen": 2,
-                                                               "text": "标题太小", "images": [png]})).json()
-            assert r["ok"] and r["num"] == 6
-            num, text, imgs = b.sent[0]
-            assert num == 6 and "《淘宝 2003》第 2 节「数据从哪来」第 3 屏" in text and "标题太小" in text and len(imgs) == 1
-            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
-                                                   "section_title": "数据从哪来", "screen": 2, "step": 2, "steps": 4, "text": "字太小"})
-            assert "第 3 屏的第 2 步（共 4 步）" in b.sent[1][1]
-            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
-                                                   "section_title": "数据从哪来", "screen": 0, "step": 0, "steps": 5, "step_name": "封面", "text": "y"})
-            assert "第 1 屏的封面（共 5 步）" in b.sent[2][1]
-            s6.cwd = str(tmp_path / "别处")          # 没有在做这门课的对话 → 在课程根新开
-            await c.post("/_x/api/feedback", json={"course": "/workspace/_drafts/c1/course.json", "text": "x"})
-            assert b.new and b.new[0][0] == [str(root)]
-            assert (await c.post("/_x/api/feedback", json={"course": "/etc/passwd", "text": "x"})).status == 400
-        finally:
-            await c.close()
-
-    asyncio.run(go())
-
-
-def test_moved_course_link(tmp_path):
-    """早先记下的草稿试课链接：课上架挪进 topics 后自动跳到新位置；还在草稿里的不动。"""
-    root = tmp_path / "root"
-    (root / "topics" / "data" / "c1").mkdir(parents=True)
-    (root / "topics" / "data" / "c1" / "course.json").write_text("{}")
-    (root / "_drafts" / "c2").mkdir(parents=True)
-    (root / "_drafts" / "c2" / "course.json").write_text("{}")
-    w = Web("http://x.example", 0, tmp_path, "", str(root))
-    assert w._moved_course("/workspace/_drafts/c1/course.json") == "/workspace/topics/data/c1/course.json"
-    assert w._moved_course("/workspace/_drafts/c2/course.json") == ""
-    assert w._moved_course("/workspace/_drafts/none/course.json") == ""
-
-
 def test_devices(tmp_path):
     """登录的设备：列出几台、哪台是这台；退出别的那台它就进不来了；不能用这个退出自己。"""
     async def go():
@@ -516,23 +384,17 @@ def test_records_match_by_time_while_running():
 
 
 def test_manage_and_search(tmp_path):
-    """列表管理：按文件夹分类、置顶、改名（之后不再自动起名）、归类、删除（在做的删不了）、找回；搜索标题、说过的话、已删除。"""
+    """列表管理：置顶、改名（之后不再自动起名）、删除（在做的删不了）、找回；搜索标题、说过的话、已删除。"""
     from types import SimpleNamespace as NS
     from remote_claude.sessions import Registry, Session
-    from remote_claude.web import category
 
-    folders = {"课程根": str(tmp_path / "courses"), "平台": str(tmp_path / "plat")}
-    assert category(Session(num=1, name="a", cwd=str(tmp_path / "courses" / "x")), folders) == "做课"
-    assert category(Session(num=1, name="a", cwd=str(tmp_path / "plat")), folders) == "平台"
-    assert category(Session(num=1, name="开发案头", cwd=str(tmp_path / "plat")), folders) == "案头"
-    assert category(Session(num=1, name="a", cwd=str(tmp_path / "platform2")), folders) == "杂事"
-    assert category(Session(num=1, name="a", cwd=str(tmp_path / "plat"), category="做课"), folders) == "做课"
+    folders = {"平台": str(tmp_path / "plat")}
 
     async def go():
         reg = Registry(tmp_path / "sessions.json")
         for n, name in [(1, "大数据第二节 · 封面"), (2, "天气"), (3, "在做的活")]:
             reg.add(Session(num=n, name=name, cwd=str(tmp_path / "plat"), engine="codex"))
-        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         t = Turn(started=time.time() - 60, ended=time.time(), request="明天要不要带伞", final_text="不用带伞，多云")
         w.save_turn("#2 天气", t, str(tmp_path), "做完了")
         w.bridge = NS(registry=reg, cfg=NS(folders=folders, scratch_root="/tmp/remote-claude-test-scratch"),
@@ -545,14 +407,12 @@ def test_manage_and_search(tmp_path):
             assert (await (await post(1, "pin", True)).json())["ok"] and reg.get(1).pinned
             await post(2, "rename", "明天的天气")
             assert reg.get(2).name == "明天的天气" and reg.get(2).renamed
-            await post(2, "category", "杂事")
-            assert reg.get(2).category == "杂事"
             r = await (await post(3, "delete")).json()
             assert not r["ok"] and not reg.get(3).hidden                     # 在做的删不了
             await post(1, "delete")
             assert reg.get(1).hidden and reg.get(1).hidden_at and not reg.get(1).pinned
             rows = (await (await c.get("/_x/api/sessions")).json())["sessions"]
-            assert 1 not in [x["num"] for x in rows] and {x["category"] for x in rows} == {"杂事", "平台"}
+            assert 1 not in [x["num"] for x in rows] and {x["num"] for x in rows} == {2, 3}
             s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
             assert [x["num"] for x in s["deleted"]] == [1] and not s["title"]
             s = await (await c.get("/_x/api/search", params={"q": "带伞"})).json()
@@ -607,7 +467,7 @@ def test_fork(tmp_path, monkeypatch):
         {"who": "you", "text": "二", "uuid": "u2"}, {"who": "claude", "text": "好", "end": "a2"}])
 
     async def go():
-        w = Web("http://x", 0, tmp_path, "", "")
+        w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=reg, record=lambda *a, **k: None)
         w._logged_in = lambda r: True
         c = TestClient(TestServer(w.app()))
@@ -831,7 +691,7 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
 
     async def go():
         s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=120)
-        w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
                       runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
                                 busy=lambda n: False, queued=lambda n: []))
@@ -868,7 +728,7 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
     from remote_claude.codex import CodexConn
 
     async def go():
-        w = Web('http://x.example', 0, tmp_path, '', '', user='u', pw_hash=hash_password('p', iters=1000))
+        w = Web('http://x.example', 0, tmp_path, user='u', pw_hash=hash_password('p', iters=1000))
         received = []
 
         async def message(cmd, inc, routed=False):
@@ -921,7 +781,7 @@ def test_web_hash_env_first_and_file_private(tmp_path, monkeypatch):
 def test_browse_drive_level(tmp_path, monkeypatch):
     """Windows 的“此电脑”层：列出所有盘符（这台机器没有 listdrives 就是空列表），不能选它当文件夹。"""
     async def go():
-        w = Web("http://x.example", 0, tmp_path / "data", "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path / "data", user="u", pw_hash=hash_password("p", iters=1000))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
@@ -942,7 +802,7 @@ def test_browse_defaults_to_projects_and_lists_only_visible_dirs(tmp_path, monke
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
     async def go():
-        w = Web("http://x.example", 0, tmp_path / "data", "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        w = Web("http://x.example", 0, tmp_path / "data", user="u", pw_hash=hash_password("p", iters=1000))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:

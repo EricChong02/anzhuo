@@ -107,9 +107,10 @@ def test_no_course_or_router_leftovers():
     html = (ROOT / "src/remote_claude/static/app.html").read_text(encoding="utf-8")
     for word in ("试课", "课程根", "studio-preview", "feedback.js", "drafts"):
         assert word not in html, word
-    assert not (ROOT / "src/remote_claude/router.py").exists() and not (ROOT / "src/remote_claude/static/feedback.js").exists()
+    assert not (ROOT / "src/remote_claude/router.py").exists() and not (ROOT / "src/remote_claude/extensions/course").exists()
+    assert not (ROOT / "tests/test_ext_course.py").exists()
     web = (ROOT / "src/remote_claude/web.py").read_text(encoding="utf-8")
-    assert "_proxy" not in web and "/{tail:.*}" not in web      # 没登记的地址一律 404，不转发给任何别的服务
+    assert "_proxy" not in web and "preview" not in web      # 兜底路由只给扩展；导出包没有扩展，没登记的地址一律 404
 
 
 # 不该出现在开源导出里的个人信息（域名、服务器、人名、内部项目名）：只存 sha256 前 16 位和字数，仓库里不留明文。
