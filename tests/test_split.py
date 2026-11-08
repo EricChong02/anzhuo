@@ -48,10 +48,10 @@ def test_choose_primary_backup_fallback(both, monkeypatch):
 
 
 def test_choose_respects_deepseek_block_and_fenced(both):
-    c = Config(split=split.normalize({"simple": {"use": "deepseek", "backup": "haiku"}}), deepseek_block=["_原始私密"])
+    c = Config(split=split.normalize({"simple": {"use": "deepseek", "backup": "haiku"}}), deepseek_block=["私密资料"])
     assert split.choose(c, "simple", ["/x/notes"]).pick == "deepseek"
-    got = split.choose(c, "simple", ["/x/_原始私密/日记"])
-    assert got.pick == "haiku" and "_原始私密" in got.note
+    got = split.choose(c, "simple", ["/x/私密资料/日记"])
+    assert got.pick == "haiku" and "私密资料" in got.note
     assert split.choose(c, "simple", ["/x/notes"], fenced=True).pick == "haiku"   # 受限账号只用 Claude
 
 

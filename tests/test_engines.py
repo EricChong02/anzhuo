@@ -217,16 +217,16 @@ def test_deepseek_engine_env_block_and_cost(monkeypatch):
     monkeypatch.setattr(deepseek, "api_key", lambda: "sk-test")
     e = engines.DEEPSEEK
     assert engines.get("deepseek") is e and engines.engine_of("deepseek") == "deepseek" and not e.fenced_ok
-    r, s = NS(subagent_model="", deepseek_block=["_原始私密"]), Session(num=1, name="x", cwd="/tmp")
+    r, s = NS(subagent_model="", deepseek_block=["私密资料"]), Session(num=1, name="x", cwd="/tmp")
     env = e.env(r, s)
     assert env["ANTHROPIC_BASE_URL"] == deepseek.BASE_URL and env["ANTHROPIC_AUTH_TOKEN"] == "sk-test"
     assert env["ANTHROPIC_MODEL"] == "deepseek-flash" and e.model_for(s) == "deepseek-flash"
     s.model = "deepseek-v4-pro"
     assert e.env(r, s)["ANTHROPIC_MODEL"] == "deepseek-v4-pro"
-    assert deepseek.blocked_by(["/Users/x/Projects/_原始私密/微信"], ["_原始私密"]) == "_原始私密"
-    assert deepseek.blocked_by(["/Users/x/Projects/04_项目"], ["_原始私密"]) == ""
+    assert deepseek.blocked_by(["/Users/x/Projects/私密资料/微信"], ["私密资料"]) == "私密资料"
+    assert deepseek.blocked_by(["/Users/x/Projects/04_项目"], ["私密资料"]) == ""
     hook = e.extra_hooks(r, s)[0].hooks[0]
-    denied = asyncio.run(hook({"tool_input": {"file_path": "/p/_原始私密/a.txt"}}, None, None))
+    denied = asyncio.run(hook({"tool_input": {"file_path": "/p/私密资料/a.txt"}}, None, None))
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert asyncio.run(hook({"tool_input": {"command": "ls"}}, None, None)) == {}
     usd = deepseek.cost_usd({"deepseek-flash": {"inputTokens": 1_000_000, "cacheReadInputTokens": 0, "outputTokens": 0}})

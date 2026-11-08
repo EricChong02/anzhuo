@@ -2,7 +2,7 @@
 Anthropic 兼容接口（https://api.deepseek.com/anthropic）。按量计费、极便宜，不占 Claude 的 5 小时和周额度。
 
 - 密钥只放钥匙串（服务 remote-claude.deepseek，账户 api；和翻译共用），不写配置文件。
-- 发给它的内容会出境到 DeepSeek：工作文件夹在 deepseek_block 列的文件夹里（默认 _原始私密）就不开工；
+- 发给它的内容会出境到 DeepSeek：工作文件夹在 deepseek_block 列的文件夹里就不开工；
   干活中途碰到这些文件夹的工具调用一律拒掉。受限账号用不了它（fenced_ok = False）。
 - DeepSeek 忽略 cache_control（它自己自动缓存），不处理 document 块；deepseek-v4-pro 看不了图。
 """

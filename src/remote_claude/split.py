@@ -13,7 +13,7 @@ from . import engines, quota
 from .engines import EFFORTS, MODELS
 
 KINDS = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
-HELP = {"design": "设计课、梳理想法、写方案、架构设计、验收", "dev": "照清楚的要求写代码、做功能、改 bug",
+HELP = {"design": "做设计、梳理想法、写方案、架构设计、验收", "dev": "照清楚的要求写代码、做功能、改 bug",
         "simple": "查资料、整理文件、问答、小改动"}
 FIELDS = ("use", "model", "effort", "backup")
 DEFAULT = {"design": {"use": "opus"}, "dev": {"use": "sonnet"}, "simple": {"use": "sonnet"}}
