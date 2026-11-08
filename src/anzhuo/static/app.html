@@ -2650,7 +2650,7 @@ function openAdmin(tab, fromPop) {
   if (!fromPop) navTo({a: admTab}, '#admin');
   $('#app').classList.add('in');
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>管理</b></div>
-      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button></div></div>
+      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button><button role="tab" data-t="settings">设置</button></div></div>
     <div class="adm" id="adm"><div class="col" id="admCol"></div></div>`;
   $('#back').onclick = () => history.state && history.state.a ? history.back() : goList();
   $('#admTabs').onclick = e => { const b = e.target.closest('button'); if (!b || b.dataset.t === admTab) return; admTab = b.dataset.t; history.replaceState({a: admTab}, '', '#admin'); drawAdmin(); };
@@ -2676,9 +2676,24 @@ async function admAct(body) {
 function drawAdmin() {
   const col = $('#admCol'); if (!col) return;
   document.querySelectorAll('#admTabs button').forEach(b => { b.classList.toggle('on', b.dataset.t === admTab); b.setAttribute('aria-selected', b.dataset.t === admTab); });
+  if (admTab === 'settings') return openSettings(col);
   if (!admData) { col.innerHTML = '<div class="ac-empty">读取中…</div>'; return; }
   if (admTab === 'accounts') return drawAccounts(col, admData);
   drawUsage(col, admData);
+}
+
+// ── 设置：界面在 settings.js（打开这一页时才加载），后端见 prefs.py ──
+let settingsShown = false;
+function openSettings(col) {
+  if (settingsShown && col.querySelector('.st-group')) return;   // 用量数据刷新时别把正在改的设置冲掉
+  settingsShown = true;
+  if (window.drawSettings) return window.drawSettings(col);
+  col.innerHTML = '<div class="ac-empty">读取中…</div>';
+  const s = document.createElement('script');
+  s.src = '/_x/admin/settings.js';
+  s.onload = () => window.drawSettings(col);
+  s.onerror = () => { settingsShown = false; col.innerHTML = '<div class="ac-empty">设置页没加载出来，刷新再试</div>'; };
+  document.head.appendChild(s);
 }
 
 // ── 用量 ──

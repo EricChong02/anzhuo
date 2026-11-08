@@ -108,6 +108,9 @@ def build() -> Bridge:
 
     thread.full_messages = messages
     b = Bridge(cfg, NoDingTalk(), data_dir=TMP / "data")
+    b.web.config_path = TMP / "config.toml"   # 设置页读写演示用的临时配置，不碰你真的 config.toml
+    b.web.config_path.write_text("# 演示用的配置（临时文件）\nsuper_agent = %s\n" % ("true" if cfg.super_agent else "false"),
+                                 encoding="utf-8")
     reg = b.registry
     rows = [(1, "修登录页的报错", "demo-1", str(TMP / "my-app"), NOW - 600, 0.0),
             (2, "周报格式统一", "demo-2", str(TMP / "notes"), NOW - 1500, 0.0),

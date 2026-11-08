@@ -237,6 +237,8 @@ class Web:
         # 账号：名字 → {role: admin / user, root: user 的工作文件夹, hash: 密码指纹}。老写法（user + pw_hash）当作唯一的 admin
         self.accounts = dict(accounts) if accounts else ({user: {"role": "admin", "root": "", "hash": pw_hash}} if user else {})
         self.save_hash = save_hash  # 管理页改密码时存指纹（默认存钥匙串）
+        from .config import CONFIG_PATH
+        self.config_path = CONFIG_PATH  # 设置页读写的 config.toml（测试里换成临时文件）
         self.usage_path = data_dir / "usage.jsonl"
         self.fails: dict[str, list[float]] = {}
         self.all_fails: list[float] = []
@@ -1994,6 +1996,19 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "period": "week" if current_week else "days", "week_available": cycle_start is not None,
                                   "period_start": cycle_start if current_week else None, "rate": rate})
 
+    # ---------- 设置（只有 admin）：读写 config.toml 里常改的项，见 prefs.py ----------
+    async def _api_prefs(self, request: web.Request) -> web.Response:
+        from . import prefs
+        if request.method == "GET":
+            return web.json_response(prefs.payload(self.bridge, self.config_path))
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        return web.json_response(prefs.update(self.bridge, await request.json(), self.config_path))
+
+    async def _settings_js(self, request: web.Request) -> web.StreamResponse:
+        from .webui import settings_js
+        return web.Response(text=settings_js(self.web_prefix), content_type="application/javascript", headers={"Cache-Control": "no-store"})
+
     async def _api_admin_act(self, request: web.Request) -> web.Response:
         """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""
         if not self._same_origin(request):
@@ -2114,6 +2129,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{P}/admin", self._admin_page)
         app.router.add_get(f"{P}/api/admin", self._api_admin)
         app.router.add_post(f"{P}/api/admin", self._api_admin_act)
+        app.router.add_get(f"{P}/api/admin/prefs", self._api_prefs)        # 设置（只有 admin：路径在 /api/admin 下）
+        app.router.add_post(f"{P}/api/admin/prefs", self._api_prefs)
+        app.router.add_get(f"{P}/admin/settings.js", self._settings_js)
         app.router.add_get(P, self._to_app)
         app.router.add_get(f"{P}/t/{{tid}}", self._turn_page)
         app.router.add_get(f"{P}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
