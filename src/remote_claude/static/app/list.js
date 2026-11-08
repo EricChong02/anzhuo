@@ -291,7 +291,7 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; XE.emit('sessions', d); renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
+  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; autoWhere = d.auto_where !== false; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; XE.emit('sessions', d); renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .localspend import LocalSpend
-from . import engines, ext, folders, housekeeping, report, router, split, superagent, translate, usage
+from . import engines, ext, folders, housekeeping, report, split, superagent, translate, usage
 from .events import Bus
 from .commands import Cmd
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
@@ -29,6 +29,11 @@ from .engines import MODELS
 from .sessions import COMPACT, Job, Registry, Runner, Session
 from .intent import (KIND_CN, _is_reply, _looks_like_project, asks_user, awaiting_kind, inline_overrides, limit_reset,
                      said_engine_model)
+
+try:   # 分派员（判断接着哪个对话、判断任务档位）只在私有版；开源导出不带，直接说话交给当前对话，档位按文件夹判断
+    from . import router
+except ImportError:
+    router = None
 
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
@@ -300,7 +305,7 @@ class Bridge:
         project = _looks_like_project(cwd)
         if kind is None:
             kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
-            if text and not model and not inline_overrides(text)[0]:
+            if router and text and not model and not inline_overrides(text)[0]:
                 kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活照分工表的 design 档
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root, boss=boss)
         said_model, said_effort = inline_overrides(text)
@@ -343,7 +348,7 @@ class Bridge:
             if waiting:  # “按C来做”“好的”这类回复，交给正在等你回答的那个对话（最近问的那个）
                 num = waiting[0].num
         # 开了总管（super_agent）就由总管分派，分派员让开，免得两个都来判断
-        auto_route = self.cfg.auto_route and not self.cfg.super_agent
+        auto_route = router and self.cfg.auto_route and not self.cfg.super_agent
         if num is None and cmd.text and not routed and auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
             busy = {n for n in self.registry.sessions if self.runner.busy(n)}

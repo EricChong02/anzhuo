@@ -54,6 +54,7 @@ class Config:
     review_policy: str = ""  # 你额外授权审核员放行的事（比如“推送到我自己仓库的 dev 分支可以放行”）
     auto_cleanup: bool = False  # 每天自动归档旧对话记录、清空旧临时文件夹，每月派一次 AI 体检
     task_grouping: bool = False  # 自动给对话分任务组（会把标题、文件夹名、上一轮摘要发给模型），默认关
+    task_group_rules: str = ""  # 你自己的分组规则，接在内置规则后面（比如“同一门课的各小节都归到课程名下”）
     super_agent: bool = False  # 默认关闭。打开后多一个置顶的“总管”对话：你只跟它说，它开新对话派活、转达、汇总回报
     super_agent_name: str = ""  # 总管叫什么（空 = “总管”）；网页里改名也行，配置里写了以配置为准
     super_agent_routing: str = ""  # 你定的分派规则（一段话）：什么活用哪个引擎、哪个模型，总管没被点名时照这个选

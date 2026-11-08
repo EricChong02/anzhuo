@@ -2,6 +2,7 @@
 import asyncio
 import sqlite3
 from pathlib import Path
+import pytest
 
 from remote_claude.app import Bridge
 from remote_claude.config import Config
@@ -108,9 +109,9 @@ def test_flow(tmp_path, monkeypatch):
 
 
 def test_auto_route(tmp_path, monkeypatch):
-    from remote_claude import router
+    router = pytest.importorskip("remote_claude.router")
     (tmp_path / "课程").mkdir()
-    cfg = Config(client_id="x", allowed_user_ids=["me"], folders={"课程根": str(tmp_path / "课程")},
+    cfg = Config(client_id="x", allowed_user_ids=["me"], folders={"前端": str(tmp_path / "课程")},
                  search_roots=[str(tmp_path)], scratch_root=str(tmp_path / "scratch"))
     seen = []
 
@@ -122,7 +123,7 @@ def test_auto_route(tmp_path, monkeypatch):
         pass
 
     answers = iter([
-        router.Route("new", None, "课程根"),     # 新事 → 自动在课程根新开 #1
+        router.Route("new", None, "前端"),     # 新事 → 自动在前端新开 #1
         router.Route("ask", None, None),         # 拿不准 → 问
         router.Route("new", None, "根本没有的文件夹"),  # 文件夹找不到 → 问
     ])
@@ -160,11 +161,11 @@ def test_auto_route(tmp_path, monkeypatch):
 
 def test_chat_follow_up(tmp_path, monkeypatch):
     """小E 直接回答后，你接着追问（哪怕很短）还交给小E，并带上刚才那段话。"""
-    from remote_claude import router
+    router = pytest.importorskip("remote_claude.router")
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
     calls = []
     answers = iter([
-        router.Route("reply", answer="叫“洪老师的先生”就好。"),
+        router.Route("reply", answer="叫“王老师的先生”就好。"),
         router.Route("reply", answer="那就叫“先生”或跟着叫他名字。"),
         router.Route("reply", answer="不客气！"),
     ])
@@ -178,14 +179,14 @@ def test_chat_follow_up(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        await b.ding.on_raw(msg("见到洪老师的老公怎么称呼"))
+        await b.ding.on_raw(msg("见到王老师的老公怎么称呼"))
         await b.ding.on_raw(msg("她老公不是老师"))
         await b.ding.on_raw(msg("好的"))  # 平时会直接交给当前对话；刚闲聊过就还给小E
 
     asyncio.run(go())
-    assert [c[0] for c in calls] == ["见到洪老师的老公怎么称呼", "她老公不是老师", "好的"]
+    assert [c[0] for c in calls] == ["见到王老师的老公怎么称呼", "她老公不是老师", "好的"]
     assert calls[0][1] == []
-    assert calls[1][1] == [("见到洪老师的老公怎么称呼", "叫“洪老师的先生”就好。")]
+    assert calls[1][1] == [("见到王老师的老公怎么称呼", "叫“王老师的先生”就好。")]
     assert len(calls[2][1]) == 2
     assert all(t == "回复" for t, _ in dt.sent)
 
@@ -193,7 +194,7 @@ def test_chat_follow_up(tmp_path, monkeypatch):
 def test_hide_and_delete(tmp_path, monkeypatch):
     """7 天没动的自动收起；“删 N”收起；收起的不进列表、不给小E 分派；点名“#N …”找回。"""
     import time
-    from remote_claude import router
+    router = pytest.importorskip("remote_claude.router")
     from remote_claude.sessions import Session
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
     seen, offered = [], []
@@ -325,7 +326,7 @@ def test_cards_flow(tmp_path, monkeypatch):
 
 def test_reply_forward(tmp_path, monkeypatch):
     """小E 直接回答时附“交给 #N”；点了把原话转过去。带图的话不让小E 答（它看不到图），直接交当前对话。"""
-    from remote_claude import router
+    router = pytest.importorskip("remote_claude.router")
     from remote_claude.sessions import Session
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
     seen = []
@@ -534,7 +535,7 @@ def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
     from remote_claude.intent import asks_user
     from remote_claude.sessions import Session
     six = ("有空间。下面是几个方案。\n\n| 方案 | 改动 |\n|---|---|\n| A. 收窄面板 | 320 → 260 |\n"
-           "| B. 收起面板 | 点一下隐藏 |\n| C. 全屏试课 | 铺满 |\n\n我推荐 **C**。\n\n要我按 C 来做吗？")
+           "| B. 收起面板 | 点一下隐藏 |\n| C. 全屏预览 | 铺满 |\n\n我推荐 **C**。\n\n要我按 C 来做吗？")
     assert asks_user(six) == "要我按 C 来做吗？"
     assert asks_user("改好了，跑了测试，都通过。") == ""
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"))
@@ -550,10 +551,11 @@ def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
     async def no_router(*a, **k):
         raise AssertionError("这种回复不该再请小E 判断")
 
-    from remote_claude import router
     monkeypatch.setattr(Runner, "_run", fake_run)
     monkeypatch.setattr(Runner, "refresh_usage", no_usage)
-    monkeypatch.setattr(router, "route", no_router)
+    from remote_claude import app
+    if app.router:   # 开源导出没有分派员，本来就不会去判断
+        monkeypatch.setattr(app.router, "route", no_router)
     dt = FakeDT()
 
     async def go():
@@ -848,7 +850,8 @@ def test_relay_hint_compact_when_window_nearly_full():
 
 def test_new_session_model_by_kind(tmp_path, monkeypatch):
     """新开对话没指定模型：按分派员判断的档位照分工表挑；定方案用 design 档，判断不出来时代码仓按开发算。"""
-    from remote_claude import router, split
+    from remote_claude import split
+    router = pytest.importorskip("remote_claude.router")
     from remote_claude.engines import MODELS
     from remote_claude.dingtalk import Incoming
     (tmp_path / "proj" / ".git").mkdir(parents=True)

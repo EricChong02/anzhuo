@@ -111,9 +111,9 @@ def purge_deleted(registry, now: float | None = None) -> list[int]:
 
 
 CHECKUP = """【每月清理体检】请检查这台 Mac 上可能该清理的东西，只列清单，这一轮什么都不要删、不要挪。
-范围：~/Projects/_scratch、~/Downloads、~/Desktop，以及 ~/Projects 下 90 天以上没动过、超过 200MB 的文件夹。
+范围：临时文件夹（配置 scratch_root）、~/Downloads、~/Desktop，以及 ~/Projects 下 90 天以上没动过、超过 200MB 的文件夹。
 用 du、find、ls 看大小和最后改动时间，必要时看一眼里面是什么（打开说明文件、看文件名），判断是不是临时产物、旧发布包、旧离线包、下载过的安装包、重复副本。
-不要碰：对话记录和远窗数据（~/.claude、~/.local/share/remote-claude）、课程根和平台仓库里的东西、任何 git 仓库的工作目录、看起来是原始资料（照片、成绩、证件、合同、学生数据、教案原稿）的文件、钥匙串和配置。
+不要碰：对话记录和远窗数据（~/.claude、~/.local/share/remote-claude）、常用文件夹（配置 folders）里的东西、任何 git 仓库的工作目录、看起来是原始资料（照片、成绩、证件、合同、学生数据、教案原稿）的文件、钥匙串和配置。
 最后按“要你定”的格式回复：第一行“要你定：这些要清掉吗？”，然后最多 4 个选项，例如：
 A. 全部清掉（列出的 N 项，共约 X GB）
 B. 只清最稳妥的几项（说明是哪几项）

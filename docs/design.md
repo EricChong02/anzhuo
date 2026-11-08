@@ -347,3 +347,11 @@ Claude与Codex生图委派（2026-11-02用户确认并已实现）：Claude的ge
   - `dingtalk_cards.DingCards`（`b.dcards`）：工作台、确认卡、要你定卡、回复卡，按钮被点（`on_click`），把一轮完整结果发回钉钉（`deliver`）。
   - `housekeeping`：本机消耗统计、每日清理、每月体检三个后台循环。
 - `Bridge` 只留：收配置、找对话、开对话、交话、一轮做完后的通用处理（记过程页、等你回答、撞线、通知），约 450 行。以后清理钉钉代码，删 `dingtalk_chat.py`、`dingtalk_cards.py` 两个文件和 `Bridge` 里几处 `self.ding` / `self.dcards` 调用即可。
+
+## 导出开源版远窗（2026-11-08，第 10 棒）
+- 方案 A：整套同步，P5、P6 的新界面一起带过去。导出只跑 `scripts/export_opensource.py <开源工作树>`，能反复跑：拿主线 git 跟踪的文件，改包名（`remote_claude` → `anzhuo`）、命令和环境变量（`REMOTE_CLAUDE_` → `ANZHUO_`）、`xiaoe` → `anzhuo`、小E → 远窗，注释里的“某天庄毅定”只留日期；私有文件（分派员 `router.py`、做课扩展、局域网直连脚本、私有文档）不带；开源仓库自己维护的 README、AGENTS、CHANGELOG、宣传物料等不覆盖；主线删掉的文件在开源版里也删。定点改写对不上时脚本直接报错，不悄悄漏掉。
+- 原则：私人内容不写死在代码里，主线本身就是中性的，导出脚本只管改名。为此这次在主线里改了：
+  - 分派员改成可选导入（`app.router` 可能是 None）。没有它时：直接说话交给当前对话，档位按文件夹定（代码仓算开发），网页“在哪做”不给“自动”（`/api/sessions` 的 `auto_where`），默认“聊天”。用到分派员的测试各自 `importorskip`。
+  - 任务分组的私人强规则（远窗、CyberScope、课程、信考）挪进配置 `task_group_rules`（设置页“分类规则”，跟着“按任务自动分类”显示），代码里只留通用规则；本机配置已写入原来那 5 条，行为不变。
+  - 每月体检、注释里的“课程根”“阿里云”和测试里的真实称呼、课程名换成中性说法。
+- 开源闸门 `tests/opensource/test_open_source.py` 导出后改名为 `tests/test_open_source.py`，在开源版里一直跑（含个人信息指纹扫描）。

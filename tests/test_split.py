@@ -114,7 +114,7 @@ def test_prefs_saves_split_and_drops_legacy(tmp_path):
 def test_new_session_follows_split(both, tmp_path, monkeypatch):
     """新开对话没点名：照分工表换到别家，开工卡片写明是分工表定的；点名了就照你说的。"""
     import asyncio
-    from remote_claude import router
+    router = pytest.importorskip("remote_claude.router")
     from remote_claude.app import Bridge
     from remote_claude.dingtalk import Incoming
     from remote_claude.sessions import Runner

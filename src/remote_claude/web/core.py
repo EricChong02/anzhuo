@@ -1,4 +1,4 @@
-"""小E 网页（主体）：对话框、完整过程页、管理页。只听本机端口，经 SSH 反向隧道挂到阿里云（如 https://xiaoe.ericlab.cn）。
+"""小E 网页（主体）：对话框、完整过程页、管理页。只听本机端口，经 SSH 反向隧道挂到外网服务器（见 docs/外网访问.md）。
 
 进门：固定网址 + 账号密码，登录一次这台设备 30 天免登录（Cookie）。密码只存 PBKDF2 指纹（钥匙串），
 同一来源连错 5 次锁 15 分钟、所有来源一小时内错 30 次全体锁一小时。
@@ -241,7 +241,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.Response(text=js, content_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
     async def _health(self, request: web.Request) -> web.Response:
-        # 阿里云那边每分钟来问一声“还在吗”；网页也用它判断 Mac 连不连得上。不带任何内容
+        # 外网服务器那边每分钟来问一声“还在吗”；网页也用它判断 Mac 连不连得上。不带任何内容
         return web.json_response({"ok": True})
 
     async def _api_push_key(self, request: web.Request) -> web.Response:
@@ -302,7 +302,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     async def _api_events(self, request: web.Request) -> web.StreamResponse:
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
-        网页收到就当场更新，不用每几秒问一次。每 15 秒发个空行保活（阿里云那边 120 秒没动静会断）。"""
+        网页收到就当场更新，不用每几秒问一次。每 15 秒发个空行保活（外网服务器那边 120 秒没动静会断）。"""
         num = int(request.query.get("num") or 0)
         owner = request.get("owner", "admin")
         if num and not self.bridge.registry.mine(num, owner):

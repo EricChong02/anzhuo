@@ -36,7 +36,7 @@ def _load_vapid():
 class Push:
     def __init__(self, path: Path, contact: str, mirror: str = ""):
         self.path = path
-        self.mirror = mirror  # 阿里云 ssh 别名：订阅变了同步一份过去，那边的掉线提醒才发得到
+        self.mirror = mirror  # 外网服务器的 ssh 别名：订阅变了同步一份过去，那边的掉线提醒才发得到
         self.contact = contact  # 推送服务要求留个联系方式，用网页地址
         self._vapid = None
         try:

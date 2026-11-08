@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
+import pytest
 
 from remote_claude.events import Bus
 from remote_claude.relay import Relays
@@ -104,8 +105,8 @@ def test_thread_history():
                       "process": [{"k": "say", "text": "我先看看"}, {"k": "do", "text": "看 文件", "detail": ""},
                                   {"k": "do", "text": "改 文件", "detail": ""}]},
                      {"who": "you", "text": "好的"}]
-    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "links": [{"label": "试课", "url": "/p"}]}])
-    assert items[2]["tid"] == "6-1" and items[2]["links"] == [{"label": "试课", "url": "/p"}]
+    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "links": [{"label": "预览", "url": "/p"}]}])
+    assert items[2]["tid"] == "6-1" and items[2]["links"] == [{"label": "预览", "url": "/p"}]
 
 
 def test_chat_api(tmp_path, monkeypatch):
@@ -139,7 +140,7 @@ def test_chat_api(tmp_path, monkeypatch):
                                current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
-            self.cfg = NS(folders={"课程根": "/x"}, scratch_root="/tmp/remote-claude-test-scratch", search_roots=[], skip_names=[])
+            self.cfg = NS(folders={"前端": "/x"}, scratch_root="/tmp/remote-claude-test-scratch", search_roots=[], skip_names=[])
             self.user_id, self.sent, self.new, self.outgoing, self.said = "me", [], [], {}, []
             self.relays = NS(writing={}, targets=lambda s: [])
 
@@ -191,13 +192,14 @@ def test_chat_api(tmp_path, monkeypatch):
             # 新对话“在哪做”：小E 自动判断 / 不碰文件（“接着做某门课”见 test_ext_course.py）
             d = await (await c.get("/_x/api/sessions")).json()
             assert d["ext"] == {}
-            from remote_claude import folders, router
+            from remote_claude import folders
+            router = pytest.importorskip("remote_claude.router")
             async def fake_route(text, *a, **k):
-                return router.Route("new", None, "课程根", "", "dev", "")
+                return router.Route("new", None, "前端", "", "dev", "")
             monkeypatch.setattr(router, "route", fake_route)
-            monkeypatch.setattr(folders, "candidates", lambda tok, cfg: [Path("/x")] if tok == "课程根" else [])
+            monkeypatch.setattr(folders, "candidates", lambda tok, cfg: [Path("/x")] if tok == "前端" else [])
             await c.post("/_x/api/send", json={"text": "新做一节课", "folder": "auto"})
-            assert b.new[-1] == (["课程根"], "新做一节课")
+            assert b.new[-1] == (["前端"], "新做一节课")
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
             assert b.new[-1] == ([], "查天气")
             # 手输的路径或文件夹名：找到一个就在那里开；找不到、找到好几个都当场说清楚

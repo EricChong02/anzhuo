@@ -29,7 +29,7 @@ function tickSilence() {
       await api('send', {num: sel, text: '现在做到哪了？是不是卡住了？卡在哪一步说一下。'}).catch(() => {}); loadThread(); }; }
 }
 
-// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（阿里云出口只有约 3Mbps，整段对话要传一两秒）
+// 看过的对话记在本机：再点开先显示上次的内容，最新的随后补上（外网服务器出口常只有几 Mbps，整段对话要传一两秒）
 const threadCache = new Map();
 try { for (const [n, v] of JSON.parse(localStorage.getItem('threads') || '[]')) threadCache.set(n, v); } catch (e) {}
 function cacheThread(d) {

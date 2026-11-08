@@ -140,8 +140,8 @@ class ActionsMixin:
             inc.text = text = str(pre.get("text") or text)
         elif folder == "auto":
             # 让小E 看话判断在哪做；判断不出或不涉及文件夹就用空白的临时文件夹
-            from .. import router
-            r = await router.route(text, [], None, list(b.cfg.folders))
+            from ..app import router   # 分派员只在私有版；没有时网页不给“自动”这一项，万一传来就当聊天
+            r = await router.route(text, [], None, list(b.cfg.folders)) if router else None
             from .. import folders as fd
             folder = r.folder if r and r.folder and fd.candidates(r.folder, b.cfg) else ""
             kind = r.kind if r else None

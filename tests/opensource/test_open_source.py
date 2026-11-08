@@ -53,7 +53,8 @@ def test_translation_is_off_by_default(monkeypatch):
 
 
 def test_instructions_are_neutral():
-    from remote_claude.sessions import build_instructions, codex_instructions
+    from remote_claude.engines.base import codex_instructions
+    from remote_claude.engines.claude import build_instructions
     for text in (build_instructions(), codex_instructions()):
         assert "要你定" in text and "A. " in text
         for personal in ("提交、推送、上线", "restart_when_idle", "已授权"):

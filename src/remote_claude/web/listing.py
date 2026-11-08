@@ -46,7 +46,8 @@ class ListingMixin:
                       "folder": Path(s.cwd).name[:80], "summary": s.last_summary[:400]}
                      for s in targets]
             result, model = await task_groups.classify(items, sorted({s.task_group for s in sessions if s.task_group}),
-                                                       cache=None if data.get("force") else self.store_path.with_name("task_groups.json"))
+                                                       cache=None if data.get("force") else self.store_path.with_name("task_groups.json"),
+                                                       rules=self.bridge.cfg.task_group_rules)
             count = 0
             for s in targets:
                 # 分类期间用户可能改了分组、删除或完成接力；以当前现场为准。
@@ -118,6 +119,7 @@ class ListingMixin:
         acct = request.get("acct", "")
         me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
         extra = {} if fenced else await asyncio.to_thread(self._ext_data, "sessions_extra", rows)   # 扩展可能要翻文件
+        from ..app import router
         return web.json_response({"sessions": rows, "ext": extra, "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
@@ -126,6 +128,7 @@ class ListingMixin:
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "recent": [] if fenced else self._recent_folders(), "last_folder": "" if fenced else self._last_folder(),
                                   "task_grouping": getattr(b.cfg, "task_grouping", False),
+                                  "auto_where": router is not None,   # 有分派员才能“在哪做：自动”
                                   "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
 
     def _recent_folders(self, limit: int = 6) -> list[dict]:

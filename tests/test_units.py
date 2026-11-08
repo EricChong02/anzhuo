@@ -1,3 +1,4 @@
+import pytest
 
 from remote_claude import folders, report
 from remote_claude.commands import parse
@@ -6,12 +7,12 @@ from remote_claude.dingtalk import parse_incoming
 
 
 def test_parse_commands():
-    c = parse("新开 课程根 平台：做第2课小节3")
-    assert (c.kind, c.folders, c.text) == ("new", ["课程根", "平台"], "做第2课小节3")
+    c = parse("新开 前端 后端：做登录页")
+    assert (c.kind, c.folders, c.text) == ("new", ["前端", "后端"], "做登录页")
     c = parse("新开：查一下天气")
     assert (c.kind, c.folders, c.text) == ("new", [], "查一下天气")
-    c = parse("新开 课程根+平台:做")
-    assert c.folders == ["课程根", "平台"]
+    c = parse("新开 前端+后端:做")
+    assert c.folders == ["前端", "后端"]
     c = parse("新建 personal/菜谱整理：整理菜谱")
     assert (c.kind, c.folders, c.text) == ("mkdir", ["personal/菜谱整理"], "整理菜谱")
     assert parse("切到 #7").num == 7
@@ -21,7 +22,7 @@ def test_parse_commands():
     c = parse("#5 标题再大一点")
     assert (c.kind, c.num, c.text) == ("message", 5, "标题再大一点")
     assert parse("停一下，先别改").kind == "message"
-    assert parse("接着 课程根 2").kind == "resume"
+    assert parse("接着 前端 2").kind == "resume"
     c = parse("模型 7 sonnet")
     assert (c.kind, c.num, c.name) == ("model", 7, "sonnet")
     c = parse("深度 高")
@@ -32,7 +33,7 @@ def test_parse_commands():
     assert (parse("删 7").kind, parse("删 #7").num) == ("delete", 7)
     assert parse("删掉第二段").kind == "message"
     assert (parse("接着桌面").kind, parse("接着桌面").num, parse("接着桌面 2").num) == ("desktop", None, 2)
-    assert parse("接着 课程根 2").kind == "resume"
+    assert parse("接着 前端 2").kind == "resume"
 
 
 def test_folder_candidates(tmp_path):
@@ -119,12 +120,12 @@ def test_model_choice(tmp_path):
 
 
 def test_router_parse():
-    from remote_claude.router import _parse
+    _parse = pytest.importorskip("remote_claude.router")._parse
     r = _parse('{"action":"reply","answer":"你好！","target":null}', {1})
     assert (r.action, r.answer) == ("reply", "你好！")
     assert _parse('{"action":"reply","answer":""}', set()).action == "ask"
-    r = _parse('好的 {"action":"new","folder":"课程根","kind":"dev"}', {1})
-    assert (r.action, r.folder, r.kind) == ("new", "课程根", "dev")
+    r = _parse('好的 {"action":"new","folder":"前端","kind":"dev"}', {1})
+    assert (r.action, r.folder, r.kind) == ("new", "前端", "dev")
     assert _parse('{"action":"continue","target":9}', {1}).action == "ask"
     assert _parse('{"action":"continue","target":"#1"}', {1}).target == 1   # 编号带 # 也认，不当判断失败
     assert _parse("不是 JSON", {1}) is None
@@ -135,7 +136,8 @@ def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
     import asyncio
     import requests
     from claude_agent_sdk import AssistantMessage, TextBlock
-    from remote_claude import deepseek_api, router
+    from remote_claude import deepseek_api
+    router = pytest.importorskip("remote_claude.router")
     asked = []
 
     async def haiku(*, prompt, options):
@@ -161,7 +163,7 @@ def test_needs_translation(monkeypatch):
     assert needs_translation("I updated the cover title and checked that it still fits on the lab screen.")
     assert not needs_translation("改好了第二课封面，用 Opus 5.5 跑了 course_gates.py G1，结果 PASS。")
     assert not needs_translation("跑了：\n```\nuv run pytest -q tests/test_units.py --maxfail one two three four\n```")
-    assert not needs_translation("路径是 ~/Projects/04_项目/work/CyberScope/Frontend/courses/_shared/lesson-shell.js")
+    assert not needs_translation("路径是 ~/Projects/web/frontend/src/shared/lesson-shell.js")
     assert needs_translation("做完了。\n\nNote: the preview server was already running, so I reused it instead of starting another.")
 
 

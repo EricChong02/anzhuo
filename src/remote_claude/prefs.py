@@ -101,6 +101,7 @@ FIELDS: list[Field] = [
     Field("auto_review", "AI 审核危险命令", "安全", "bool", "关着时删文件、git push 这类都等你点“允许”"),
     Field("review_policy", "审核员可以放行的事", "安全", "textarea", "比如“推送到 dev 分支可以放行”", check=_short(LONG), when="auto_review"),
     Field("task_grouping", "按任务自动分类", "自动", "bool", "会把标题、文件夹名和最多 400 字摘要发给模型"),
+    Field("task_group_rules", "分类规则", "自动", "textarea", "一行一条，比如“同一门课的各小节都归到课程名下”", check=_short(LONG), when="task_grouping"),
     Field("auto_cleanup", "每天自动整理", "自动", "bool", "归档旧记录、清旧临时文件夹，每月一次体检", live=False),
     Field("dingtalk_quiet", "钉钉只发结果", "自动", "bool", "开工、进度这些只在网页里看", when="dingtalk_enabled"),
     Field("relay_long", "对话多长提醒接力", "高级", "int", "单位 token，默认 120000；越长每句话越贵", rng=(30_000, 1_000_000), adv=True),

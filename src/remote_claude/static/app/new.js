@@ -4,11 +4,11 @@ function openNew(fromPop, preset) {
   sel = null; if (!fromPop) navTo({n: 1}, '#new'); $('#app').classList.add('in'); renderSide();
   // 菜单只留 自动 / 聊天 / FOLDER_SAY 里列的文件夹 / 电脑端对话 / 浏览文件夹…，不写解释的小字（2026-11-02、11-03 庄毅定）；
   // 扩展给的（比如从侧栏点课）、或浏览选中的文件夹，只作为“这次选的”临时加一项，排在浏览前面
-  const opts = [{v: 'auto', ic: 'auto', t: '自动'}, {v: 'scratch', ic: 'chat', t: '聊天'},
+  const opts = [...(autoWhere ? [{v: 'auto', ic: 'auto', t: '自动'}] : []), {v: 'scratch', ic: 'chat', t: '聊天'},
     ...Object.keys(FOLDER_SAY).filter(f => folders.includes(f)).map(f => ({v: f, ic: FOLDER_SAY[f][0], t: FOLDER_SAY[f][1]}))];
   const choose = o => { const k = opts.findIndex(x => x.once); if (k >= 0) opts.splice(k, 1); opts.push({...o, once: true}); };
   XE.collect('where', preset).forEach(choose);
-  let pick = preset && opts.some(o => o.v === preset) ? preset : 'auto', menu = false;
+  let pick = preset && opts.some(o => o.v === preset) ? preset : opts[0].v, menu = false;
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>新对话</b></div></div>
     <div class="newv"><h1>要做什么？</h1>${composerHTML('说说要做什么')}<div class="wbar" id="wbar"></div></div>`;
   $('#back').onclick = () => history.state && history.state.n ? history.back() : goList();
@@ -18,7 +18,7 @@ function openNew(fromPop, preset) {
       return;
     }
     const cur = opts.find(o => o.v === pick);
-    $('#wbar').innerHTML = `<button class="pill ${pick !== 'auto' ? 'on' : ''}" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.v === 'auto' ? '在哪做：自动' : cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
+    $('#wbar').innerHTML = `<button class="pill ${pick !== opts[0].v ? 'on' : ''}" id="wp">${WHERE_ICON[cur.ic]}<span>${esc(cur.v === 'auto' ? '在哪做：自动' : cur.t)}</span>${ICON.chev.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button>`
       + (menu ? `<div class="wmenu">${opts.map(o => `<button class="wo ${o.v === pick ? 'on' : ''}" data-v="${esc(o.v)}">${WHERE_ICON[o.ic]}
           <span class="tx"><b>${esc(o.t)}</b></span></button>`).join('')}
           <button class="wo" id="wdesk">${WHERE_ICON.desk}<span class="tx"><b>电脑端对话</b></span></button>
