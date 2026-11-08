@@ -2,13 +2,14 @@
 首选（Claude 的型号 opus / sonnet …，或别家引擎 gpt / deepseek / kimi）、别家的具体型号、深度，和首选用不了时的备选。
 
 新开对话、定时任务没点名模型时照它选；首选这家没装、没密钥、受限账号不能用、文件夹不许发给它（DeepSeek 禁区）时换备选，
-备选也不行就退回 Claude Sonnet。配置写法见 config.example.toml 的 [split]；老写法 design_model / dev_model / simple_model 也认。"""
+备选也不行就退回 Claude Sonnet。质量优先（2026-11-08 庄毅定：不为省额度降质量）：首选这家额度只是偏紧照用首选；
+告急或撞线（quota.py 按用量和速度分档，快干不了活了）才换备选，且备选那家要更宽裕（或同是 Claude、换成更省的型号）。配置写法见 config.example.toml 的 [split]；老写法 design_model / dev_model / simple_model 也认。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import engines
+from . import engines, quota
 from .engines import EFFORTS, MODELS
 
 KINDS = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
@@ -18,6 +19,7 @@ FIELDS = ("use", "model", "effort", "backup")
 DEFAULT = {"design": {"use": "opus"}, "dev": {"use": "sonnet"}, "simple": {"use": "sonnet"}}
 LEGACY = {"design": "design_model", "dev": "dev_model", "simple": "simple_model"}   # 老写法的键
 FALLBACK = "sonnet"
+WEIGHT = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}   # Claude 各型号多耗额度（额度紧时同家换更省的）
 
 
 def row(use: str = "", model: str = "", effort: str = "", backup: str = "") -> dict:
@@ -113,23 +115,50 @@ def usable(pick: str, paths: list, fenced: bool = False, cfg=None) -> str:
     return ""
 
 
-def choose(cfg, kind: str | None, paths: list[Path | str] = (), fenced: bool = False, engine: str | None = None) -> Choice:
+def family(pick: str) -> str:
+    """首选 / 备选算哪家的额度：Claude 的型号都算 claude，别家就是它的键。"""
+    return engines.CLAUDE.key if pick in MODELS else pick
+
+
+def _label(pick: str) -> str:
+    e = engines.by_key(pick)
+    return e.full if e and pick not in MODELS else f"Claude {pick.capitalize()}"
+
+
+def _roomier(use: str, backup: str, levels: dict) -> bool:
+    """首选这家额度紧时，备选是不是更好的去处：那家更宽裕，或同是 Claude 换成更省的型号。"""
+    a, b = levels.get(family(use), "充足"), levels.get(family(backup), "充足")
+    if b == "撞线":
+        return False
+    if family(use) == family(backup):
+        return WEIGHT.get(backup, 9) < WEIGHT.get(use, 9)
+    return quota.rank(b) < quota.rank(a)
+
+
+def choose(cfg, kind: str | None, paths: list[Path | str] = (), fenced: bool = False, engine: str | None = None,
+           levels: dict | None = None) -> Choice:
     """按分工表给这一档挑：首选能用就首选，不行换备选，再不行 Claude Sonnet。
-    engine = 已经点名了哪家（总管写了 engine=claude 却没写型号）：只在这家里挑。"""
+    engine = 已经点名了哪家（总管写了 engine=claude 却没写型号）：只在这家里挑，不看额度。
+    levels = 各家额度现在在哪一档（Bridge._quota）：首选这家告急 / 撞线时，备选更宽裕就换备选（偏紧不换，质量优先）。"""
     table = getattr(cfg, "split", None) or normalize(None)
     r = table.get(kind or "simple") or table["simple"]
     if engine == engines.CLAUDE.key:
         return Choice(next((x for x in (r["use"], r["backup"]) if x in MODELS), FALLBACK), "", r["effort"])
     if engine:
         return Choice(engine, r["model"] if r["use"] == engine else "", r["effort"])
+    levels = levels or {}
     why = usable(r["use"], list(paths), fenced, cfg)
+    backup_ok = bool(r["backup"]) and not usable(r["backup"], list(paths), fenced, cfg)
     if not why:
+        lv = levels.get(family(r["use"]), "充足")
+        if lv in quota.SWITCH and backup_ok and _roomier(r["use"], r["backup"], levels):
+            return Choice(r["backup"], "", r["effort"], note=f"{_label(r['use'])} 额度{lv}，换备选")
+        if lv == "撞线" and not backup_ok and family(r["use"]) != family(FALLBACK) and levels.get(family(FALLBACK)) != "撞线":
+            return Choice(FALLBACK, "", r["effort"], note=f"{_label(r['use'])} 额度撞线")
         return Choice(r["use"], "" if r["use"] in MODELS else r["model"], r["effort"])
-    e = engines.by_key(r["use"])
-    label = e.full if e else f"Claude {r['use'].capitalize()}"
-    if r["backup"] and not usable(r["backup"], list(paths), fenced, cfg):
-        return Choice(r["backup"], "", r["effort"], note=f"首选 {label} 用不了（{why}），换备选")
-    return Choice(FALLBACK, "", r["effort"], note=f"首选 {label} 用不了（{why}）")
+    if backup_ok:
+        return Choice(r["backup"], "", r["effort"], note=f"首选 {_label(r['use'])} 用不了（{why}），换备选")
+    return Choice(FALLBACK, "", r["effort"], note=f"首选 {_label(r['use'])} 用不了（{why}）")
 
 
 def describe(cfg) -> str:

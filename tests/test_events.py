@@ -1,9 +1,12 @@
 """事件总线（events.py）和额度变档事件（Bridge._quota_check）。"""
 import asyncio
 import time
+
+import pytest
 from types import SimpleNamespace as NS
 
-from remote_claude.app import Bridge, quota_level
+from remote_claude import quota, superagent
+from remote_claude.app import Bridge
 from remote_claude.config import Config
 from remote_claude.events import Bus
 from remote_claude.sessions import Session
@@ -29,10 +32,32 @@ def test_bus_order_errors_and_claim():
 
 
 def test_quota_level():
-    assert quota_level({}) == "充足"
-    assert quota_level({"five_hour": (0.5, "x"), "seven_day": (0.8, None)}) == "偏紧"
-    assert quota_level({"five_hour": (0.95, "x")}) == "告急"
-    assert quota_level({"five_hour": None, "x": "坏的"}) == "充足"
+    """重置时间读不出来：只看已用多少。"""
+    assert quota.level({}) == "充足"
+    assert quota.level({"five_hour": (0.5, "x"), "seven_day": (0.8, None)}) == "偏紧"
+    assert quota.level({"five_hour": (0.95, "x")}) == "告急"
+    assert quota.level({"five_hour": None, "x": "坏的"}) == "充足"
+
+
+def _at(t: float) -> str:
+    lt = time.localtime(t)
+    return f"{lt.tm_mon}月{lt.tm_mday}日 {lt.tm_hour:02d}:{lt.tm_min:02d}"
+
+
+def test_quota_pace_and_eta():
+    """按消耗速度分档：同样用了 40%，周初是告急前兆（偏紧），周末就充足；还给出按这速度何时用完。"""
+    now = time.mktime((2026, 11, 8, 12, 0, 0, 0, 0, -1))
+    day = 86400
+    early = {"seven_day": (0.4, _at(now + 6 * day))}          # 过了 1 天用了 40%：按这速度到重置要用到 200%
+    w = quota.forecast(early, now)["seven_day"]
+    assert w["level"] == "偏紧" and w["pace"] == pytest.approx(2.0) and w["eta"] == pytest.approx(now + 1.5 * day, abs=60)
+    assert quota.level({"seven_day": (0.6, _at(now + 6 * day))}, now) == "告急"     # 过半又远远不够
+    assert quota.level({"seven_day": (0.4, _at(now + 1 * day))}, now) == "充足"     # 周末才用 40%
+    assert quota.forecast({"seven_day": (0.4, _at(now + 1 * day))}, now)["seven_day"]["eta"] is None
+    assert quota.level({"five_hour": (0.1, _at(now + 4.9 * 3600))}, now) == "充足"  # 窗口刚开头：已过比例至少按 20% 算，不慌
+    assert quota.describe(early, now) == f"本周 40%，按这速度{quota.when(now + 1.5 * day, now)} 用完"
+    assert quota.when(now + 3600, now) == "今天 13:00" and quota.when(now + day, now) == "明天 12:00"
+    assert quota.describe({}) == ""
 
 
 def test_quota_events(tmp_path):
@@ -55,3 +80,17 @@ def test_quota_events(tmp_path):
         assert [g for g in got if g[0] == "claude"] == [("claude", "充足", "偏紧"), ("claude", "偏紧", "告急"),
                                                         ("claude", "告急", "撞线"), ("claude", "撞线", "充足")]
     asyncio.run(go())
+
+
+def test_relay_keeps_boss(tmp_path):
+    """接力：总管派的活接力后照旧回报总管；总管自己接力，角色、没看的情况、手下的对话都交给新的。"""
+    b = Bridge(Config(client_id="t", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), super_agent=True),
+               NS(secret="x"), tmp_path / "d")
+    boss = superagent.find(b)
+    boss.notes = ["10:00 用户直接对 #3 说了话"]
+    w = b.registry.add(Session(num=b.registry.reserve_num(), name="活", cwd=str(tmp_path), boss=boss.num))
+    w2 = b._relay_open(w, "交接")
+    assert w2.boss == boss.num and superagent.boss_of(b, w2) is boss
+    nb = b._relay_open(boss, "交接")
+    assert nb.role == superagent.ROUTER and boss.role == "" and not boss.pinned and nb.notes and not boss.notes
+    assert superagent.find(b) is nb and w.boss == w2.boss == nb.num and b.registry.current == nb.num

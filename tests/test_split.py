@@ -62,6 +62,22 @@ def test_choose_within_named_engine(both):
     assert split.choose(cfg(dev={"use": "sonnet"}), "dev", engine="deepseek").pick == "deepseek"
 
 
+def test_choose_by_quota(both):
+    """质量优先：首选这家偏紧照用；告急 / 撞线才换备选，备选得更宽裕（或同是 Claude 换更省的型号）。"""
+    c = cfg(dev={"use": "gpt", "backup": "sonnet"}, design={"use": "opus", "backup": "sonnet"})
+    assert split.choose(c, "dev", levels={"gpt": "偏紧"}).pick == "gpt"
+    got = split.choose(c, "dev", levels={"gpt": "告急"})
+    assert got.pick == "sonnet" and "额度告急" in got.note
+    assert split.choose(c, "dev", levels={"gpt": "告急", "claude": "告急"}).pick == "gpt"     # 备选那家也一样紧：不换
+    assert split.choose(c, "dev", levels={"gpt": "撞线", "claude": "撞线"}).pick == "gpt"
+    assert split.choose(c, "design", levels={"claude": "告急"}).pick == "sonnet"            # 同是 Claude：换更省的
+    assert split.choose(c, "design", levels={"claude": "撞线"}).pick == "opus"              # 同家撞线换了也没用
+    assert split.choose(cfg(dev={"use": "sonnet", "backup": "opus"}), "dev", levels={"claude": "告急"}).pick == "sonnet"
+    got = split.choose(cfg(simple={"use": "gpt"}), "simple", levels={"gpt": "撞线"})      # 没备选、别家撞线：退回 Sonnet
+    assert got.pick == "sonnet" and "撞线" in got.note
+    assert split.choose(c, "dev", engine="gpt", levels={"gpt": "撞线"}).pick == "gpt"     # 点名了哪家：不看额度
+
+
 def test_check():
     ok = split.normalize({"dev": {"use": "gpt", "backup": "sonnet", "effort": "high"}})
     assert split.check(ok) == ""

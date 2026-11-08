@@ -15,7 +15,7 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, engines, ext, folders, report, router, split, superagent, translate, usage
+from . import cards, engines, ext, folders, quota, report, router, split, superagent, translate, usage
 from .events import Bus
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
@@ -33,17 +33,6 @@ RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E �
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
 
 log = logging.getLogger(__name__)
-QUOTA_TIGHT, QUOTA_URGENT = 0.75, 0.9   # 5 小时或本周用到这么多：偏紧 / 告急（P3.5 的调度器再按消耗速度细分）
-
-
-def _util(v) -> float | None:
-    return float(v[0]) if isinstance(v, (list, tuple)) and v and isinstance(v[0], (int, float)) else None
-
-
-def quota_level(limits: dict) -> str:
-    """额度（{"five_hour": (已用比例, 重置时间), ...}）在哪一档：看用得最多的那一项。"""
-    worst = max((u for v in limits.values() if (u := _util(v)) is not None), default=0.0)
-    return "告急" if worst >= QUOTA_URGENT else "偏紧" if worst >= QUOTA_TIGHT else "充足"
 
 
 class Bridge:
@@ -158,7 +147,7 @@ class Bridge:
             if why := await asyncio.to_thread(folders.blocked, [cwd]):
                 raise ValueError("工作文件夹不可访问")
             if model == "auto":   # 没点名：按分工表（代码仓里按开发，别处按简单任务）
-                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd])
+                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd], levels=self._quota)
                 pick, full = c.pick, c.full_model
             else:
                 pick, full = model, MODELS.get(model)
@@ -351,6 +340,12 @@ class Bridge:
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
                            f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
+        s.boss = p.boss   # 总管派的活接力后照旧回报给总管
+        if p.role == superagent.ROUTER:   # 总管自己接力：角色、置顶、没看的“期间的情况”、手下的对话都交给新的
+            s.role, s.notes, p.role, p.pinned, p.notes = p.role, list(p.notes), "", False, []
+            for w in self.registry.sessions.values():
+                if w.boss == p.num:
+                    w.boss = s.num
         self.registry.add(s)
         p.relay_to = s.num
         self.registry.save()
@@ -391,11 +386,11 @@ class Bridge:
             if self._quota.get(eng.key) == "撞线" and any(
                     s.limit_until > now and engines.get(s.engine) is eng for s in self.registry.visible()):
                 continue
-            await self._quota_level(eng.key, quota_level(eng.limits(self.runner)))
+            await self._quota_level(eng.key, quota.level(eng.limits(self.runner)))
 
     def _quota_said(self, engine: str, level: str, prev: str, limits: dict, num: int | None = None) -> None:
         e = engines.get(engine)
-        log.info("%s 额度：%s → %s %s", e.label, prev, level, {k: round(v[0] * 100) for k, v in limits.items() if _util(v) is not None})
+        log.info("%s 额度：%s → %s（%s）", e.label, prev, level, quota.describe(limits) or "没读数")
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         await self.events.emit("turn_done", s, turn)   # 接力、定时任务、扩展各自订阅（见 events.py）
@@ -912,7 +907,7 @@ class Bridge:
         said_model, said_effort = inline_overrides(text)
         chosen = None
         if not (model or said_model):   # 没指定时照分工表挑（首选用不了换备选）
-            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine)
+            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine, levels=self._quota)
             model, engine_model = MODELS.get(chosen.pick, chosen.pick), engine_model or chosen.model or None
             effort = effort or chosen.effort or None
         alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号
