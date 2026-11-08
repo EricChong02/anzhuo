@@ -49,7 +49,7 @@ def test_two_accounts_isolated(tmp_path):
             su = await (await cu.get("/_x/api/sessions")).json()
             assert [s["num"] for s in sa["sessions"]] == [a.num] and sa["me"]["role"] == "admin"
             assert [s["num"] for s in su["sessions"]] == [u.num] and su["me"]["role"] == "user"
-            assert su["folders"] == [] and all(m[0] != "gpt" for m in su["models"])
+            assert su["folders"] == [] and su["ext"] == {} and all(m[0] != "gpt" for m in su["models"])
             # 对方的对话当作没有
             assert (await cu.get(f"/_x/api/thread/{a.num}")).status == 404
             assert (await ca.get(f"/_x/api/thread/{u.num}")).status == 404
@@ -57,7 +57,7 @@ def test_two_accounts_isolated(tmp_path):
             assert (await cu.get(f"/_x/t/{a.num}-123")).status == 404
             # user 用不了的地方
             for path in ("/_x/history", "/_x/admin", "/_x/api/admin", "/_x/api/browse", "/_x/api/schedules",
-                         "/_x/api/cc-sessions"):
+                         "/_x/api/cc-sessions", "/_x/api/course", "/studio-preview.html"):
                 assert (await cu.get(path)).status == 403, path
             assert (await ca.get("/_x/api/admin")).status == 200
             # 搜索只搜自己的
@@ -101,7 +101,7 @@ def test_user_starts_in_own_folder_and_quota(tmp_path):
             # 附件存进它自己的文件夹
             await (await cu.post("/_x/api/send", json={"num": s.num, "text": "看看",
                                                      "files": [{"name": "a.txt", "data": "data:text/plain;base64,aGk="}]})).json()
-            assert b.registry.current == a.num
+            assert b.registry.current == a.num   # user 新开的对话不会变成 admin 的当前对话
             assert (root / "收到的附件").is_dir() and any((root / "收到的附件").iterdir())
             # 本周用了主账号周额度的 25%（比例：每 $1 = 1%）→ 超过 1/5，不能再开始
             now = time.time()
@@ -129,9 +129,9 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
     (home / "outside-link").symlink_to(home / "Projects")
     (root / "sneaky").symlink_to(home / "Projects")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    r = Runner(None, None)
+    from anzhuo.engines import CLAUDE
     s = Session(num=1, name="x", cwd=str(root), owner="user", root=str(root))
-    hook = r._fence(s)
+    hook = CLAUDE.fence(s)
     run = lambda name, args: asyncio.run(hook({"tool_name": name, "tool_input": args}, "id", None))
     assert run("Read", {"file_path": str(root / "a.txt")}) == {}
     assert run("Read", {"file_path": "a.txt"}) == {}   # 相对路径按工作文件夹算
@@ -142,7 +142,7 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
                        ("CronCreate", {}), ("mcp__anzhuo__generate_images", {}), ("Skill", {})]:
         out = run(name, args)
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny", (name, args)
-    opts = r._fence_options(s)
+    opts = CLAUDE.fence_options(s)
     deny = json.loads(opts["settings"])["permissions"]["deny"]
     assert opts["sandbox"]["enabled"] and opts["sandbox"]["allowUnsandboxedCommands"] is False
     assert f"Read(/{home}/Projects/**)" in deny and f"Edit(/{home}/.ssh)" in deny
@@ -190,7 +190,7 @@ def test_claude_usage_is_cumulative_so_record_delta(tmp_path):
     r = usage.row(s, t(1.5, {**m(300, 30)}), {})
     assert r["cost"] == 0.5 and r["tokens"]["total"] == 220 and r["model"] == "claude-opus-5-5"   # haiku 这轮没动
     assert usage.row(s, t(0.2, m(50, 5)), {})["cost"] == 0.2                                       # 新会话
-    # 小E 刚升级、对话里没存累计值：用记录里上一条的 cum
+    # 远窗刚升级、对话里没存累计值：用记录里上一条的 cum
     s2 = Session(num=8, name="y", cwd="/x")
     assert usage.row(s2, t(3.0, m(1000, 0)), {}, last={"cost": 2.0, "tok": {"input": 900}})["tokens"]["input"] == 105
     p = tmp_path / "u.jsonl"
@@ -270,7 +270,7 @@ def test_admin_week_range_and_unknown_reset(tmp_path,monkeypatch):
     from anzhuo.sessions import Registry, Session
     now=time.mktime((2026,11,7,17,0,0,0,0,-1))
     start=time.mktime((2026,11,5,10,30,0,0,0,-1))
-    monkeypatch.setattr('anzhuo.web.time.time',lambda:now)
+    monkeypatch.setattr('time.time',lambda:now)
     async def go():
         reg=Registry(tmp_path/'sessions.json')
         reg.add(Session(num=reg.reserve_num(),name='任务',cwd=str(tmp_path)))

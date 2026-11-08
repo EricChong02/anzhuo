@@ -1,7 +1,7 @@
 """审核员（可选，配置 auto_review = true）：命令碰到危险规则（guard.py）时，不再停下来等你点，
 先交给另一个 AI 结合这一轮在做什么来判断放不放行；审核员出错或超时才退回来问你。
 默认不开：危险命令都等你在网页 / 手机上点“允许”。要让审核员替你放行提交、推送、部署这类操作，
-在配置里写 review_policy 明说（见 docs/配置参考.md）。"""
+在配置里写 review_policy 明说（见 docs/配置参考.md；远窗的写法见本机配置）。"""
 from __future__ import annotations
 
 import asyncio

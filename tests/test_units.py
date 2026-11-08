@@ -1,3 +1,4 @@
+import pytest
 
 from anzhuo import folders, report
 from anzhuo.commands import parse
@@ -101,7 +102,7 @@ Current week (Fable): 0% used · resets Oct 31 at 4am (Asia/Taipei)"""
 
 
 def test_is_reply():
-    from anzhuo.app import _is_reply
+    from anzhuo.intent import _is_reply
     for t in ["好的", "选B", "继续", "再大一点", "嗯嗯", "2", "为什么？"]:
         assert _is_reply(t), t
     for t in ["帮我查一下明天厦门天气", "把桌面上的文件按日期列一下", "好的，那顺便把第三课也改了"]:
@@ -109,13 +110,50 @@ def test_is_reply():
 
 
 def test_model_choice(tmp_path):
-    from anzhuo.app import _looks_like_project, inline_overrides
+    from anzhuo.intent import _looks_like_project, inline_overrides
     assert inline_overrides("这次用 Opus，深度调到高") == ("claude-opus-5-5", "high")
     assert inline_overrides("帮我查天气") == (None, None)
     assert inline_overrides("思考最高，改用sonnet") == ("claude-sonnet-5-5", "max")
     (tmp_path / "repo" / ".git").mkdir(parents=True)
     (tmp_path / "repo" / "src").mkdir()
     assert _looks_like_project(tmp_path / "repo" / "src") and not _looks_like_project(tmp_path)
+
+
+def test_router_parse():
+    _parse = pytest.importorskip("anzhuo.router")._parse
+    r = _parse('{"action":"reply","answer":"你好！","target":null}', {1})
+    assert (r.action, r.answer) == ("reply", "你好！")
+    assert _parse('{"action":"reply","answer":""}', set()).action == "ask"
+    r = _parse('好的 {"action":"new","folder":"前端","kind":"dev"}', {1})
+    assert (r.action, r.folder, r.kind) == ("new", "前端", "dev")
+    assert _parse('{"action":"continue","target":9}', {1}).action == "ask"
+    assert _parse('{"action":"continue","target":"#1"}', {1}).target == 1   # 编号带 # 也认，不当判断失败
+    assert _parse("不是 JSON", {1}) is None
+
+
+def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
+    """判断档位先问 DeepSeek；它出错或答非所问再问 Haiku。"""
+    import asyncio
+    import requests
+    from claude_agent_sdk import AssistantMessage, TextBlock
+    from anzhuo import deepseek_api
+    router = pytest.importorskip("anzhuo.router")
+    asked = []
+
+    async def haiku(*, prompt, options):
+        asked.append(prompt)
+        yield AssistantMessage(content=[TextBlock(text="dev")], model="haiku")
+    monkeypatch.setattr(router, "query", haiku)
+    monkeypatch.setattr(deepseek_api, "key", lambda: "k")
+    monkeypatch.setattr(deepseek_api, "chat", lambda *a, **k: " Design\n")
+    assert asyncio.run(real_classify_kind("设计一节课")) == "design" and not asked
+
+    def down(*a, **k):
+        raise requests.Timeout()
+    for bad in (down, lambda *a, **k: "我觉得是开发"):
+        monkeypatch.setattr(deepseek_api, "chat", bad)
+        assert asyncio.run(real_classify_kind("加个功能")) == "dev"
+    assert len(asked) == 2
 
 
 def test_needs_translation(monkeypatch):
@@ -125,7 +163,7 @@ def test_needs_translation(monkeypatch):
     assert needs_translation("I updated the cover title and checked that it still fits on the lab screen.")
     assert not needs_translation("改好了第二课封面，用 Opus 5.5 跑了 course_gates.py G1，结果 PASS。")
     assert not needs_translation("跑了：\n```\nuv run pytest -q tests/test_units.py --maxfail one two three four\n```")
-    assert not needs_translation("路径是 ~/Projects/demo/src/components/header.ts")
+    assert not needs_translation("路径是 ~/Projects/web/frontend/src/shared/lesson-shell.js")
     assert needs_translation("做完了。\n\nNote: the preview server was already running, so I reused it instead of starting another.")
 
 
@@ -193,7 +231,7 @@ def test_guard_danger():
     assert danger("git push origin dev") and danger(f"cd x && git reset {HARD} HEAD~1")
     assert danger("rm -rf ~/Projects/foo") == "删除 foo"
     assert danger("sqlite3 lab.db 'DELETE FROM users'") and danger("sudo rm x") and danger("find . -name '*.pyc' -delete")
-    assert danger("ssh myserver 'rm -rf /opt/x'")
+    assert danger("ssh my-server 'rm -rf /opt/x'")
     assert danger("rm -rf /tmp/anzhuo-shots/a.png /private/tmp/b") is None
     assert danger("git status && git diff && ls -la") is None
     assert danger("git restore --staged a.py") is None and danger("git restore a.py")
@@ -205,6 +243,7 @@ def test_guard_hook_waits_for_answer():
     import asyncio
     import time
     from anzhuo.report import Turn
+    from anzhuo.engines import CLAUDE
     from anzhuo.sessions import Runner, Session
     asked = []
 
@@ -216,7 +255,7 @@ def test_guard_hook_waits_for_answer():
         r.auto_review = False   # 关掉审核员：照旧等你点
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time())
         r.turns[3] = turn
-        hook = r._guard(s, turn)
+        hook = CLAUDE.guard(r, s, turn)
         assert await hook({"tool_input": {"command": "ls"}}, "t0", None) == {}
         task = asyncio.create_task(hook({"tool_input": {"command": "git push"}}, "t1", None))
         await asyncio.sleep(0.05)
@@ -236,6 +275,7 @@ def test_reviewer_decides(monkeypatch):
     import asyncio
     import time
     from anzhuo import reviewer
+    from anzhuo.engines import CLAUDE
     from anzhuo.report import Turn, build
     from anzhuo.sessions import Runner, Session
     answers = iter([(True, "任务要求推送"), (False, "删用户资料"), None])
@@ -253,7 +293,7 @@ def test_reviewer_decides(monkeypatch):
         r.auto_review = True   # 审核员默认关，这里测开着的情形
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time(), request="改完推上去")
         r.turns[3] = turn
-        hook = r._guard(s, turn)
+        hook = CLAUDE.guard(r, s, turn)
         first = await hook({"tool_input": {"command": "git " + "pu" + "sh"}}, "t1", None)
         assert first["hookSpecificOutput"]["permissionDecision"] == "allow"
         out = (await hook({"tool_input": {"command": "rm -rf ~/Documents/x"}}, "t2", None))["hookSpecificOutput"]
@@ -280,7 +320,7 @@ def test_compact_queue():
     async def go():
         r = Runner(registry=None, on_done=None)
         s = Session(num=6, name="做课", cwd="/tmp")
-        r.turns[6], r.clients[6] = Turn(started=time.time(), request="压缩上下文"), object()
+        r.turns[6], r.live[6] = Turn(started=time.time(), request="压缩上下文"), object()
         r.workers[6] = asyncio.get_running_loop().create_future()   # 假装有人在干活，别真开 worker
         assert r.compacting(6) == "running"
         assert r.submit(s, Job(text="把这节课上线")) == 1            # 排队，不是插话（-1）
@@ -324,7 +364,7 @@ def test_guard_force_restart():
 
 def test_codex_handoff_links(tmp_path):
     """GPT 把要交的文件写成 [下载…](/本机/路径) 链接：能交的拿出来发，链接只留文字；说明文档、源码的链接不动。"""
-    from anzhuo.sessions import handoff
+    from anzhuo.engines.base import handoff
     z = tmp_path / "包.zip"; z.write_bytes(b"PK")
     md = tmp_path / "先看这里.md"; md.write_text("x")
     png = tmp_path / "a.png"; png.write_bytes(b"x")
@@ -337,7 +377,7 @@ def test_codex_handoff_links(tmp_path):
 
 def test_noise_result():
     """后台任务通知被答的那句空话认得出来，正常回复不误伤。"""
-    from anzhuo.sessions import NOISE
+    from anzhuo.engines.claude import NOISE
     assert NOISE.match("No response requested.") and NOISE.match("") and NOISE.match(" no response requested \n")
     assert not NOISE.match("No response requested. 但我顺便看了一下进度：还在跑。")
 
@@ -366,7 +406,7 @@ def test_track_agent_lifecycle():
     import time
     from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage
     from anzhuo.report import Turn
-    from anzhuo.sessions import running_agents, sub_name, track_agent
+    from anzhuo.engines.claude import running_agents, sub_name, track_agent
     t = Turn(started=time.time())
     track_agent(t, TaskStartedMessage(subtype="task_started", data={}, task_id="a1", description="查课程目录", uuid="u", session_id="s", tool_use_id="tu1"))
     assert len(running_agents(t)) == 1 and sub_name(t, "tu1") == "查课程目录" and sub_name(t, None) == ""
@@ -380,7 +420,7 @@ def test_awaiting_kind_and_limit():
     """等你的轻重：要你定 / 列方案 / 批准编辑 / 直接问 = decide；做完顺口问“要不要我…” = suggest。撞额度能读出几点恢复。"""
     import time
     from datetime import datetime
-    from anzhuo.app import awaiting_kind, limit_reset
+    from anzhuo.intent import awaiting_kind, limit_reset
     assert awaiting_kind("要你定：用哪张？\nA. 红\nB. 蓝") == "decide"
     assert awaiting_kind("```\n批准本会话编辑：redzone-write｜path:a\n```") == "decide"
     assert awaiting_kind("封面用红色还是蓝色？") == "decide"
@@ -401,10 +441,11 @@ def test_title_valid():
     assert not valid("Here's a tit") and not valid("对话名字") and not valid("好") and valid("大数据第二节磨课")
 
 
-def test_queue_merges_and_waits_for_client():
+def test_queue_merges_and_waits_for_client(monkeypatch):
     """还没开工时连着说的几句并成一件；刚开工、Claude 还没连上时说的话等连上就插进这一轮。"""
     import asyncio
     import time
+    from anzhuo.engines import CLAUDE
     from anzhuo.report import Turn
     from anzhuo.sessions import Job, Runner, Session
 
@@ -412,7 +453,7 @@ def test_queue_merges_and_waits_for_client():
         r = Runner(registry=None, on_done=None)
         s = Session(num=3, name="做课", cwd="/tmp")
         r.turns[3] = Turn(started=time.time(), request="压缩上下文")   # 正在压缩：后来的话排队
-        r.clients[3] = object()
+        r.live[3] = object()
         r.workers[3] = asyncio.get_running_loop().create_future()
         assert r.submit(s, Job(text="改封面")) == 1
         assert r.submit(s, Job(text="标题也大一点")) == 1             # 并进前一件，不另排
@@ -420,15 +461,15 @@ def test_queue_merges_and_waits_for_client():
         assert len(q) == 1 and q[0].parts == ["改封面", "标题也大一点"] and q[0].text == "改封面\n\n标题也大一点"
         assert r.unqueue_last(3).text.startswith("改封面") and not r.queued(3)
         # 刚开工、还没连上
-        r.turns[3], r.clients = Turn(started=time.time(), request="改封面"), {}
+        r.turns[3], r.live = Turn(started=time.time(), request="改封面"), {}
         injected = []
 
-        async def fake_inject(s_, client, job):
+        async def fake_inject(runner, s_, client, job):
             injected.append(job.text)
-        r._inject = fake_inject
+        monkeypatch.setattr(CLAUDE, "_inject", fake_inject)
         assert r.submit(s, Job(text="顺便看下第二屏")) == -1
         await asyncio.sleep(0.1)
-        r.clients[3] = object()
+        r.live[3] = object()
         await asyncio.sleep(0.7)
         assert injected == ["顺便看下第二屏"] and r.turns[3].injected == 1
 
@@ -441,3 +482,24 @@ def test_said_has_relay_first_message():
     assert _said_has(rec, "推不上的原因：钩子跑 doctor")
     assert _said_has("批准本会话编辑：a", "批准本会话编辑：a")
     assert not _said_has(rec, "别的话")
+
+
+def test_waiting_cleared_when_cancelled(tmp_path):
+    """排队等名额时被取消，要从 waiting 里拿掉，不然这个对话一直显示“忙”。"""
+    import asyncio
+    from anzhuo.sessions import Job, Registry, Runner, Session
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        r = Runner(registry=reg, on_done=None, max_parallel=1)
+        s = Session(num=1, name="t", cwd=str(tmp_path))
+        reg.add(s)
+        await r.sem.acquire()          # 名额被别的对话占满
+        r.submit(s, Job(text="做点事"))
+        await asyncio.sleep(0.05)
+        assert 1 in r.waiting and r.busy(1)
+        r.workers[1].cancel()
+        await asyncio.gather(r.workers[1], return_exceptions=True)
+        assert 1 not in r.waiting and not r.busy(1)
+
+    asyncio.run(go())

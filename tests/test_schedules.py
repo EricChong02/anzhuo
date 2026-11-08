@@ -7,7 +7,7 @@ from anzhuo.schedules import Schedules, TZ, next_slot, parse_request
 
 def at(day=1, hour=8, minute=0): return datetime(2026,11,day,hour,minute,tzinfo=TZ).timestamp()
 def once(**kw): return dict(prompt='整理要闻',kind='once',run_at=datetime.fromtimestamp(at(2),TZ).isoformat(),**kw)
-# 走 Bridge.create_schedule 的用例按真实时钟校验“必须是未来”，不能用写死的日期
+# 走 ScheduleJobs.create 的用例按真实时钟校验“必须是未来”，不能用写死的日期
 def later(**kw): return dict(once(),run_at=datetime.fromtimestamp(time.time()+86400,TZ).isoformat(),**kw)
 
 def test_once_persist_pause_missed_resume_and_no_duplicate(tmp_path):
@@ -139,15 +139,15 @@ def test_bridge_dispatch_model_metadata_and_current_conversation(tmp_path,monkey
         b=Bridge(Config(client_id='test',allowed_user_ids=['me'],scratch_root=str(tmp_path/'scratch')),NS(secret='x'),tmp_path/'data')
         original=b.registry.add(Session(num=b.registry.reserve_num(),name='正在看的对话',cwd=str(tmp_path)))
         jobs=[];monkeypatch.setattr(b.runner,'submit',lambda s,j:jobs.append((s,j)) or 0)
-        t=b.create_schedule(later(model='gpt',effort='high'));t['run_id']='run1'
-        num=await b._dispatch_schedule(t)
+        t=b.jobs.create(later(model='gpt',effort='high'));t['run_id']='run1'
+        num=await b.jobs.dispatch(t)
         s,job=jobs[0]
         assert num==s.num and s.engine=='codex' and s.effort=='high'
         assert job.schedule_id==t['id'] and job.schedule_run_id=='run1' and job.via=='schedule'
         assert b.registry.current==original.num and t['target']==num
-        with pytest.raises(ValueError):b.create_schedule(later(target=original.num,model='gpt'))
+        with pytest.raises(ValueError):b.jobs.create(later(target=original.num,model='gpt'))
         # 即使队列项目已经出队等待全局名额，也必须算忙。
-        original.status='queued';assert b._scheduled_busy(original.num)
+        original.status='queued';assert b.jobs.busy(original.num)
     asyncio.run(go())
 
 def test_dispatch_through_real_runner_and_mock_model(tmp_path,monkeypatch):
@@ -166,8 +166,8 @@ def test_dispatch_through_real_runner_and_mock_model(tmp_path,monkeypatch):
         async def no_usage():pass
         monkeypatch.setattr(b.runner,'_run',fake_run)
         monkeypatch.setattr(b.runner,'refresh_usage',no_usage)
-        task=b.create_schedule(later())
-        await b.schedules.tick(b._dispatch_schedule,b._scheduled_busy,now=task['next_at']+1)
+        task=b.jobs.create(later())
+        await b.schedules.tick(b.jobs.dispatch,b.jobs.busy,now=task['next_at']+1)
         await asyncio.wait_for(b.runner.workers[task['target']],2)
         assert (tmp_path/'executed.txt').read_text()==task['prompt']
         assert task['state']=='completed' and not task['enabled'] and len(dt.sent)==1

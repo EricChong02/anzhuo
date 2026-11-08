@@ -1,60 +1,31 @@
-"""对话登记与运行：每个对话一个编号，背后是一个 Claude Code 对话；几个对话可同时干活，超过上限的排队。"""
+"""对话登记与调度：每个对话一个编号，背后是一个 Claude Code / Codex / ACP 对话；几个对话可同时干活，超过上限的排队。
+怎么跑一轮由引擎负责（engines/），这里只管排队、并行名额、插话与停下的分派、通用收尾。"""
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import json
 import logging
-import mimetypes
 import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
-from claude_agent_sdk import (
-    AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, ResultMessage, StreamEvent, SystemMessage, TextBlock,
-    ThinkingBlock, ToolUseBlock, create_sdk_mcp_server, tool,
-)
-from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage, TaskUpdatedMessage
-
-from . import guard
-from .folders import blocked, display
+from . import engines
+from .config import Config
+from .engines.base import COMPACT, CONFIRM_WAIT, FolderBlocked  # noqa: F401 - 别处从这里拿
+from .engines.codex import COMMAND_APPROVALS, approve_command
+from .folders import display
 from .image_delegate import ImageDelegator
-from .cards import step_label
 from .report import Turn, brief
 
 log = logging.getLogger(__name__)
 
-STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表
+STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，远窗分派时也不考虑
 CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收起（问个天气、查个词，不必在列表里挂一周）
-
-# 远窗给每个对话追加的固定要求。这几条是远窗与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
-# 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
-RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
-做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
-需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
-选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
-用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
-动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__anzhuo__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
-这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（部署、完整测试、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
-"""
-
-
-def build_instructions(language: str = "简体中文", extra: str = "") -> str:
-    """内置约定 + 回复语言 + 你自己的追加要求（配置里的 reply_language、extra_instructions）。"""
-    lang = f"回复一律用{language}，思考和过程中的说明也用{language}；专有名词、代码、命令、路径保持原样。\n" if language else ""
-    return lang + RULES + (extra.strip() + "\n" if extra.strip() else "")
-
-USER_TOOLS = {"Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS", "Bash", "BashOutput", "KillShell",
-              "KillBash", "TaskOutput", "TaskStop", "WebFetch", "WebSearch", "TodoWrite", "Task", "Agent", "ExitPlanMode",
-              "AskUserQuestion", "ToolSearch", "mcp__anzhuo__send_images", "mcp__anzhuo__send_files", "mcp__anzhuo__update_plan"}
-PATH_KEYS = ("file_path", "notebook_path", "path")
-
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+SAID_MAX = 4000  # 每轮记录里存你说的完整的话最多多少字（额度用完接力时拼交接材料用）
 
 
 @dataclass
@@ -76,9 +47,9 @@ class Session:
     unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
     seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
     awaiting: str = ""  # 上一轮最后在等你回答（问了什么）；你回了话就清掉
-    last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），列表和通知里用
+    last_summary: str = ""  # 上一轮你说了什么、它答了什么（各一句），给远窗分派时看
     from_desktop: bool = False  # 接上的是桌面端开的对话（不是远窗新开的）
-    engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）
+    engine: str = "claude"  # claude / codex（用 ChatGPT 自带的 Codex 干活，额度走 ChatGPT 会员）/ ACP 引擎名（kimi…）；能做什么查 engines/
     codex_file_undo: str = ""
     codex_records: list[str] = field(default_factory=list)  # 分叉继承的轮次记录编号，附件仍用原记录
     codex_pending_hidden: list[str] = field(default_factory=list)
@@ -100,7 +71,7 @@ class Session:
     rewind_note: str = ""  # 回到这里时顺带说明（收起了几条、文件退没退）
     fork_from: int = 0  # 从哪个对话分叉出来的（编号）
     forking: bool = False  # 分叉出来还没说第一句：下一句从 rewind_at 那条接着、另起一个 Claude 对话（原对话不动）
-
+    ext: dict = field(default_factory=dict)  # 扩展存在这个对话上的数据：扩展名 → 它自己的字典（见 ext.Api.data）
     owner: str = "admin"  # 哪个网页账号的对话；钉钉里的都算 admin。两个账号互相看不到对方的对话
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
@@ -108,6 +79,7 @@ class Session:
     relay_suggested: bool = False  # 已在空闲时建议过接力，之后进行中只显示禁用按钮
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
+    relay_pending: dict = field(default_factory=dict)  # 接力前尚待回答的问题及原文
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
     role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
     boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
@@ -174,8 +146,6 @@ class Registry:
                                      or now - s.updated < (CHAT_STALE if s.worked is False else STALE))]
 
 
-class FolderBlocked(Exception):
-    """要用的文件夹打不开：多半是 macOS 隐私保护在等你点“允许”。"""
 
 
 @dataclass
@@ -185,19 +155,21 @@ class Job:
     text: str
     images: list[Path] = field(default_factory=list)
     finished: bool = False
-    via: str = ""  # 从哪说的（web / dingtalk / schedule / auto）
+    via: str = ""  # 从哪说的（web / dingtalk / auto，或扩展的名字）
     parts: list[str] = field(default_factory=list)  # 还没开工时你连着说的几句并成了这一件（网页上照旧一句一句显示）
 
 
 Notify = Callable[[Session, Turn], Awaitable[None]]
 Started = Callable[[Session, Turn, Job], Awaitable[None]]
-CONFIRM_WAIT = 20 * 60  # 等你确认危险操作最多多久，过了当你不同意
 
 
 class Runner:
     def __init__(self, registry: Registry, on_done: Notify, max_parallel: int = 3, default_effort: str | None = None,
-                 on_start: Started | None = None, on_confirm: Notify | None = None):
+                 on_start: Started | None = None, on_confirm: Notify | None = None, cfg: Config | None = None):
         self.registry = registry
+        # 配置只有一份：回复语言、固定要求、子代理模型、DeepSeek 禁区、审核员这些都现读它（Bridge 换配置时跟着换）
+        self.cfg = cfg or Config(default_effort=default_effort)
+        self._cc_effort = user_setting("effortLevel") or ""   # Claude Code 自己设置里的默认深度
         self.on_confirm = on_confirm  # 有危险操作等你点头时（发通知、按钮卡）
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
@@ -206,28 +178,62 @@ class Runner:
         self.use_spare = False   # 总管打开时才用预留名额
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
-        self.clients: dict[int, ClaudeSDKClient] = {}
+        self.live: dict[int, Any] = {}  # 正在跑的这一轮的连接（Claude 客户端 / Codex / ACP 连接；插话、停下用），引擎放、引擎拿
+        self.tasks: set[asyncio.Task] = set()   # 后台小任务（插话、通知、起名）留着引用，免得被回收
         self.image_delegate = ImageDelegator(registry.path.parent / 'image_jobs') if registry else None
         self.image_tasks: dict[int, set[asyncio.Task]] = {}
-        self.codex_live: dict = {}  # 正在跑的 Codex 连接（插话、停下用）
-        self.acp_live: dict = {}  # 正在跑的 ACP 连接（停下用；ACP 不能中途插话）
         self.limits_gpt: dict[str, tuple[float, str | None]] = {}  # ChatGPT 会员的 Codex 额度（同上格式）
         self._gpt_usage_at = 0.0
         self.last: dict[int, Turn] = {}  # 每个对话刚做完的那一轮（记录写好前，网页先用它显示）
         self.turns: dict[int, Turn] = {}
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
-        self.default_effort = default_effort or user_setting("effortLevel") or ""
-        self.language = "简体中文"   # 回复语言（配置 reply_language）
-        self.extra_instructions = ""   # 你自己追加给每个对话的要求（配置 extra_instructions）
-        self.auto_review = False
-        self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
-        self.on_usage = None
-        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot"} 或 None
+        self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
+        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot", "on_stop"} 或 None
         self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
         self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
         self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
-        self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
+        self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）
+
+    @property
+    def default_effort(self) -> str:
+        return self.cfg.default_effort or self._cc_effort
+
+    @property
+    def language(self) -> str:
+        return self.cfg.reply_language
+
+    @property
+    def extra_instructions(self) -> str:
+        return self.cfg.extra_instructions
+
+    @property
+    def subagent_model(self) -> str:
+        """子代理默认用的模型全名；空 = 跟 Claude Code 默认。"""
+        return engines.MODELS.get(self.cfg.subagent_model, "")
+
+    @property
+    def deepseek_block(self) -> list[str]:
+        return self.cfg.deepseek_block
+
+    @property
+    def auto_review(self) -> bool:
+        """危险命令交给审核员（reviewer.py）判断；关着就等你点。"""
+        return self.cfg.auto_review
+
+    @auto_review.setter
+    def auto_review(self, on: bool) -> None:
+        self.cfg.auto_review = on
+
+    @property
+    def review_policy(self) -> str:
+        return self.cfg.review_policy
+
+    def _bg(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        return task
 
     @contextlib.asynccontextmanager
     async def _slot(self, own: bool, human: bool):
@@ -246,27 +252,14 @@ class Runner:
 
     def submit(self, s: Session, job: Job) -> int:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
-        turn, client = self.turns.get(s.num), self.clients.get(s.num)
-        if (s.engine == "codex" and turn and turn.accepting and not turn.interrupted and s.num in self.codex_live
-                and job.text != COMPACT and turn.request != _request_title(Job(text=COMPACT))):
-            # Codex 干活中途插话：交给正在进行的这一轮（turn/steer），插不进去就排到下一轮
+        turn = self.turns.get(s.num)
+        # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后；能不能插、怎么插由引擎定
+        if (turn and turn.accepting and not turn.interrupted and job.text != COMPACT
+                and turn.request != _request_title(Job(text=COMPACT))
+                and (steer := engines.get(s.engine).steer(self, s, turn, job)) is not None):
             turn.injected += 1
-            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
-            asyncio.create_task(self._steer_codex(s, job))
-            return -1
-        # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后
-        if (turn and client and s.engine == "claude" and turn.accepting and not turn.interrupted and job.text != COMPACT
-                and turn.request != _request_title(Job(text=COMPACT))):
-            turn.injected += 1
-            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
-            asyncio.create_task(self._inject(s, client, job))
-            return -1
-        if (turn and not client and s.engine == "claude" and turn.accepting and not turn.interrupted and job.text != COMPACT
-                and turn.request != _request_title(Job(text=COMPACT))):
-            # 刚开工、Claude 还没连上（头几秒）：等它连上就插进这一轮，不排到下一轮单独再答一遍
-            turn.injected += 1
-            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
-            asyncio.create_task(self._inject_when_ready(s, turn, job))
+            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text})
+            self._bg(steer)
             return -1
         q = self.queues.setdefault(s.num, asyncio.Queue())
         ahead = q.qsize() + (1 if s.num in self.turns else 0)
@@ -279,41 +272,17 @@ class Runner:
             last.images += job.images
             return ahead - 1
         q.put_nowait(job)
-        if s.num not in self.workers or self.workers[s.num].done():
-            self.workers[s.num] = asyncio.create_task(self._worker(s.num))
+        self._ensure_worker(s.num)
         return ahead
 
-    async def _steer_codex(self, s: Session, job: Job) -> None:
-        try:
-            await self.codex_live[s.num].steer(job.text, job.images)
-            job.finished = True
-        except Exception:  # noqa: BLE001 - 这一轮刚好结束、插不进去：排到下一轮
-            log.warning("插话给 Codex #%s 失败，排到下一轮", s.num, exc_info=True)
-            q = self.queues.setdefault(s.num, asyncio.Queue())
-            q.put_nowait(job)
-            if s.num not in self.workers or self.workers[s.num].done():
-                self.workers[s.num] = asyncio.create_task(self._worker(s.num))
+    def requeue(self, num: int, job: Job) -> None:
+        """插话没插进去：排到下一轮。"""
+        self.queues.setdefault(num, asyncio.Queue()).put_nowait(job)
+        self._ensure_worker(num)
 
-    async def _inject_when_ready(self, s: Session, turn: Turn, job: Job) -> None:
-        for _ in range(180):
-            if self.turns.get(s.num) is not turn or not turn.accepting:
-                break
-            if client := self.clients.get(s.num):
-                return await self._inject(s, client, job)
-            await asyncio.sleep(0.5)
-        q = self.queues.setdefault(s.num, asyncio.Queue())   # 没赶上这一轮：排到下一轮
-        q.put_nowait(job)
-        if s.num not in self.workers or self.workers[s.num].done():
-            self.workers[s.num] = asyncio.create_task(self._worker(s.num))
-
-    async def _inject(self, s: Session, client: ClaudeSDKClient, job: Job) -> None:
-        try:
-            await client.query(self._prompt(job))
-            job.finished = True
-        except Exception:  # noqa: BLE001 - 插不进去就排到下一轮
-            log.warning("插话给 #%s 失败，排到下一轮", s.num, exc_info=True)
-            q = self.queues.setdefault(s.num, asyncio.Queue())
-            q.put_nowait(job)
+    def _ensure_worker(self, num: int) -> None:
+        if num not in self.workers or self.workers[num].done():
+            self.workers[num] = asyncio.create_task(self._worker(num))
 
     def queued(self, num: int) -> list[Job]:
         """还排着没开始的（按顺序）。"""
@@ -327,25 +296,6 @@ class Runner:
             return None
         job = q._queue.pop()  # noqa: SLF001
         return job
-
-    async def rewind_files(self, s: Session, user_uuid: str) -> str:
-        """把文件退回到你说某句话之前的样子（Claude 自己的改动记录，只有开了记录之后的轮次有）。返回空 = 成功，否则是原因。"""
-        options = ClaudeAgentOptions(cwd=s.cwd, add_dirs=s.add_dirs, resume=s.claude_id, setting_sources=[],
-                                     permission_mode="bypassPermissions", enable_file_checkpointing=True,
-                                     extra_args={"replay-user-messages": None}, stderr=lambda line: log.debug("claude: %s", line))
-        client = ClaudeSDKClient(options=options)
-        try:
-            await asyncio.wait_for(client.connect(), 90)
-            await asyncio.wait_for(client.rewind_files(user_uuid), 90)
-            return ""
-        except Exception as e:  # noqa: BLE001 - 退不回就告诉你原因，对话照样回到那里
-            log.warning("#%s 退回文件失败：%s", s.num, e)
-            return "文件没退回（没有改动记录）"
-        finally:
-            try:
-                await client.disconnect()
-            except Exception:  # noqa: BLE001
-                pass
 
     def compacting(self, num: int) -> str:
         """这个对话的压缩：正在压返回 "running"，排着返回 "queued"，没有返回 ""。"""
@@ -363,12 +313,12 @@ class Runner:
         return True
 
     async def ask_confirm(self, s: Session, turn: Turn, what: str, cmd: str) -> bool:
-        """危险操作停下来等你点头（手机通知 + 钉钉按钮 + 网页卡片）；20 分钟不回当不允许。Claude 和 Codex 共用。"""
+        """危险操作停下来等你点头（手机通知 + 钉钉按钮 + 网页卡片）；20 分钟不回当不允许。各引擎共用（经 engines/policy.py）。"""
         fut = asyncio.get_running_loop().create_future()
         turn.confirm = {"what": what, "cmd": cmd[:600], "fut": fut}
         turn.timeline.append({"t": time.time(), "kind": "do", "text": f"等你确认：{what}", "detail": cmd[:400]})
         if self.on_confirm:
-            asyncio.create_task(self.on_confirm(s, turn))
+            self._bg(self.on_confirm(s, turn))
         try:
             return await asyncio.wait_for(asyncio.shield(fut), CONFIRM_WAIT)
         except asyncio.TimeoutError:
@@ -390,98 +340,11 @@ class Runner:
                 return ok
         return await self.ask_confirm(s, turn, what, cmd)
 
-    def _guard(self, s: Session, turn: Turn):
-        async def hook(data, tool_use_id, context):
-            cmd = str((data.get("tool_input") or {}).get("command") or "")
-            what = guard.danger(cmd)
-            if not what:
-                return {}
-            allow = await self.decide(s, turn, what, cmd)
-            why = turn.reviews[-1]["why"] if turn.reviews and turn.reviews[-1]["cmd"] == cmd[:300] else ""
-            out = {"hookEventName": "PreToolUse"}
-            if allow:
-                out.update(permissionDecision="allow", permissionDecisionReason="审核通过，可以执行")
-            else:
-                out.update(permissionDecision="deny", permissionDecisionReason=(
-                    f"这一步没有通过审核{('（' + why + '）') if why else ''}。不要执行它，也不要换个写法绕过去；"
-                    "能不做就用别的办法完成，必须做就在回复里说明为什么要这样做，等用户明确同意。"))
-            return {"hookSpecificOutput": out}
-        return hook
-
-    def _stop_check(self, turn: Turn, check):
-        """这一轮要结束时再看一眼：check(turn, 已经拦过一次) 返回一句话就拦下，让它先补上再结束（只拦一次）。"""
-        async def hook(data, tool_use_id, context):
-            why = check(turn, bool(data.get("stop_hook_active")))
-            return {"decision": "block", "reason": why} if why else {}
-        return hook
-
-    def _deny(self, names: set[str], reason: str = ""):
-        """不让这个对话用某些工具（总管不亲自干活）。"""
-        async def hook(data, tool_use_id, context):
-            name = str(data.get("tool_name") or "")
-            if name not in names:
-                return {}
-            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                           "permissionDecisionReason": reason or f"这个工具（{name}）在这里不能用。"}}
-        return hook
-
-    def _fence(self, s: Session):
-        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
-        root = Path(s.root).expanduser().resolve()
-
-        def inside(raw: str) -> bool:
-            p = Path(str(raw)).expanduser()
-            p = (p if p.is_absolute() else Path(s.cwd) / p).resolve()
-            return p == root or p.is_relative_to(root)
-
-        async def hook(data, tool_use_id, context):
-            name = str(data.get("tool_name") or "")
-            args = data.get("tool_input") or {}
-            why = ""
-            if name not in USER_TOOLS:
-                why = f"这个工具（{name}）在这里不能用。"
-            else:
-                paths = [args[k] for k in PATH_KEYS if args.get(k)]
-                pat = str(args.get("pattern") or "") if name == "Glob" else ""
-                if pat.startswith(("/", "~")):
-                    paths.append(pat.split("*")[0] or "/")
-                if any(not inside(p) for p in paths):
-                    why = f"只能在 {display(root)} 里面读写，这个路径在外面。"
-            if not why:
-                return {}
-            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                           "permissionDecisionReason": why + "换成文件夹里面的做法，做不到就在回复里说明。"}}
-        return hook
-
-    def _fence_options(self, s: Session) -> dict:
-        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹、连不上本机端口），家目录里别的东西读写都拒绝。"""
-        root = Path(s.root).expanduser().resolve()
-        home = Path.home().resolve()
-        deny: list[str] = []
-        outside = [Path("/Volumes"), Path("/Users/Shared")]
-        if root.is_relative_to(home):   # 从文件夹往上到家目录，每一层的兄弟都挡掉
-            cur = root
-            while cur != home:
-                try:
-                    outside += [p for p in cur.parent.iterdir() if p.name != cur.name]
-                except OSError:
-                    pass
-                cur = cur.parent
-        else:
-            outside.append(home)
-        for p in outside:
-            for tool in ("Read", "Edit"):
-                deny += [f"{tool}(/{p})", f"{tool}(/{p}/**)"]
-        return {
-            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False},
-            "settings": json.dumps({"permissions": {"deny": deny}}),
-        }
 
     async def stop(self, num: int) -> bool:
         q = self.queues.get(num)
         while q and not q.empty():
             q.get_nowait()
-        client = self.clients.get(num)
         if num in self.waiting:   # 还在等名额：拿到也不做了
             self.dropped.add(num)
             return True
@@ -492,17 +355,9 @@ class Runner:
             task.cancel()
         if image_tasks:
             await asyncio.gather(*image_tasks, return_exceptions=True)
-        if conn := self.acp_live.get(num):   # ACP：让它停下这一轮
-            await conn.cancel()
-            return True
-        if conn := self.codex_live.get(num):
-            try:
-                await conn.interrupt()
-            except Exception:  # noqa: BLE001 - 停不下来就直接关掉
-                await conn.close()
-            return True
-        if client:
-            await client.interrupt()
+        if (conn := self.live.get(num)) is not None:   # 让正在跑的这一轮停下（各家停法不同）
+            s = self.registry.get(num) if self.registry else None
+            await engines.get(s.engine if s else None).halt(conn)
             return True
         return bool(image_tasks)
 
@@ -519,21 +374,27 @@ class Runner:
             own = bool(((self.role(s) if self.role else None) or {}).get("own_slot"))
             # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
             human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
-            self.waiting.add(num)
-            async with self._slot(own, human):
-                self.waiting.discard(num)
+            async with contextlib.AsyncExitStack() as slot:
+                self.waiting.add(num)
+                try:   # 等名额时被取消（关机、重启）也要把“在等”清掉，不然这个对话一直算在忙
+                    await slot.enter_async_context(self._slot(own, human))
+                except BaseException:
+                    self.dropped.discard(num)
+                    raise
+                finally:
+                    self.waiting.discard(num)
                 if num in self.dropped:
                     self.dropped.discard(num)
                     s.status = "idle"
                     self.registry.save()
                     continue
-                turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
+                turn = Turn(started=time.time(), request=_request_title(job), said=job.text[:SAID_MAX], via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
                 turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
                 if self.on_start:
-                    asyncio.create_task(self.on_start(s, turn, job))
+                    self._bg(self.on_start(s, turn, job))
                 if s.unsent:
                     job.text = f"{s.unsent}\n\n{job.text}"
                     s.unsent = ""
@@ -560,7 +421,7 @@ class Runner:
                     self.last[num] = turn
                     self.finishing.add(num)   # 结果还没处理完（查额度、通知）：仍算在忙
                     self.turns.pop(num, None)
-                    self.clients.pop(num, None)
+                    self.live.pop(num, None)
                     if (turn.is_error and s.claude_id == started_before and not turn.final_text
                             and not re.search(r"hit your .{0,20}limit", turn.error)):   # 撞额度时它其实收到了，恢复后说“继续”就行
                         s.unsent = job.text  # Claude 一个字都没收到，下次一起带上
@@ -572,8 +433,8 @@ class Runner:
                         s.worked = False   # 新开的对话头一轮只聊了天
                     self.registry.save()
             try:
-                if s.engine in ("claude", "codex"):   # ACP 引擎没有额度可查
-                    await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
+                if (eng := engines.get(s.engine)).has_quota:   # ACP 引擎没有额度可查
+                    await eng.refresh_quota(self)
                 if self.on_usage and turn.usage:
                     try:
                         self.on_usage(s, turn)
@@ -581,10 +442,18 @@ class Runner:
                         log.exception("记消耗失败")
                 job.finished = True
                 if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
-                    asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
+                    self._bg(self._auto_title(s, job.text, turn.final_text))
                 await self.on_done(s, turn)
             finally:
                 self.finishing.discard(num)
+
+    async def _run(self, s: Session, job: Job, turn: Turn) -> None:
+        """跑一轮：交给这个对话的引擎（engines/）。测试里常替换掉它当假 AI。"""
+        eng = engines.get(s.engine)
+        if s.root and not eng.fenced_ok:
+            raise RuntimeError("受限账号只能用 Claude")
+        await eng.run(self, s, job, turn)
+
 
     async def title_all(self, records_dir: Path) -> None:
         """还没起过短名字的对话（你手动改过名的除外）一个个补上：按它最近一轮你说的话和回复起。启动时跑一次。"""
@@ -650,13 +519,8 @@ class Runner:
                 turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
 
         async def approve(method, params):
-            if method in ('item/commandExecution/requestApproval', 'execCommandApproval'):
-                cmd = params.get('command') or ''
-                cmd = ' '.join(cmd) if isinstance(cmd, list) else str(cmd)
-                ok = not turn.interrupted
-                if ok and (what := guard.danger(cmd)):
-                    ok = await self.decide(s, turn, what, cmd)
-                return {'decision': ('approved' if ok else 'denied') if method == 'execCommandApproval' else ('accept' if ok else 'decline')}
+            if method in COMMAND_APPROVALS:   # 和对话里的 Codex 同一套判定（engines/policy.py）；原任务停了一律不批
+                return await approve_command(self, s, turn, method, params, stopped=turn.interrupted)
             if method in ('item/fileChange/requestApproval', 'applyPatchApproval'):
                 return {'decision': ('approved' if not turn.interrupted else 'denied') if method == 'applyPatchApproval' else ('accept' if not turn.interrupted else 'decline')}
             return None
@@ -686,678 +550,6 @@ class Runner:
             if not tasks:
                 self.image_tasks.pop(s.num, None)
 
-    def _image_tool(self, turn: Turn, session: Session | None = None):
-        @tool("send_images", "把截图或图片交给用户看。paths 是本机图片的绝对路径（png/jpg），最多 6 张，按想让用户看的顺序排。",
-              {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
-               "required": ["paths"]})
-        async def send_images(args):
-            ok, bad = [], []
-            for p in args.get("paths", []):
-                path = Path(p).expanduser()
-                if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES and len(turn.images) + len(ok) < 6:
-                    ok.append(str(path))
-                else:
-                    bad.append(p)
-            turn.images.extend(ok)
-            msg = f"已登记 {len(ok)} 张图片，本轮结束后会显示在对话中；这不是用户已收到的回执。"
-            if bad:
-                msg += f" 没收下：{', '.join(bad)}（不存在、不是图片或超过 6 张）"
-            return {"content": [{"type": "text", "text": msg}]}
-
-        @tool("send_files", "把文件原样交给用户（PDF、Word、表格、压缩包等任何格式，用户能直接下载）。paths 是本机文件的绝对路径，最多 10 个，每个不超过 300MB。"
-              "用户要的是文件本身时用这个，不要只发截图。",
-              {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
-               "required": ["paths"]})
-        async def send_files(args):
-            ok, bad = [], []
-            for p in args.get("paths", []):
-                path = Path(p).expanduser()
-                if path.is_file() and path.stat().st_size <= 300 * 1024 * 1024 and len(turn.files) + len(ok) < 10:
-                    ok.append(str(path))
-                else:
-                    bad.append(p)
-            turn.files.extend(ok)
-            msg = f"已登记 {len(ok)} 个文件，本轮结束后会显示下载入口；这不是用户已收到的回执。"
-            if bad:
-                msg += f" 没收下：{', '.join(bad)}（不存在、超过 300MB 或超过 10 个）"
-            return {"content": [{"type": "text", "text": msg}]}
-
-        @tool("update_plan", "列出或更新这件事的步骤清单，用户在手机上看进度。每次传完整清单；status 只能是 pending（没开始）、doing（正在做）、done（做完）。",
-              {"type": "object", "properties": {"steps": {"type": "array", "items": {"type": "object", "properties": {
-                  "text": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "doing", "done"]}},
-                  "required": ["text", "status"]}}}, "required": ["steps"]})
-        async def update_plan(args):
-            turn.plan = [{"text": str(x.get("text", ""))[:60], "status": x.get("status") if x.get("status") in ("pending", "doing", "done") else "pending"}
-                         for x in (args.get("steps") or [])[:20]]
-            left = [x["text"] for x in turn.plan if x["status"] != "done"]
-            tip = f"已更新：做完 {len(turn.plan) - len(left)}/{len(turn.plan)} 步。" + (
-                f"每做完一步就马上再调一次 update_plan，把它标 done、下一步标 doing（还剩：{'、'.join(left)}）。" if left else "全部做完了。")
-            return {"content": [{"type": "text", "text": tip}]}
-
-        @tool("generate_images", "委派 Codex 使用内置生图工具生成或编辑图片，等待真实文件结果并自动登记为本轮图片附件。仅用于图片任务，不能代替一般代码任务；参考图传绝对路径，输出目录应在当前工作目录或附加目录内。成功后用 Read 检查图片再继续。",
-              {"type": "object", "properties": {"prompt": {"type": "string"}, "reference_images": {"type": "array", "items": {"type": "string"}}, "output_dir": {"type": "string"}}, "required": ["prompt"]})
-        async def generate_images(args):
-            if session is None or turn.interrupted:
-                result = {"state": "cancelled", "images": [], "error": "当前任务不可委派"}
-            else:
-                try:
-                    result = await self._generate_images(session, turn, args)
-                except (ValueError, OSError) as exc:
-                    result = {"state": "failed", "images": [], "error": str(exc)[:500]}
-            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
-
-        extra = (self.role(session) or {}).get("tools", []) if self.role and session else []
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]) + extra)
-
-    async def _prompt(self, job: Job):
-        content: list[dict] = []
-        for p in job.images:
-            mt = mimetypes.guess_type(p.name)[0] or "image/png"
-            content.append({"type": "image", "source": {"type": "base64", "media_type": mt,
-                                                         "data": base64.b64encode(p.read_bytes()).decode()}})
-        if job.images:
-            content.append({"type": "text", "text": "本轮参考图片的本机路径（按显示顺序，供图片工具引用）：\n" +
-                            "\n".join(f"{i}. {p.resolve()}" for i, p in enumerate(job.images, 1))})
-        content.append({"type": "text", "text": job.text or "（见图）"})
-        yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
-
-    async def _run(self, s: Session, job: Job, turn: Turn) -> None:
-        if s.root and s.engine != "claude":
-            raise RuntimeError("受限账号只能用 Claude")
-        from .acp import is_acp
-        if is_acp(s.engine):
-            return await _acp_run(self, s, job, turn)
-        if s.engine == "codex":
-            return await _codex_run(self, s, job, turn)
-        if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
-            raise FolderBlocked("、".join(display(p) for p in stuck))
-        fenced = bool(s.root)
-        if fenced:   # 受限账号：文件夹、引擎都固定，就算登记里被改过也按这里来
-            s.cwd, s.add_dirs = str(Path(s.root).expanduser()), []
-            Path(s.cwd).mkdir(parents=True, exist_ok=True)
-        hooks = [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]
-        role = (self.role(s) if self.role else None) or {}
-        if fenced:
-            hooks.insert(0, HookMatcher(matcher=None, hooks=[self._fence(s)], timeout=60))
-        if role.get("disallowed"):   # 光靠 disallowed_tools 挡不住（bypassPermissions 下照样执行），用钩子拒掉
-            hooks.insert(0, HookMatcher(matcher=None, hooks=[self._deny(set(role["disallowed"]), role.get("deny_reason", ""))], timeout=60))
-        options = ClaudeAgentOptions(
-            cwd=s.cwd,
-            add_dirs=s.add_dirs,
-            model=s.model,
-            effort=s.effort or self.default_effort or None,
-            resume=s.claude_id,
-            resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
-            fork_session=bool(s.forking and s.claude_id),   # 分叉：从原对话那条接着，但另起一个对话编号，原对话不受影响
-            enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
-            setting_sources=[] if fenced else ["user", "project", "local"],
-            permission_mode="bypassPermissions",
-            system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions) + role.get("append", "")},
-            disallowed_tools=list(role.get("disallowed", [])),
-            tools=role.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
-            mcp_servers={"anzhuo": self._image_tool(turn, s)},
-            env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
-            stderr=lambda line: log.debug("claude: %s", line),
-            max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
-            thinking={"type": "adaptive", "display": "summarized"},
-            include_partial_messages=True,  # 回复边写边出（网页实时看）  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
-            # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
-            hooks={"PreToolUse": hooks, **({"Stop": [HookMatcher(matcher=None, hooks=[self._stop_check(turn, role["on_stop"])], timeout=60)]}
-                                           if role.get("on_stop") else {})},
-            **(self._fence_options(s) if fenced else {}),
-        )
-        last_text = ""
-        async with ClaudeSDKClient(options=options) as client:
-            self.clients[s.num] = client
-            await client.query(self._prompt(job))
-            results: list[str] = []
-            seen_injected = 0
-            after_result = False
-            wait_more = 4
-            stream = client.receive_messages().__aiter__()
-            while True:
-                try:
-                    # 插过话又出了结果：再等几秒，插的话若没赶上这一轮，它会接着开一轮，要接着读完
-                    msg = await (asyncio.wait_for(stream.__anext__(), wait_more) if after_result else stream.__anext__())
-                except (StopAsyncIteration, asyncio.TimeoutError):
-                    break
-                after_result = False
-                turn.last_at = time.time()
-                if isinstance(msg, (TaskStartedMessage, TaskProgressMessage, TaskNotificationMessage, TaskUpdatedMessage)):
-                    track_agent(turn, msg)
-                elif isinstance(msg, SystemMessage):
-                    if "compact" in msg.subtype:
-                        turn.compacted = True
-                    elif msg.subtype == "init" and not turn.model:
-                        turn.model = str(msg.data.get("model") or "")
-                elif isinstance(msg, StreamEvent):
-                    # 边写边看：只接主对话的正文增量（思考多是英文，等写完译好再出，免得读着换字）
-                    ev = msg.event or {}
-                    if msg.parent_tool_use_id is None:
-                        if ev.get("type") == "content_block_start":
-                            turn.partial = ""
-                        elif ev.get("type") == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
-                            turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
-                elif isinstance(msg, AssistantMessage):
-                    turn.partial = ""
-                    if msg.model:
-                        turn.model = msg.model
-                    for b in msg.content:
-                        if isinstance(b, ThinkingBlock) and b.thinking.strip():
-                            turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
-                    texts = [b.text for b in msg.content if isinstance(b, TextBlock) and b.text.strip()]
-                    if texts:
-                        last_text = "\n".join(texts)
-                        turn.timeline.append({"t": time.time(), "kind": "say", "text": last_text[:6000]})
-                    sub = sub_name(turn, msg.parent_tool_use_id)
-                    for b in msg.content:
-                        if isinstance(b, ToolUseBlock):
-                            if label := step_label(b.name, b.input or {}):
-                                turn.steps.append(label)
-                                e = {"t": time.time(), "kind": "do", "text": label, "detail": _tool_detail(b.name, b.input or {})}
-                                if sub:
-                                    e["sub"] = sub   # 助手做的步骤：过程里缩进、标上是哪个助手
-                                turn.timeline.append(e)
-                            if b.name in EDIT_TOOLS:
-                                fp = b.input.get("file_path") or b.input.get("notebook_path")
-                                if fp:
-                                    turn.changed_files.append(fp)
-                            elif b.name == "Bash":
-                                turn.commands.append(str(b.input.get("command", ""))[:200])
-                elif isinstance(msg, ResultMessage):
-                    turn.accepting = False
-                    # 这一轮的消耗：CLI 报的是这个进程累计的（一轮一个进程），取最后一次
-                    if msg.model_usage or msg.total_cost_usd:
-                        turn.usage = {"cost": float(msg.total_cost_usd or 0), "models": dict(msg.model_usage or {})}
-                    if msg.session_id:
-                        s.claude_id = msg.session_id
-                        s.rewind_at = s.rewind_note = ""   # 已经从那条接着说了，回到这里落定
-                        s.forking = False   # 分叉出来的已经有了自己的对话编号
-                    if not msg.is_error and NOISE.match(msg.result or ""):
-                        # 上一轮留下的后台任务通知先被答了一句“No response requested.”，你这句还排在后面：接着读，别当成回复
-                        after_result, wait_more = True, 60
-                        continue
-                    if running_agents(turn) and not turn.interrupted and not msg.is_error:
-                        # 主对话先说完了，但还有助手在后台跑：这一轮一结束它们就被关掉，所以接着等，助手做完它会接着汇总
-                        after_result, wait_more = True, AGENT_WAIT
-                        continue
-                    wait_more = 4
-                    if msg.is_error and not turn.interrupted:
-                        turn.is_error = True
-                        turn.error = (msg.result or "; ".join(msg.errors or []) or msg.subtype or "未知错误")[:300]
-                    elif msg.result:
-                        last_text = msg.result
-                        results.append(msg.result)
-                    if turn.injected > seen_injected and not turn.interrupted:
-                        seen_injected = turn.injected
-                        after_result = True
-                        continue
-                    break
-            try:
-                usage = await client.get_context_usage()
-                turn.context_pct = s.context_pct = float(usage["percentage"])
-                s.context_tokens = int(usage.get("totalTokens") or 0) or None
-            except Exception:  # noqa: BLE001 - 拿不到上下文用量不影响报告
-                log.debug("取上下文用量失败", exc_info=True)
-        turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
-        turn.effort = s.effort or self.default_effort
-
-
-AGENT_WAIT = 20 * 60   # 主对话说完后，最多再等后台助手这么久
-DONE = {"completed", "failed", "stopped", "killed", "error", "cancelled"}
-
-
-def track_agent(turn, msg) -> None:
-    """记下派出去的助手：开始、做到哪一步、结束。网页“在做”卡片和过程里按这个显示。"""
-    a = turn.agents.get(msg.task_id)
-    if isinstance(msg, TaskStartedMessage):
-        kind = "命令" if "bash" in (msg.task_type or "") else "助手"
-        turn.agents[msg.task_id] = {"name": _short_desc(msg.description), "kind": kind, "t0": time.time(), "t1": 0,
-                                    "status": "running", "last": "", "tool": msg.tool_use_id}
-        return
-    if a is None:
-        return
-    if isinstance(msg, TaskProgressMessage):
-        if msg.last_tool_name:
-            a["last"] = (step_label(msg.last_tool_name, {}) or "").rstrip("：")
-        return
-    status = msg.status if isinstance(msg, TaskNotificationMessage) else (msg.status or (msg.patch or {}).get("status"))
-    if status in DONE and a["status"] == "running":
-        a["status"], a["t1"] = ("done" if status == "completed" else "failed" if status in ("failed", "error") else "stopped"), time.time()
-
-
-def running_agents(turn) -> list[dict]:
-    # 只等子代理；后台命令（开着的预览服务、Monitor 之类）可能永远不结束，等它会把对话卡住、你说的话一直排队
-    return [a for a in turn.agents.values() if a["status"] == "running" and a.get("kind") == "助手"]
-
-
-def sub_name(turn, parent_id) -> str:
-    if not parent_id:
-        return ""
-    return next((a["name"] for a in turn.agents.values() if a.get("tool") == parent_id), "助手")
-
-
-def _short_desc(t: str) -> str:
-    t = " ".join(str(t or "").split())
-    return t if len(t) <= 16 else t[:15] + "…"
-
-
-NOISE = re.compile(r"^\s*(No response requested\.?)?\s*$", re.I)   # 空结果也算：后台通知有时连一句话都不答就出结果
-IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
-# 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
-GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")
-LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+|[A-Za-z]:[\\/][^)\s]+)\)")
-
-
-def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
-    """GPT 回复里要交给你的截图和文件：最后一行“交给你：路径”；它常常只写成 [下载…](/本机/路径) 链接，
-    这种链接你在手机上点不开，指向能交的文件就拿出来照常发（网页、钉钉），链接只留文字。"""
-    imgs: list[str] = []
-    files: list[str] = []
-
-    def take(raw: str) -> bool:
-        fp = Path(raw.strip("`'\"")).expanduser()
-        if not fp.is_absolute():
-            fp = Path(cwd) / fp
-        if not fp.is_file() or str(fp) in imgs + files:
-            return fp.is_file()
-        (imgs if fp.suffix.lower() in IMG_EXT else files).append(str(fp))
-        return True
-
-    keep = []
-    for line in text.splitlines():
-        m = re.match(r"^\s*交给你[:：]\s*(.+)$", line)
-        if m:
-            for raw in re.split(r"[,，、;；\s]+", m.group(1)):
-                if raw:
-                    take(raw)
-            continue
-        keep.append(LINK.sub(lambda m: f"**{m.group(1)}**" if Path(m.group(2)).suffix.lower() in GIVE_EXT and take(m.group(2))
-                             else m.group(0), line))
-    return "\n".join(keep).strip(), imgs, files
-
-
-CODEX_RULES = ("需要用户在几个方案里选时，第一行写“要你定：”加一句问题，选项写成“A. …”，推荐写成“推荐：A，理由”。"
-               "要把截图或文件（PDF、表格等）交给用户看，在回复最后单独一行写“交给你：”加文件的绝对路径（多个用顿号隔开）；"
-               "用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。")
-
-
-def codex_instructions(language: str = "简体中文", extra: str = "") -> str:
-    lang = f"回复一律用{language}；专有名词、代码、命令、路径保持原样。" if language else ""
-    return (lang + CODEX_RULES + (" " + extra.strip() if extra.strip() else "")).strip()
-
-
-
-async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
-    """用 Codex 跑一轮（常驻连接 app-server）：开或接着会话 → 开一轮 → 把事件翻成和 Claude 一样的步骤、说明、回复；
-    正在写的回复边写边给网页；干活中途你说的话用 turn/steer 插进这一轮（见 Runner.submit）。
-    只能写对话所在的文件夹（workspace-write，可联网）。"""
-    from .codex import CodexConn, CodexError
-    if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
-        raise FolderBlocked("、".join(display(p) for p in stuck))
-    from .checkpoints import Checkpoints
-    checkpoints = Checkpoints(self.registry.path.parent / "checkpoints")
-    if job.text != COMPACT:
-        try:
-            turn.checkpoint_before = await asyncio.to_thread(checkpoints.capture, [s.cwd, *s.add_dirs])
-        except OSError:
-            log.warning("#%s 文件快照未建立", s.num)
-    effort = s.effort or self.default_effort or "medium"
-    texts: list[str] = []
-    started_cmds: set[str] = set()
-
-    def on_event(method: str, prm: dict) -> None:
-        turn.last_at = time.time()
-        item = prm.get("item") or {}
-        kind = item.get("type")
-        if method == "item/agentMessage/delta":
-            turn.partial = (turn.partial + str(prm.get("delta") or ""))[-6000:]
-        elif method == "item/started" and kind == "commandExecution":
-            cmd = str(item.get("command") or "")
-            cmd = re.sub(r"^/bin/(?:zsh|bash) -lc ", "", cmd).strip("'\"")
-            started_cmds.add(item.get("id") or cmd)
-            label = "跑命令：" + brief(cmd, 18)
-            turn.steps.append(label)
-            turn.commands.append(cmd[:200])
-            turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": cmd[:3000]})
-        elif method == "item/completed" and kind == "agentMessage" and (item.get("text") or "").strip():
-            turn.partial = ""
-            texts.append(item["text"].strip())
-            turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"][:6000]})
-        elif method == "item/completed" and kind == "reasoning":
-            summ = item.get("summary") or []
-            text = "\n".join(x if isinstance(x, str) else str(x.get("text", "")) for x in summ).strip()
-            if text:
-                turn.timeline.append({"t": time.time(), "kind": "think", "text": text[:4000]})
-        elif method == "item/completed" and kind == "fileChange":
-            for ch in item.get("changes") or []:
-                fp = ch.get("path") if isinstance(ch, dict) else None
-                if fp:
-                    turn.changed_files.append(fp)
-                    label = f"改 {Path(fp).name}"
-                    turn.steps.append(label)
-                    turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": fp})
-        elif method == "item/completed" and kind == "webSearch":
-            q = str(item.get("query") or "")
-            label = "上网查：" + brief(q, 18)
-            turn.steps.append(label)
-            turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": q})
-        elif method == "turn/plan/updated":   # Codex 自己列的步骤清单
-            st = {"completed": "done", "inProgress": "doing", "in_progress": "doing"}
-            turn.plan = [{"text": str(x.get("step", ""))[:60], "status": st.get(x.get("status"), "pending")} for x in (prm.get("plan") or [])[:20]]
-        elif method == "thread/tokenUsage/updated":
-            u = prm.get("tokenUsage") or {}
-            if total := (u.get("total") or {}).get("totalTokens"):
-                tot = u["total"]
-                turn.usage = {"codex": {"input": int(tot.get("inputTokens") or 0), "cached": int(tot.get("cachedInputTokens") or 0),
-                                        "output": int(tot.get("outputTokens") or 0), "total": int(total)}}
-            win, last = u.get("modelContextWindow"), (u.get("last") or {}).get("totalTokens")
-            if win and last:
-                turn.context_pct = s.context_pct = min(100.0, 100.0 * last / win)
-                s.context_tokens = int(last)
-        elif method == "account/rateLimits/updated":
-            from .codex import limits_from
-            if got := limits_from(prm.get("rateLimits") or {}):
-                self.limits_gpt = got
-        elif method == "error":
-            msg = str((prm.get("error") or {}).get("message") or prm.get("message") or "")
-            if msg and not prm.get("willRetry"):
-                turn.error = msg[:300]
-
-    async def on_request(method: str, prm: dict) -> dict | None:
-        """Codex 跑命令前来问：危险的交给你点头，其余直接放行（只能写这个文件夹，本来就出不去）。"""
-        if method in ("item/commandExecution/requestApproval", "execCommandApproval"):
-            cmd = prm.get("command") or ""
-            cmd = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
-            ok = True
-            if what := guard.danger(cmd):
-                ok = await self.decide(s, turn, what, cmd)
-            if method == "execCommandApproval":
-                return {"decision": "approved" if ok else "denied"}
-            return {"decision": "accept" if ok else "decline"}
-        if method == "item/fileChange/requestApproval":
-            return {"decision": "accept"}
-        if method == "applyPatchApproval":
-            return {"decision": "approved"}
-        if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具（总管派活的汇报、退回）
-            args = prm.get("arguments") if isinstance(prm.get("arguments"), dict) else {}
-            if label := step_label(f"mcp__anzhuo__{prm.get('tool')}", args):
-                turn.steps.append(label)
-                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": json.dumps(args, ensure_ascii=False)[:500]})
-            res = await h(args)
-            text = "".join(str(c.get("text") or "") for c in res.get("content") or [])
-            return {"contentItems": [{"type": "inputText", "text": text}], "success": not res.get("isError")}
-        return None
-
-    # 特殊角色（总管派出去的对话）的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
-    role = (self.role(s) if getattr(self, "role", None) else None) or {}
-    handlers = {t.name: t.handler for t in role.get("tools") or []}
-    specs = [{"type": "function", "name": t.name, "description": t.description, "inputSchema": t.input_schema}
-             for t in role.get("tools") or []]
-    conn = CodexConn(s.cwd, on_event, on_request, **({"tools": specs} if specs else {}))   # 没有工具时调用和原来一样
-    self.codex_live[s.num] = conn
-    turn.model = "GPT（Codex）"
-    turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
-    try:
-        await conn.start()
-        if s.rewind_at:
-            if not s.codex_id or not s.codex_cut_turn:
-                raise CodexError("找不到回退位置，原对话未改动")
-            new_id = await conn.fork_thread(s.codex_id, s.codex_cut_turn)
-            s.codex_id = new_id
-            s.rewind_at = s.rewind_note = s.codex_cut_turn = ""
-            s.forking = False
-            s.codex_pending_hidden = []
-            s.codex_file_undo = ""
-            s.context_pct = s.context_tokens = None
-            self.registry.save()
-        else:
-            s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(self.language, self.extra_instructions) + role.get("append", ""))
-        turn.model = f"GPT（{conn.model}）" if conn.model else turn.model
-        if job.text == COMPACT:   # 压缩上下文
-            before = s.context_pct
-            await conn.compact()
-            await asyncio.wait_for(conn.done.wait(), 600)
-            conn.turn_status = conn.turn_status or "completed"
-            turn.final_text = "压缩好了。"
-            if before is not None:
-                s.context_pct = turn.context_pct = s.context_tokens = None   # 压完的用量等下一轮再报
-        else:
-            turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort)
-            await conn.done.wait()
-            # Codex 没有 Stop 钩子：该汇报没汇报就接着补一轮，只让它补上汇报；回复仍用补之前那段
-            check = role.get("on_stop")
-            if check and conn.turn_status == "completed" and not turn.interrupted and (why := check(turn, False)):
-                kept = list(texts)
-                conn.done.clear()
-                conn.turn_status = ""
-                turn.codex_turn_id = await conn.start_turn(why, [], effort)
-                await conn.done.wait()
-                if kept:
-                    texts[:] = kept
-    except CodexError as e:
-        turn.is_error = True
-        turn.error = str(e)[:300]
-    finally:
-        turn.accepting = False
-        self.codex_live.pop(s.num, None)
-        await conn.close()
-        if turn.checkpoint_before:
-            try:
-                turn.checkpoint_after = await asyncio.to_thread(checkpoints.capture, [s.cwd, *s.add_dirs])
-            except OSError:
-                log.warning("#%s 文件结束快照未建立", s.num)
-    if conn.turn_status == "failed" and not turn.interrupted:
-        turn.is_error = True
-        turn.error = (conn.turn_error or turn.error or "Codex 这一轮失败了")[:300]
-    elif not conn.turn_status and not turn.is_error and not turn.interrupted:
-        turn.is_error = True
-        turn.error = ("Codex 中途退出了：" + conn.stderr_tail())[:300]
-    turn.partial = ""
-    if job.text != COMPACT:
-        turn.final_text = texts[-1] if texts else ""
-    turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
-    turn.images += imgs
-    turn.files += files
-    turn.effort = effort
-
-
-ACP_KIND = {"read": "看", "edit": "改", "delete": "删", "move": "挪", "search": "搜：", "execute": "跑命令：", "fetch": "读网页：",
-            "think": "想：", "switch_mode": "换模式："}
-
-
-def _acp_texts(call: dict) -> list[str]:
-    """工具调用里附带的文字（各家放的地方不一样：参数 JSON、“Requesting approval to Running: …”）。"""
-    out = []
-    for c in call.get("content") or []:
-        inner = c.get("content") if isinstance(c, dict) else None
-        if isinstance(inner, dict) and isinstance(inner.get("text"), str):
-            out.append(inner["text"])
-    return out
-
-
-def _acp_input(call: dict) -> dict:
-    """这次调用的参数：有 rawInput 用它；没有就从附带的 JSON 文字里找（Kimi 开头只给标题和一段 JSON）。"""
-    raw = call.get("rawInput")
-    if isinstance(raw, dict) and raw:
-        return raw
-    for text in _acp_texts(call):
-        if text.lstrip().startswith("{"):
-            try:
-                d = json.loads(text)
-            except ValueError:
-                continue
-            if isinstance(d, dict):
-                return d
-    return {}
-
-
-def _acp_step(call: dict) -> tuple[str, str, str]:
-    """ACP 的一次工具调用 → (步骤名, 细节, 命令或文件)。命令、路径找不到时第三项为空。"""
-    kind, title = str(call.get("kind") or ""), str(call.get("title") or "")
-    raw = _acp_input(call)
-    locs = [str(x.get("path")) for x in call.get("locations") or [] if isinstance(x, dict) and x.get("path")]
-    words = [title, *_acp_texts(call)]
-    cmd = ""
-    if kind == "execute":
-        cmd = str(raw.get("command") or raw.get("cmd") or "")
-        if not cmd:   # “Running: ls -la”“Requesting approval to Running: git push”
-            cmd = next((m.group(1).strip() for w in words if (m := re.search(r"Running:\s*(.+)", w, re.S))), "")
-    path = locs[0] if locs else str(raw.get("path") or raw.get("file_path") or "")
-    if not path and kind in ("read", "edit", "delete", "move"):
-        path = next((m.group(1).strip() for w in words if (m := re.search(r"(?:Writing|Reading|Editing|Deleting|Moving)\s+(\S.*)$", w))), "")
-    if kind == "execute" and not cmd:
-        return "跑命令", title, ""
-    if kind == "execute":
-        return "跑命令：" + brief(cmd, 18), cmd[:3000], cmd
-    if kind in ("read", "edit", "delete", "move") and path:
-        return f"{ACP_KIND[kind]} {Path(path).name}", path, path
-    return (ACP_KIND.get(kind, "") + brief(title, 18)) if title else (kind or "工具"), (json.dumps(raw, ensure_ascii=False)[:500] if raw else title), ""
-
-
-def thinking_value(effort: str, option: dict | None) -> str:
-    """远窗的思考深度（low…max）→ 这个助手“思考”配置项里最接近的取值（各家不一样：off/on、low/high/max……）。"""
-    have = [str(x.get("value")) for x in (option or {}).get("options") or []]
-    prefs = {"low": ["low", "off", "minimal"], "medium": ["medium", "high", "on"], "high": ["high", "on", "medium"],
-             "xhigh": ["xhigh", "max", "high", "on"], "max": ["max", "xhigh", "high", "on"]}.get(effort, [effort])
-    return next((v for v in prefs if v in have), "")
-
-
-async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
-    """用 ACP 跑一轮（Kimi 等）：开或接着会话 → 说这句话 → 把事件翻成和 Claude 一样的步骤、说明、回复。
-    第一句话前带上远窗的约定（ACP 没有系统提示）。跑命令要批准时：危险的交给你点头，其余放行。"""
-    from .acp import AcpConn, AcpError, ENGINES
-    if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
-        raise FolderBlocked("、".join(display(p) for p in stuck))
-    name = ENGINES[s.engine]["name"]
-    said: list[str] = []   # 这一轮它说过的每一段（工具调用把话隔成几段；最后一段是回复）
-    buf = {"say": "", "think": ""}
-    calls: dict[str, dict] = {}
-
-    def flush(kind: str) -> None:
-        text = buf[kind].strip()
-        buf[kind] = ""
-        if not text:
-            return
-        if kind == "say":
-            said.append(text)
-            turn.partial = ""
-        turn.timeline.append({"t": time.time(), "kind": kind, "text": text[:6000 if kind == "say" else 4000]})
-
-    def on_update(u: dict) -> None:
-        turn.last_at = time.time()
-        k = u.get("sessionUpdate")
-        content = u.get("content") if isinstance(u.get("content"), dict) else {}
-        if k == "agent_message_chunk":
-            if buf["think"]:
-                flush("think")
-            buf["say"] += str(content.get("text") or "")
-            turn.partial = buf["say"][-6000:]
-        elif k == "agent_thought_chunk":
-            buf["think"] += str(content.get("text") or "")
-        elif k in ("tool_call", "tool_call_update"):
-            flush("think"), flush("say")
-            cid = str(u.get("toolCallId") or "")
-            call = calls.setdefault(cid, {})
-            # 只认第一次带来的参数文字：之后的 update 把 content 换成了命令输出，不能拿来找参数
-            if "_input" not in call and (got := _acp_input(u)):
-                call["_input"] = got
-            call.update({x: v for x, v in u.items() if v is not None and x != "content"})
-            call.setdefault("rawInput", call.get("_input"))
-            label, detail, target = _acp_step(call)
-            if "_at" not in call:   # 第一次：记一步；之后参数补全了（命令、文件名）就原地改这一步，不另起一步
-                call["_at"] = (len(turn.steps), len(turn.timeline))
-                turn.steps.append(label)
-                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": detail})
-            else:
-                i, j = call["_at"]
-                turn.steps[i] = label
-                turn.timeline[j].update(text=label, detail=detail)
-            if target and not call.get("_counted"):
-                call["_counted"] = True
-                if call.get("kind") == "execute":
-                    turn.commands.append(target[:200])
-                elif call.get("kind") in ("edit", "delete", "move"):
-                    turn.changed_files.append(target)
-        elif k == "plan":
-            st = {"completed": "done", "in_progress": "doing"}
-            turn.plan = [{"text": str(x.get("content", ""))[:60], "status": st.get(x.get("status"), "pending")}
-                         for x in (u.get("entries") or [])[:20]]
-        elif k == "usage_update":
-            used, size = u.get("used"), u.get("size")
-            if used and size:
-                turn.context_pct = s.context_pct = min(100.0, 100.0 * used / size)
-                s.context_tokens = int(used)
-
-    async def on_permission(prm: dict) -> str | None:
-        """要批准时：危险命令交给你点头（不同意就拒），其余放行一次。"""
-        call = prm.get("toolCall") or {}
-        opts = prm.get("options") or []
-        pick = lambda *kinds: next((o.get("optionId") for k in kinds for o in opts if o.get("kind") == k), None)  # noqa: E731
-        known = calls.get(str(call.get("toolCallId") or ""), {})
-        # 先用之前记下的参数，再看批准请求自己带的文字（Kimi 只写“Requesting approval to Running: …”）
-        _, _, target = _acp_step(known)
-        if not target:
-            _, _, target = _acp_step({**known, **{x: v for x, v in call.items() if v is not None}})
-        kind = str(known.get("kind") or call.get("kind") or "")
-        what = guard.danger(target) if target else ("要跑命令，但看不出具体是什么" if kind == "execute" else "")
-        if what and not await self.decide(s, turn, what, target or str(call.get("title") or "")):
-            return pick("reject_once", "reject_always")
-        return pick("allow_once", "allow_always")
-
-    conn = AcpConn(s.engine, s.cwd, on_update, on_permission, add_dirs=s.add_dirs)
-    self.acp_live[s.num] = conn
-    turn.model = name
-    turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
-    role = (self.role(s) if self.role else None) or {}
-    try:
-        await conn.start()
-        fresh = not s.acp_id
-        s.acp_id = await conn.open_session(s.acp_id or None)
-        self.registry.save()
-        if s.model:
-            await conn.set_option("model", s.model)
-        effort = s.effort or self.default_effort or ""
-        if effort and (want := thinking_value(effort, conn.option("thinking"))):
-            await conn.set_option("thinking", want)
-        from .acp import remember
-        remember(s.engine, conn.option("model"))   # 总管派活时知道它有哪些模型
-        model = (conn.option("model") or {}).get("currentValue") or ""
-        turn.model = f"{name}（{model}）" if model else name
-        text = job.text
-        if fresh:   # ACP 没有系统提示：远窗的约定放在第一句话前面
-            rules = codex_instructions(self.language, self.extra_instructions) + role.get("append", "")
-            text = f"（远窗的约定，整个对话都照此执行：{rules}）\n\n{text}"
-        stop = await conn.prompt(text, job.images)
-        flush("think"), flush("say")
-        if stop == "cancelled":
-            turn.interrupted = True
-        elif stop in ("refusal", "max_tokens", "max_turn_requests"):
-            turn.error = {"refusal": f"{name} 拒绝了这个请求", "max_tokens": "回复太长被截断了",
-                          "max_turn_requests": "这一轮工具调用次数到上限了"}[stop]
-    except AcpError as e:
-        turn.is_error = True
-        turn.error = str(e)[:300]
-    finally:
-        turn.accepting = False
-        self.acp_live.pop(s.num, None)
-        await conn.close()
-    turn.partial = ""
-    turn.final_text = said[-1] if said else ""
-    turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
-    turn.images += imgs
-    turn.files += files
-    turn.effort = s.effort or self.default_effort or ""
-
-
-def _tool_detail(name: str, inp: dict) -> str:
-    """过程页里一步的细节：命令原文、文件路径、搜索词等。"""
-    if name == "Bash":
-        return str(inp.get("command", ""))[:3000]
-    for key in ("file_path", "notebook_path", "pattern", "query", "url", "description", "skill"):
-        if inp.get(key):
-            return str(inp[key])[:500]
-    return json.dumps(inp, ensure_ascii=False)[:500]
 
 
 _MONTHS = {m: i for i, m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), 1)}
@@ -1402,9 +594,6 @@ def user_setting(key: str) -> str | None:
         return None
 
 
-COMPACT = "/compact"  # Claude Code 的压缩上下文指令，作为一句话发给对话即可
-
-
 def _request_title(job: Job) -> str:
     if job.text == COMPACT:
         return "压缩上下文"
@@ -1418,3 +607,4 @@ def describe(s: Session, running: bool) -> str:
     extra = f" ＋{len(s.add_dirs)} 个文件夹" if s.add_dirs else ""
     ctx = f"　上下文 {s.context_pct:.0f}%" if s.context_pct is not None else ""
     return f"#{s.num} {s.name}　{state}　{display(Path(s.cwd))}{extra}{ctx}"
+

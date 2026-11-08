@@ -1,5 +1,5 @@
 #!/bin/zsh
-# （只有用钉钉入口才需要）把钉钉应用的 Client Secret 存进钥匙串。密钥只在这个窗口里输入，不显示、不进任何文件或命令记录。
+# 把钉钉应用的 Client Secret 存进钥匙串。密钥只在这个窗口里输入，不显示、不进任何文件或命令记录。
 set -e
 CONFIG="${ANZHUO_CONFIG:-$HOME/.config/anzhuo/config.toml}"
 CLIENT_ID=$(sed -n 's/^client_id *= *"\(.*\)"/\1/p' "$CONFIG")

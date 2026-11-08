@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .codex import CodexConn
+from .engines.base import handoff
 
 INSTRUCTIONS = """你只负责本次图片生成或编辑，不执行其他开发任务，不继续委派其他代理。
 回复用简体中文。使用内置 image_gen 工具，先按 imagegen 技能操作；不要改用收费API、寻找密钥、安装软件或用代码伪造图片。
@@ -109,7 +110,6 @@ class ImageDelegator:
                         if not isinstance(candidates, list) or any(not isinstance(p, str) for p in candidates):
                             raise ValueError('生图结果清单格式不正确')
                     if not candidates:
-                        from .sessions import handoff
                         _, candidates, _ = handoff('\n'.join(messages), str(out))
                     images = []
                     for raw in candidates:

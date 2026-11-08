@@ -10,6 +10,7 @@ from .cards import step_label
 
 PROCESS_KEEP = 15  # 最近几轮带“工作过程”（再早的看过程页），免得一个长对话整页太重
 
+IMG_PATHS = "本轮参考图片的本机路径"   # sessions._prompt 给带图的话加的一段图片路径说明，不是你说的话
 _SKIP_PREFIX = ("<command-", "<local-command", "<system-reminder", "Caveat:", "<bash-", "<task-notification",
                 "[SYSTEM NOTIFICATION")
 _SKIP_REPLY = {"No response requested.", "No response requested"}  # 系统通知那一轮的自动回复，不是给你的
@@ -21,7 +22,8 @@ def _user_text(content) -> str | None:
         return content
     if not isinstance(content, list):
         return None
-    texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+    texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+             and not b.get("text", "").startswith(IMG_PATHS)]
     images = sum(1 for b in content if isinstance(b, dict) and b.get("type") == "image")
     if not texts and not images:
         return None
@@ -133,7 +135,8 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
             n_img = sum(1 for b in content if isinstance(b, dict) and b.get("type") == "image") if isinstance(content, list) else 0
             if n_img and getattr(m, "uuid", ""):
                 # 带图的话：网页上直接显示图（/_x/api/uimg/…），文字里去掉“[图片]”占位
-                body = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
+                body = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                                 and not b.get("text", "").startswith(IMG_PATHS)).strip()
                 items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
             else:
                 items.append({"who": "you", "text": text.strip()})
@@ -169,7 +172,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
 
 
 def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
-    """把远窗记下的每轮记录（过程页编号、文件、图片）按先后对到最近几轮回复上。"""
+    """把远窗记下的每轮记录（过程页编号、扩展附的链接）按先后对到最近几轮回复上。"""
     replies = [it for it in items if it["who"] == "claude"]
     if replies and all(it.get("ts") for it in replies):
         # 按时间对：回复写在哪一轮的起止时间里就是哪一轮的（正在做的那轮还没记录，按顺序对会整体错一位）
@@ -190,6 +193,7 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         if all(isinstance(t, (int, float)) and math.isfinite(t) for t in (started, ended)) and ended >= started:
             it["elapsed"] = ended - started
         it["tid"] = rec["id"]
+        it["links"] = rec.get("links", [])
         it["title"] = rec.get("title", "")
         it["images"] = rec.get("images", [])
         it["files"] = rec.get("files", [])

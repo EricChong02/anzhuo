@@ -163,7 +163,14 @@ def confirm_data(label: str, what: str, cmd: str, num: int, result: str = "") ->
             "tips": "" if result else "20 分钟不回就当不允许", "sys_full_json_obj": _buttons(buttons)}
 
 
-_OUR_ID = re.compile(r"^(stop(?::\d+)?|pick:[A-D]|allow:\d+|deny:\d+)$")
+def reply_data(answer: str, label: str, forwarded: bool = False) -> dict:
+    """远窗直接回答的卡片：附“交给 #N”按钮，判断错了一点就把原话转给那个对话。"""
+    tips = f"已转给 {label}" if forwarded else "远窗直接回的（Haiku），没占用对话。这句其实是说给对话的？点下面"
+    buttons = [] if forwarded else [{"text": f"交给 {_short(label, 14)}", "color": "blue", "id": "fwd", "request": True}]
+    return {"title": "远窗回复", "markdown": answer, "tips": tips, "sys_full_json_obj": _buttons(buttons)}
+
+
+_OUR_ID = re.compile(r"^(stop(?::\d+)?|fwd|pick:[A-D]|allow:\d+|deny:\d+)$")
 
 
 def _strings(x):

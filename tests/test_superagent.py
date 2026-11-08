@@ -80,15 +80,15 @@ def test_router_created_once(tmp_path):
     role = superagent.role(b, r)
     assert {"Bash", "Edit", "Write", "WebSearch"} <= set(role["disallowed"]) and role["own_slot"] and "总管" in role["append"]
     assert "项目" in role["append"]   # 文件夹短名告诉了总管
-    assert {t.name for t in role["tools"]} == {"list_sessions", "new_session", "send_to_session", "session_status", "stop_session"}
+    assert {t.name for t in role["tools"]} == {"list_sessions", "new_session", "send_to_session", "session_status", "stop_session", "relay_session"}
     b2 = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "data")   # 重启：不再开第二个
     assert [s.num for s in b2.registry.sessions.values() if s.role == "router"] == [r.num]
     assert b.runner.use_spare
 
 
 def test_deny_hook_blocks_router_tools():
-    r = Runner(None, None)
-    hook = r._deny({"Bash", "Write"}, "不亲自干活")
+    from anzhuo.engines import CLAUDE
+    hook = CLAUDE.deny({"Bash", "Write"}, "不亲自干活")
     out = asyncio.run(hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None))
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny" and "不亲自干活" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert asyncio.run(hook({"tool_name": "Read", "tool_input": {}}, None, None)) == {}
@@ -147,11 +147,11 @@ def test_human_direct_turn_notes_router(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)
         w = next(s for s in b.registry.sessions.values() if s.role != "router")
         runs.clear(), pushes.clear()
-        await b._submit(w, "顺便改下颜色", web("顺便改下颜色"))     # 你直接在 worker 里说
+        await b.submit(w, "顺便改下颜色", web("顺便改下颜色"))     # 你直接在 worker 里说
         await asyncio.sleep(0.2)
         assert [r[0] for r in runs] == [w.num] and pushes == [w.num]   # 总管不跑，直接通知你
         assert any("用户直接说的" in n and "又改了一处" in n for n in router.notes)
-        await b._submit(router, "现在怎么样", web("现在怎么样"))  # 总管开口前带上“期间的情况”，然后清空
+        await b.submit(router, "现在怎么样", web("现在怎么样"))  # 总管开口前带上“期间的情况”，然后清空
         await asyncio.sleep(0.2)
         said = [r[2] for r in runs if r[0] == router.num][-1]
         assert said.startswith("【期间的情况】") and said.endswith("现在怎么样") and router.notes == []
@@ -170,13 +170,13 @@ def test_direct_hash_goes_to_worker(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)
         w = next(s for s in b.registry.sessions.values() if s.role != "router")
         runs.clear()
-        await b._submit(router, f"#{w.num} 选 B", web(f"#{w.num} 选 B"))
+        await b.submit(router, f"#{w.num} 选 B", web(f"#{w.num} 选 B"))
         await asyncio.sleep(0.2)
         assert runs[0][:2] == (w.num, "router") and runs[0][2].startswith("选 B") and superagent.follow(router) in runs[0][2]   # 直接交给 worker，总管没跑
         assert runs[1][0] == router.num and runs[1][2].startswith("【期间的情况】")   # 它的回报到总管时带着“用户直接说的”
         assert "用户直接对" in runs[1][2] and "【回报】" in runs[1][2]
         runs.clear()
-        await b._submit(router, "#999 你好", web("#999 你好"))   # 没这个对话：照常交给总管
+        await b.submit(router, "#999 你好", web("#999 你好"))   # 没这个对话：照常交给总管
         await asyncio.sleep(0.2)
         assert runs and runs[0][0] == router.num
 
@@ -306,8 +306,10 @@ def test_must_report_nudges_once():
     t.sa_report = {"state": "ready", "summary": "x", "question": ""}
     assert superagent.must_report(t, False) == ""
     assert superagent.must_report(Turn(started=0, via="web"), False) == ""   # 你自己直接说的：不强求
+    from anzhuo.engines import CLAUDE
     r = Runner(None, None)
-    hook = r._stop_check(Turn(started=0, via="router"), superagent.must_report)
+    r.role = lambda s: {"on_stop": superagent.must_report}   # Stop 钩子问的是角色的 on_stop（引擎接口 unfinished）
+    hook = CLAUDE.stop_check(r, Session(num=1, name="w", cwd="/tmp"), Turn(started=0, via="router"))
     assert asyncio.run(hook({"stop_hook_active": False}, None, None))["decision"] == "block"
     assert asyncio.run(hook({"stop_hook_active": True}, None, None)) == {}
 
@@ -362,7 +364,7 @@ def test_dingtalk_flow(tmp_path, monkeypatch):
         router = superagent.find(b)
         assert b.registry.current == router.num               # 钉钉里不带编号的话默认给总管
         b.receipt_delay = 0
-        await b.on_raw(msg("帮我修登录页"))
+        await b.ding.on_raw(msg("帮我修登录页"))
         await asyncio.sleep(0.4)
         assert runs[0][:2] == (router.num, "dingtalk") and runs[1][1] == "router" and runs[2][1] == "report"
         texts = " ".join(t for _, t in dt.sent)
@@ -374,7 +376,7 @@ def test_dingtalk_flow(tmp_path, monkeypatch):
         await t["send_to_session"]({"num": w.num, "text": "标题也改一下"})   # 总管转话 → worker 提问 → 回到总管 → 按钮卡
         await asyncio.sleep(0.4)
         oid = next(k for k in dt.cards if k.startswith(f"d{router.num}-"))
-        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
+        await b.dcards.on_click({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
         await asyncio.sleep(0.4)
         to_router = [r[2] for r in runs if r[0] == router.num and r[1] == "dingtalk"]
         assert to_router and to_router[0].startswith("【期间的情况】") and to_router[0].endswith("选 B：中")   # 点按钮交回总管，带着期间的情况

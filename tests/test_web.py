@@ -1,4 +1,4 @@
-"""远窗网页：账号密码登录、过程页、新对话的文件夹解析，以及“没登记的地址一律不转发”。"""
+"""远窗网页：登录、过程页、对话框接口（做课扩展的在 test_ext_course.py）。"""
 import asyncio
 import re
 import time
@@ -6,7 +6,10 @@ from pathlib import Path
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
+import pytest
 
+from anzhuo.events import Bus
+from anzhuo.relay import Relays
 from anzhuo.report import Turn
 from anzhuo.web import Web, check_password, hash_password
 
@@ -18,7 +21,19 @@ def test_password_hash():
 
 
 def test_login_pages(tmp_path):
+    seen = {}
+
+    async def upstream(request):
+        seen.setdefault("xff", {})[request.path] = request.headers.get("X-Forwarded-For")
+        seen["cookie"] = request.headers.get("Cookie")
+        seen["path"] = request.path_qs
+        return web.Response(text="PREVIEW", content_type="text/html")
+
     async def go():
+        up_app = web.Application()
+        up_app.router.add_route("*", "/{tail:.*}", upstream)
+        up = TestServer(up_app)
+        await up.start_server()
         w = Web("http://x.example", 0, tmp_path, user="18000000000", pw_hash=hash_password("pw-ok", iters=1000))
         img = tmp_path / "shot.png"
         img.write_bytes(b"\x89PNG")
@@ -31,7 +46,7 @@ def test_login_pages(tmp_path):
         try:
             r = await c.get(f"/_x/t/{tid}", allow_redirects=False)            # 没登录 → 登录页，带着回来的地址
             assert r.status == 302 and r.headers["Location"].startswith("/_x/login?next=")
-            assert (await c.get("/api/drafts")).status == 401        # 没登录：任何地址都先到登录
+            assert (await c.get("/whatever", allow_redirects=False)).status == 302   # 没登记的地址：没登录也先要登录
             login = await (await c.get(r.headers["Location"])).text()
             assert 'autocomplete="current-password"' in login
             bad = await c.post("/_x/login", data={"username": "18000000000", "password": "错", "next": "/x"},
@@ -46,9 +61,7 @@ def test_login_pages(tmp_path):
             assert (await c.get(f"/_x/t/{tid}/img/5")).status == 404
             assert (await c.get("/", allow_redirects=False)).headers["Location"] == "/_x/"
             assert "开发" in await (await c.get("/_x/history")).text()
-            # 登录后，没登记的地址一律 404：远窗不转发任何别的服务
-            for path in ("/teacher.html", "/api/teacher/classes", "/workspace/a/course.json", "/studio-preview.html"):
-                assert (await c.get(path)).status == 404, path
+            assert (await c.get("/studio-preview.html")).status == 404      # 没有扩展接：没登记的地址一律 404
             # 登录后跳转只认本站路径，不能借登录页跳到外站
             r = await c.get("/_x/login?next=//evil.example/x", allow_redirects=False)
             assert r.headers["Location"] == "/_x/"
@@ -65,6 +78,7 @@ def test_login_pages(tmp_path):
             assert r.status == 302                                           # 只认最后一个来源，别的地址不受牵连
         finally:
             await c.close()
+            await up.close()
 
     asyncio.run(go())
 
@@ -91,8 +105,8 @@ def test_thread_history():
                       "process": [{"k": "say", "text": "我先看看"}, {"k": "do", "text": "看 文件", "detail": ""},
                                   {"k": "do", "text": "改 文件", "detail": ""}]},
                      {"who": "you", "text": "好的"}]
-    thread.attach_records(items, [{"id": "6-1", "title": "做完了"}])
-    assert items[2]["tid"] == "6-1" and items[2]["title"] == "做完了"
+    thread.attach_records(items, [{"id": "6-1", "title": "做完了", "links": [{"label": "预览", "url": "/p"}]}])
+    assert items[2]["tid"] == "6-1" and items[2]["links"] == [{"label": "预览", "url": "/p"}]
 
 
 def test_chat_api(tmp_path, monkeypatch):
@@ -126,8 +140,9 @@ def test_chat_api(tmp_path, monkeypatch):
                                current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
-            self.cfg = NS(folders={"常用": "/x"}, scratch_root="/tmp/anzhuo-test-scratch", search_roots=[], skip_names=[])
+            self.cfg = NS(folders={"前端": "/x"}, scratch_root="/tmp/anzhuo-test-scratch", search_roots=[], skip_names=[])
             self.user_id, self.sent, self.new, self.outgoing, self.said = "me", [], [], {}, []
+            self.relays = NS(writing={}, targets=lambda s: [])
 
         async def say(self, title, text):
             self.said.append((title, text))
@@ -135,11 +150,11 @@ def test_chat_api(tmp_path, monkeypatch):
         def record(self, *a, **k):
             pass
 
-        async def _message(self, cmd, inc, routed=False):
+        async def message(self, cmd, inc, routed=False):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
             self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
 
-        async def _new(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
+        async def new_session(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
             self.new.append((tokens, text))
             self.new_model = (model, effort)
             self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
@@ -160,7 +175,7 @@ def test_chat_api(tmp_path, monkeypatch):
             d = await (await c.get("/_x/api/sessions")).json()
             assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
-            assert [{k: v for k, v in l.items() if k != "reset_at"} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
+            assert [{k: v for k, v in l.items() if k in ("name", "pct", "reset")} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
@@ -171,26 +186,34 @@ def test_chat_api(tmp_path, monkeypatch):
             assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
             assert b.said == []                                                    # 钉钉不转述你在网页说的话
             t7 = await (await c.get("/_x/api/thread/7")).json()
-            assert {k:v for k,v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
+            assert {k: v for k, v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
-            # 新对话“在哪做”：最近用过的文件夹 / 手输的路径 / 找不到 / 找到好几个 / 不碰文件
+            # 新对话“在哪做”：远窗自动判断 / 不碰文件（“接着做某门课”见 test_ext_course.py）
             d = await (await c.get("/_x/api/sessions")).json()
-            assert "drafts" not in d and "courses" not in d and isinstance(d["recent"], list)
-            # 刚才新开的 #8 在配了短名的文件夹里：默认选它的短名；已有短名的不再重复列进“最近”，别的文件夹照列
-            assert d["last_folder"] == "常用" and [r["path"] for r in d["recent"]] == [str(tmp_path)]
+            assert d["ext"] == {}
+            from anzhuo import folders
+            router = pytest.importorskip("anzhuo.router")
+            async def fake_route(text, *a, **k):
+                return router.Route("new", None, "前端", "", "dev", "")
+            monkeypatch.setattr(router, "route", fake_route)
+            monkeypatch.setattr(folders, "candidates", lambda tok, cfg: [Path("/x")] if tok == "前端" else [])
+            await c.post("/_x/api/send", json={"text": "新做一节课", "folder": "auto"})
+            assert b.new[-1] == (["前端"], "新做一节课")
+            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
+            assert b.new[-1] == ([], "查天气")
+            # 手输的路径或文件夹名：找到一个就在那里开；找不到、找到好几个都当场说清楚
+            monkeypatch.undo()
             proj = tmp_path / "proj"
             proj.mkdir()
             await c.post("/_x/api/send", json={"text": "改一下", "folder": str(proj)})
             assert b.new[-1] == ([str(proj)], "改一下")
             r = await (await c.post("/_x/api/send", json={"text": "改一下", "folder": str(tmp_path / "没有这个")})).json()
             assert not r["ok"] and "没找到文件夹" in r["error"]
-            from anzhuo import folders
             monkeypatch.setattr(folders, "search", lambda kw, roots, skip, **k: [tmp_path / "a" / "demo", tmp_path / "b" / "demo"])
             r = await (await c.post("/_x/api/send", json={"text": "改一下", "folder": "demo"})).json()
             assert not r["ok"] and "找到好几个" in r["error"]
-            await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
-            assert b.new[-1] == ([], "查天气")
+            monkeypatch.undo()
             # 选模型和思考深度：新开时带上；已有对话改了存下来，下一轮生效；不认得的不理
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "sonnet", "effort": "high"})
             assert b.new_model == ("claude-sonnet-5-5", "high")
@@ -249,7 +272,7 @@ def test_files_delivered_and_uploaded(tmp_path):
             sent.append(cmd.text)
         async def say(*a):
             pass
-        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, _message=_message,
+        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, message=_message,
                       outgoing={}, say=say, registry=NS(get=lambda n: None))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
@@ -265,7 +288,7 @@ def test_files_delivered_and_uploaded(tmp_path):
             r = await c.get(f"/dl/{tid}/0", headers={"Range": "bytes=0-3"})
             assert r.status == 206 and await r.read() == b"%PDF"
             assert "研究生毕业证.pdf" in await (await c.get(f"/_x/t/{tid}")).text()
-            r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的远窗能返回）
+            r = await c.get(f"/dl/{tid}/0")   # 网页里的下载地址在 /_x 外（主屏幕打开的案头能返回）
             assert r.status == 200 and await r.read() == b"%PDF-1.4 fake"
             data = "data:application/pdf;base64," + b64.b64encode(b"hello").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "看看这个", "files": [{"name": "../合同.pdf", "data": data}]})).json()
@@ -310,9 +333,9 @@ def test_files_delivered_and_uploaded(tmp_path):
 
 def test_process_translation_no_flip(tmp_path, monkeypatch):
     """工作过程里还在译的英文先不给（显示“翻译中…”），译好直接给中文；译不出的给原文、不再反复试。"""
-    import hashlib
     from anzhuo import translate
     monkeypatch.setattr(translate, "enabled", True)   # 翻译默认关闭，这里测打开时的行为
+    import hashlib
     w = Web("http://x.example", 0, tmp_path)
     en = "Let me check the file first and then run the tests to see what fails here"
     k = hashlib.sha1(en.encode()).hexdigest()
@@ -351,6 +374,29 @@ def test_devices(tmp_path):
     asyncio.run(go())
 
 
+def test_presence_needs_idle_aware_page(tmp_path):
+    """“我在看”只认会判断人走开的新页面（v=2）：老页面在 Mac 屏幕灭了照样报，会把手机通知全挡掉。"""
+    from types import SimpleNamespace as NS
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=NS(mine=lambda n, owner: True))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            await c.post("/_x/api/presence", json={"num": 5, "visible": True})
+            assert not w.watching(5)                                                   # 老页面报的不算
+            await c.post("/_x/api/presence", json={"num": 5, "visible": True, "v": 2})
+            assert w.watching(5)
+            await c.post("/_x/api/presence", json={"num": 5, "visible": False, "v": 2})  # 走开了
+            assert not w.watching(5)
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
 def test_records_match_by_time_while_running():
     """正在做的那轮还没有记录：按时间对，文件挂在它所属的那条回复上，不整体错一位。"""
     from anzhuo import thread
@@ -370,7 +416,7 @@ def test_manage_and_search(tmp_path):
     from types import SimpleNamespace as NS
     from anzhuo.sessions import Registry, Session
 
-    folders = {"常用": str(tmp_path / "common")}
+    folders = {"平台": str(tmp_path / "plat")}
 
     async def go():
         reg = Registry(tmp_path / "sessions.json")
@@ -394,7 +440,7 @@ def test_manage_and_search(tmp_path):
             await post(1, "delete")
             assert reg.get(1).hidden and reg.get(1).hidden_at and not reg.get(1).pinned
             rows = (await (await c.get("/_x/api/sessions")).json())["sessions"]
-            assert 1 not in [x["num"] for x in rows]
+            assert 1 not in [x["num"] for x in rows] and {x["num"] for x in rows} == {2, 3}
             s = await (await c.get("/_x/api/search", params={"q": "封面"})).json()
             assert [x["num"] for x in s["deleted"]] == [1] and not s["title"]
             s = await (await c.get("/_x/api/search", params={"q": "带伞"})).json()
@@ -415,7 +461,7 @@ def test_manage_and_search(tmp_path):
 
 def test_model_names_follow_configuration(tmp_path, monkeypatch):
     from anzhuo.web import display_model, model_options
-    from anzhuo.app import MODELS
+    from anzhuo.engines import MODELS
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
     (tmp_path / "config.toml").write_text('model = "gpt-6.1-sol"\n')
     monkeypatch.setitem(MODELS, "opus", "claude-opus-7-2")
@@ -479,6 +525,7 @@ def test_codex_rewind_fork_cancel_and_persist(tmp_path):
         runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
         w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         for i in (100, 200, 300):
             w.save_turn(session.label, Turn(started=i, ended=i + 10, request=f"问{i}", final_text=f"答{i}",
                         codex_turn_id=f"native-{i}"), str(tmp_path), "测试")
@@ -529,6 +576,7 @@ def test_codex_native_fork_failure_keeps_original():
 def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
     from types import SimpleNamespace as NS
     from anzhuo import codex, sessions
+    from anzhuo.engines import CODEX, base
     async def go():
         registry = sessions.Registry(tmp_path / "sessions.json")
         s = registry.add(sessions.Session(num=1, name="测试", cwd=str(tmp_path), engine="codex",
@@ -546,17 +594,17 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
                 return "new-branch"
             async def open_thread(self, *args):
                 raise AssertionError("回退后不能直接接着原分支")
-            async def start_turn(self, text, images, effort):
+            async def start_turn(self, text, images, effort, model=None):
                 assert s.codex_id == "new-branch" and not s.rewind_at
                 calls.append(text)
                 self.done.set()
                 return "new-turn"
             async def close(self): pass
         monkeypatch.setattr(codex, "CodexConn", Conn)
-        monkeypatch.setattr(sessions, "blocked", lambda *a: "")
-        runner = NS(default_effort="medium", codex_live={}, registry=registry)
+        monkeypatch.setattr(base, "blocked", lambda *a: "")
+        runner = NS(default_effort="medium", live={}, registry=registry)
         turn = Turn(started=time.time())
-        await sessions._codex_run(runner, s, sessions.Job("新问题"), turn)
+        await CODEX.run(runner, s, sessions.Job("新问题"), turn)
         assert calls == [("parent", "turn-100"), "新问题"]
         assert turn.codex_turn_id == "new-turn" and not turn.is_error
         restored = sessions.Registry(tmp_path / "sessions.json").get(1)
@@ -578,6 +626,7 @@ def test_codex_file_rewind_and_cancel_through_api(tmp_path):
         runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
         w = Web("http://x", 0, data)
         w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         f = work / "课件.txt"; f.write_text("第一轮")
         store = Checkpoints(data / "checkpoints")
         before = store.capture([str(work)])
@@ -609,9 +658,9 @@ def test_codex_file_rewind_and_cancel_through_api(tmp_path):
 
 def test_quota_reset_epoch_is_absolute(monkeypatch):
     import datetime
-    import anzhuo.web as webmod
+    import time
     now = datetime.datetime(2026, 12, 31, 23, 0).timestamp()
-    monkeypatch.setattr(webmod.time, "time", lambda: now)
+    monkeypatch.setattr(time, "time", lambda: now)
     rows = Web._limits({"seven_day": (.99, "1月1日 04:00"), "five_hour": (.3, "12月31日 22:00"), "unknown": (.1, None)})
     assert rows[0]["reset_at"] == datetime.datetime(2027, 1, 1, 4).timestamp()
     assert rows[1]["reset_at"] < now  # 已过期的时间不能被误认成明年
@@ -675,7 +724,7 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
         w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
                       runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
-                                busy=lambda n: False, queued=lambda n: []))
+                                busy=lambda n: False, queued=lambda n: []), relays=NS(writing={}, targets=lambda s: []))
         monkeypatch.setattr(thread, "full_messages", lambda *a: [])
         monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
         c = TestClient(TestServer(w.app()))
@@ -716,7 +765,7 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
             received.append(list(inc.local_images))
 
         runner = NS(turns={})
-        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, _message=message)
+        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, message=message)
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
@@ -759,25 +808,42 @@ def test_web_hash_env_first_and_file_private(tmp_path, monkeypatch):
     assert config.read_web_hash("u") == ""
 
 
-def test_browse_lists_only_visible_dirs_and_needs_login(tmp_path):
+def test_browse_drive_level(tmp_path, monkeypatch):
+    """Windows 的“此电脑”层：列出所有盘符（这台机器没有 listdrives 就是空列表），不能选它当文件夹。"""
     async def go():
-        root = tmp_path / "看这里"
-        for d in ["乙", "甲", ".藏起来"]:
-            (root / d).mkdir(parents=True)
-        (root / "文件.txt").write_text("x")
         w = Web("http://x.example", 0, tmp_path / "data", user="u", pw_hash=hash_password("p", iters=1000))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
-            r = await c.get("/_x/api/browse", params={"path": str(root)}, allow_redirects=False)
-            assert r.status in (302, 401, 403)
             await c.post("/_x/login", data={"username": "u", "password": "p"})
-            d = await (await c.get("/_x/api/browse", params={"path": str(root)})).json()
-            assert d["dirs"] == sorted(["乙", "甲"], key=str.lower)
-            assert ".藏起来" not in d["dirs"] and "文件.txt" not in d["dirs"]
+            d = await (await c.get("/_x/api/browse", params={"path": "__drives__"})).json()
+            assert d["drive_level"] and d["absolute"] and isinstance(d["dirs"], list)
+        finally:
+            await c.close()
+    asyncio.run(go())
+
+
+def test_browse_defaults_to_projects_and_lists_only_visible_dirs(tmp_path, monkeypatch):
+    """新对话的“浏览文件夹…”：默认从 ~/Projects 开始，只列看得见的子文件夹，要登录。"""
+    root = tmp_path / "Projects"
+    for d in ["乙", "甲", ".藏起来"]:
+        (root / d).mkdir(parents=True)
+    (root / "文件.txt").write_text("x")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path / "data", user="u", pw_hash=hash_password("p", iters=1000))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            assert (await c.get("/_x/api/browse", allow_redirects=False)).status in (302, 401, 403)
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/browse")).json()
+            assert d["raw"] == str(root.resolve()) and d["dirs"] == sorted(["乙", "甲"], key=str.lower)
             assert d["parent"] == str(tmp_path.resolve())
-            r = await c.get("/_x/api/browse", params={"path": str(root / "没有这个")})
-            assert r.status == 400
+            d = await (await c.get("/_x/api/browse", params={"path": str(root / "甲")})).json()
+            assert d["dirs"] == [] and d["parent"] == str(root.resolve())
+            assert (await c.get("/_x/api/browse", params={"path": str(root / "没有这个")})).status == 400
         finally:
             await c.close()
     asyncio.run(go())
@@ -854,6 +920,7 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
                     compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
         w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         for session in sessions:
             w.save_turn(session.label, Turn(started=session.num * 100, ended=session.num * 100 + 1,
                         request=f"问题{session.num}", final_text=f"回复{session.num}",
@@ -895,8 +962,9 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
                   busy=lambda n:bool(turns or queued),queued=lambda n:queued)
         def rejected(*args,**kwargs): raise AssertionError('忙碌时不应提交接力')
         w=Web('http://x',0,tmp_path)
-        w.bridge=NS(registry=reg,runner=runner,outgoing={},_relaying=set(),relay=rejected)
-        request=NS(match_info={'num':'1'},headers={})
+        w.bridge=NS(registry=reg,runner=runner,outgoing={},cfg=None,quota_levels={},events=Bus())
+        w.bridge.relays=Relays(w.bridge); w.bridge.relays.start=rejected
+        request=NS(match_info={'num':'1'},headers={},can_read_body=False)
         result=json.loads((await w._api_thread(request)).text)
         assert not result['can_relay'] and not result['usage']['relay_suggested']
         turns.clear()
@@ -918,3 +986,100 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         result = json.loads((await w._api_thread(request)).text)
         assert result['can_relay'] and result['usage']['relay_suggested']
     asyncio.run(go())
+
+
+def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+    from anzhuo.relay import RELAY, display_items
+    question = "要你定：选哪一个？\nA. 红色\nB. 蓝色\n推荐：A，醒目"
+    assert display_items([{"who": "you", "text": RELAY}, {"who": "claude", "text": "内部摘要"},
+                          {"who": "you", "text": "（这是接力的新对话：摘要\n用户这次说：\n\nA"}]) == [{"who": "you", "text": "A"}]
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        parent = reg.add(Session(num=1, name="设计", cwd=str(tmp_path), engine="codex", codex_id="old", relay_to=2))
+        child = reg.add(Session(num=2, name="设计", cwd=str(tmp_path), engine="codex", relay_from=1,
+                               relay_note="内部摘要", awaiting="选哪一个", awaiting_kind="decide", relay_pending={"text": question}))
+        runner = NS(turns={}, last={}, limits={}, default_effort="medium", compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
+        w.save_turn(parent.label, Turn(started=100, ended=101, request="设计", final_text=question), str(tmp_path), "设计")
+        w.save_turn(parent.label, Turn(started=110, ended=111, request=RELAY, final_text="内部摘要"), str(tmp_path), "接力")
+        req = NS(match_info={"num": "2"})
+        result = json.loads((await w._api_thread(req)).text)
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计"]
+        assert [i["text"] for i in result["items"] if i["who"] == "claude"] == [question]
+        assert result["decision"]["options"] == [["A", "红色"], ["B", "蓝色"]]
+        assert result["decision"]["recommend"] == "A" and result["awaiting_kind"] == "decide"
+        assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["内部摘要"]
+        # 下一棒拿到摘要，聊天只呈现用户的选择；原始存档不修改。
+        wrapped = "（这是接力的新对话：" + "长摘要" * 2000 + "\n用户这次说：\n\nA"
+        w.save_turn(child.label, Turn(started=120, ended=121, request="接力首句…", final_text="按红色继续",
+                                     timeline=[{"kind": "you", "text": wrapped}]), str(tmp_path), "继续")
+        w.bridge.outgoing[2] = [{"text": "A", "t": 119}]
+        child.awaiting = ""
+        result = json.loads((await w._api_thread(req)).text)
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计", "A"]
+        assert result["decision"] is None
+        assert not any(i.get("pending") for i in result["items"])
+        assert w.bridge.outgoing[2] == []
+        assert w._turn("2-120")["timeline"][0]["text"] == wrapped
+        assert w._turn("1-110")["request"] == RELAY
+    asyncio.run(go())
+
+def test_quota_rows_carry_eta_and_pace(monkeypatch):
+    """额度格带上“按这速度何时用完”：本周过了一半已用 80% → 重置前会用完；5 小时用得慢 → 没有 eta、给到重置时的用量。"""
+    import datetime
+    import time
+    now = datetime.datetime(2026, 11, 8, 12, 0).timestamp()
+    monkeypatch.setattr(time, "time", lambda: now)
+    week_reset = datetime.datetime.fromtimestamp(now + 3.5 * 86400).strftime("%-m月%-d日 %H:%M")
+    five_reset = datetime.datetime.fromtimestamp(now + 4 * 3600).strftime("%-m月%-d日 %H:%M")
+    week, five = Web._limits({"seven_day": (.8, week_reset), "five_hour": (.1, five_reset)})
+    assert week["eta"] and now < week["eta"] < week["reset_at"] and week["level"] == "告急"
+    assert five["eta"] is None and five["pace"] == 50 and five["level"] == "充足"   # 已过 20%（下限）用了 10% → 到重置约 50%
+
+
+def test_codex_history_shows_sent_images(tmp_path):
+    """GPT 对话里你发的图：记在那一轮的 timeline 里，历史带上 imgs，uimg 只从收件目录取文件。"""
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+    registry = Registry(tmp_path / "sessions.json")
+    session = registry.add(Session(num=registry.reserve_num(), name="看图", cwd=str(tmp_path), engine="codex"))
+    w = Web("http://x", 0, tmp_path)
+    w.bridge = NS(registry=registry, runner=NS(last={}), outgoing={})
+    (tmp_path / "inbox" / "web").mkdir(parents=True)
+    pic = tmp_path / "inbox" / "web" / "a.jpg"
+    pic.write_bytes(b"\xff\xd8jpg")
+    outside = tmp_path / "secret.png"
+    outside.write_bytes(b"x")
+    turn = Turn(started=100, ended=110, request="（见图）", final_text="看到了")
+    turn.timeline = [{"t": 100, "kind": "you", "text": "（见图）", "imgs": [str(pic), str(outside)]}]
+    w.save_turn(session.label, turn, str(tmp_path), "测试")
+    you = [x for x in w._codex_history(1) if x["who"] == "you"]
+    assert you == [{"who": "you", "text": "", "imgs": ["1-100/0", "1-100/1"]}]
+    assert w._record_image(1, "1-100/0") == (b"\xff\xd8jpg", "image/jpeg")
+    assert w._record_image(1, "1-100/1") is None        # 收件目录以外的文件不给
+    assert w._record_image(2, "1-100/0") is None        # 别的对话的编号不认
+
+
+def test_codex_legacy_truncated_relay_recovers_said(tmp_path):
+    """旧接力首句截断时，用独立保存的原话认领待发消息，保留图片和后续插话。"""
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+    from anzhuo.web.common import _said_has
+    reg = Registry(tmp_path / "sessions.json")
+    session = reg.add(Session(num=reg.reserve_num(), name="接力", cwd=str(tmp_path), engine="codex"))
+    w = Web("http://x", 0, tmp_path)
+    w.bridge = NS(registry=reg, runner=NS(last={}), outgoing={})
+    said = "这些细节看不清楚，调整一下"
+    turn = Turn(started=100, ended=110, request="这些细节…", said=said, final_text="已调整")
+    turn.timeline = [{"kind": "you", "text": "（这是接力的新对话" + "摘要" * 1500, "imgs": ["a.jpg"]},
+                     {"kind": "you", "text": "再看一下状态灯"}]
+    w.save_turn(session.label, turn, str(tmp_path), "测试")
+    you = [x for x in w._codex_history(1) if x["who"] == "you"]
+    assert you[0]["text"] == said and you[0]["imgs"] == ["1-100/0"]
+    assert _said_has(you[0]["text"], said)
+    assert you[1]["text"] == "再看一下状态灯"

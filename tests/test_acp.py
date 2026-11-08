@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from anzhuo.engines import policy
 from anzhuo import acp
-from anzhuo.app import Bridge, inline_overrides
+from anzhuo.app import Bridge
+from anzhuo.intent import inline_overrides
 from anzhuo.config import Config
 from anzhuo.dingtalk import Incoming
 from anzhuo.sessions import Job, Runner, Session
@@ -112,7 +114,7 @@ def test_stop_cancels(tmp_path, fake):
         b.runner.submit(s, Job(text="慢慢做", via="web"))
         for _ in range(100):
             await asyncio.sleep(0.05)
-            if 1 in b.runner.acp_live and b.runner.turns.get(1) and b.runner.turns[1].partial:
+            if 1 in b.runner.live and b.runner.turns.get(1) and b.runner.turns[1].partial:
                 break
         assert await b.runner.stop(1)
         t = await _wait(b, 1)
@@ -164,14 +166,14 @@ def test_pick_kimi_when_opening(tmp_path, monkeypatch):
 
     async def go():
         b = _bridge(tmp_path)
-        await b._new([], "用 kimi 整理一下", web("用 kimi 整理一下"))
+        await b.new_session([], "用 kimi 整理一下", web("用 kimi 整理一下"))
         await asyncio.sleep(0.2)
         s = b.registry.get(1)
         assert s.engine == "kimi" and s.model is None and seen == ["kimi"]
-        await b._submit(s, "用 opus 接着做", web("用 opus 接着做"))   # 对话中途不换家
+        await b.submit(s, "用 opus 接着做", web("用 opus 接着做"))   # 对话中途不换家
         await asyncio.sleep(0.2)
         assert s.engine == "kimi" and s.model is None
-        await b._start(b.registry.reserve_num(), tmp_path, [], "x", web("x"), model="kimi", owner="u", root=str(tmp_path))
+        await b.start_session(b.registry.reserve_num(), tmp_path, [], "x", web("x"), model="kimi", owner="u", root=str(tmp_path))
         await asyncio.sleep(0.1)
         assert b.registry.get(2).engine == "claude"   # 受限账号只用 Claude
 
@@ -191,7 +193,7 @@ def test_inject_while_running_is_queued(tmp_path, fake):
                 break
         assert b.runner.submit(s, Job(text="整理一下", via="web")) == 1   # 前面还有 1 件
         assert b.runner.queued(1)
-        await b.runner.acp_live[1].cancel()   # 只结束正在做的这一轮（“停”会连排着的一起清掉）
+        await b.runner.live[1].cancel()   # 只结束正在做的这一轮（“停”会连排着的一起清掉）
         for _ in range(400):
             await asyncio.sleep(0.05)
             t = b.runner.last.get(1)
@@ -218,5 +220,81 @@ def test_unknown_command_asks(tmp_path, fake, monkeypatch):
         b.runner.submit(s, Job(text="神秘命令", via="web"))
         t = await _wait(b, 1)
         assert asked and "看不出" in asked[0] and t.final_text == "没跑"
+
+    asyncio.run(go())
+
+
+def test_acp_move_and_delete_paths():
+    """挪文件源和目标都判、看不出挪到哪也问你；参数里的路径列表也算。"""
+    from anzhuo.engines.acp import permission_target
+    home = str(Path.home())
+    one = permission_target("move", {"rawInput": {"source": "/tmp/a"}}, {}, "/w")
+    assert one == ["/tmp/a"] and "看不出" in policy.danger("move", one)
+    two = permission_target("move", {"rawInput": {"source": "/tmp/a", "destination": "/tmp/b"}}, {}, "/w")
+    assert policy.danger("move", two) is None
+    out = permission_target("move", {"rawInput": {"src": "/tmp/a", "to": f"{home}/Documents/b"}}, {}, "/w")
+    assert policy.danger("move", out).startswith("挪走")
+    many = permission_target("delete", {"rawInput": {"paths": ["/tmp/a", f"{home}/Documents/c.md"]}}, {}, "/w")
+    assert policy.danger("delete", many)
+
+
+def test_acp_close_cancels_tasks(fake):
+    """关连接时读输出的后台任务一起收掉，不挂在事件循环里。"""
+    async def go():
+        conn = acp.AcpConn("fake", str(Path.cwd()), lambda u: None)
+        await conn.start()
+        tasks = list(conn._tasks)
+        assert tasks
+        await conn.close()
+        await asyncio.sleep(0)         # 做完的回调下一拍才跑
+        assert all(t.done() for t in tasks) and not conn._tasks
+
+    asyncio.run(go())
+
+
+def test_codex_close_cancels_tasks():
+    from anzhuo.codex import CodexConn
+
+    async def go():
+        conn = CodexConn("/tmp", lambda *a: None)
+        t = conn._spawn(asyncio.sleep(60))
+        await conn.close()
+        await asyncio.sleep(0)
+        assert t.cancelled() and not conn._tasks
+def test_delete_judged_like_rm(tmp_path, fake, monkeypatch):
+    """删文件和 Claude 那边的 rm 同一套规则：工作区外的要问你，不同意就拒；临时目录里的照旧放行。"""
+    asked = []
+
+    async def decide(self, s, turn, what, cmd):
+        asked.append((what, cmd))
+        return False
+    monkeypatch.setattr(Runner, "decide", decide)
+
+    async def go():
+        b = _bridge(tmp_path)
+        s = Session(num=1, name="t", cwd=str(tmp_path), engine="fake")
+        b.registry.add(s)
+        b.runner.submit(s, Job(text="删掉那个文件", via="web"))
+        t = await _wait(b, 1)
+        assert asked == [("删除 重要.txt", "删除：/Users/demo/重要.txt")] and t.final_text == "没删"
+        assert t.steps == ["删 重要.txt"] and t.changed_files == ["/Users/demo/重要.txt"]
+        asked.clear()
+        b.runner.submit(s, Job(text="删掉临时文件", via="web"))   # /tmp 里的：和 rm 一样放行
+        await asyncio.sleep(0.2)
+        t = await _wait(b, 1)
+        assert not asked and t.final_text == "删了"
+
+    asyncio.run(go())
+
+
+def test_conn_keeps_and_cancels_its_tasks(tmp_path, fake):
+    """读输出、读 stderr 的协程留着引用，关闭连接时一并收掉，不留在事件循环里。"""
+    async def go():
+        conn = acp.AcpConn("fake", str(tmp_path), lambda u: None)
+        await conn.start()
+        tasks = list(conn._tasks)
+        assert len(tasks) == 2 and not any(t.done() for t in tasks)
+        await conn.close()
+        assert all(t.done() for t in tasks)
 
     asyncio.run(go())

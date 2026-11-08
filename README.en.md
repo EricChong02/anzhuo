@@ -80,6 +80,10 @@ scripts/install_launchd.sh              # optional: start at login, restart on c
 
 Yuanchuang is an independent project, not affiliated with Anthropic, OpenAI or DingTalk. MIT licensed.
 
+## November 8, 2026 update (0.3.0)
+
+A redesigned web UI (frosted-glass style, light and dark themes, a simpler sidebar, and reworked settings, usage and account pages). New optional features, all off by default: a coordinator conversation ("总管") that dispatches work to other conversations and collects their reports; DeepSeek and Kimi (via ACP) as extra engines; a model split table that picks models by task tier and falls back when a quota runs low; and mounting the whole site under a sub-path of another panel (`web_prefix`). Existing configs keep working. See [CHANGELOG.md](CHANGELOG.md).
+
 ## November 7, 2026 update
 
 Claude and Codex now support handoff to a fresh conversation while keeping a continuous history in the UI. This update also adds task groups, usage management, clearer session states, and optional macOS restricted accounts. Automatic model classification is opt-in (`task_grouping = true`) because it sends short task metadata to a model. Existing Windows support and conservative approval defaults are retained. See [CHANGELOG.md](CHANGELOG.md) for details and verification limits.

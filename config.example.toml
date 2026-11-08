@@ -16,6 +16,7 @@
 # client_id = "钉钉开发者后台“凭证与基础信息”里的 Client ID"
 # 只认这些钉钉 ID 发来的单聊消息；用 `anzhuo whoami` 查自己的
 # allowed_user_ids = []
+# dingtalk = false            # 老写法：client_id 留着但整个停用钉钉（等于不填 client_id）
 
 # ───────── 常用文件夹 ─────────
 # 短名 → 路径。网页“新对话”的菜单、钉钉里的“新开 短名：…”都能用。不写也行：网页里有“最近用过的”和手输路径。
@@ -26,8 +27,22 @@
 # ───────── 干活的方式（都有默认值，按需取消注释）─────────
 # max_parallel = 3             # 最多同时几个对话在干活，多的排队
 # default_effort = "medium"    # 默认思考深度：low / medium / high / xhigh / max
-# simple_model = "sonnet"      # 简单任务（查资料、整理文件）用的模型
-# dev_model = "opus"           # 开发类任务（文件夹里有 .git / pyproject.toml / package.json）用的模型
+# 分工表：新开对话没指定模型时，代码仓里按开发档、别处按简单任务档，照下表交给谁（网页 管理 · 设置 里也能改）。
+#   use    首选：Claude 的型号 opus / sonnet / haiku / fable，或别家 gpt（Codex）/ deepseek / kimi
+#   model  别家自己的型号（如 gpt-5.5-terra、deepseek-v4-pro）；不写 = 它自己默认的。Claude 不用写
+#   effort 思考深度 low / medium / high / xhigh / max；不写 = 默认
+#   backup 备选：首选没装、没密钥、受限账号不能用、文件夹在 deepseek_block 里时换它；
+#          首选那家额度告急或撞线、备选那家更宽裕时也换它（偏紧不换，质量优先）；不写就退回 Claude Sonnet
+# 老写法 design_model / dev_model / simple_model 仍然认（没写对应的 [split.xxx] 时）。
+# [split.design]               # 拿主意定方案（设计、梳理想法、写方案、架构设计、验收）
+# use = "opus"
+# [split.dev]                  # 照清楚的要求动手开发（写代码、做功能、改 bug）
+# use = "sonnet"
+# [split.simple]               # 简单任务（查资料、整理文件、问答、小改动）
+# use = "sonnet"
+# subagent_model = "sonnet"    # 对话里派出的子代理默认用的模型；写 "" = 跟主对话一样
+# relay_long = 120000          # 上下文（token）到这么长就提示接力：越长每句话越贵
+# relay_cold = 80000           # 隔一个多小时回来（缓存过期）、上下文又有这么长，也提示接力
 # reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
 # translate_english = false    # 默认关闭。想看中文版的思考过程和英文回复，改成 true：有 DeepSeek 密钥就用它，没有就用 Haiku（会消耗你自己的 Claude 额度）
 # extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”
@@ -43,6 +58,7 @@
 # scratch_root = "~/anzhuo-scratch"   # “不指定文件夹”时的临时文件夹放哪
 # search_roots = ["~/Projects", "~/Desktop", "~/Documents", "~/Downloads"]   # “新开 某个词：…”按名字找文件夹的范围
 # skip_names = []              # 按名字找时要跳过的文件夹名（前缀匹配），比如放私密资料的
+# deepseek_block = ["私密"]       # DeepSeek 对话（内容出境）不许碰的文件夹名（前缀匹配）：在里面不开工，中途碰到也拒掉
 
 # 按任务自动分类（可选，默认关闭）：向模型发送标题、目录末级名称和最多400字摘要。
 # 有 DeepSeek 密钥优先用它，失败或没有密钥时用 Haiku；会消耗相应模型额度。
@@ -67,5 +83,10 @@
 # role = "admin"
 # [accounts.guest]
 # role = "user"
-# root = "~/anzhuo-guest"
-# share = 0.2  # 主账号 Claude 周额度的20%；估算未校准时不能精确限制
+# root = "~/remote-window"
+# share = 0.2  # 主账号 Claude 周额度的20%；估算未校准时不能精确限制（老写法 week_share 也认）
+
+# ───────── 扩展 ─────────
+# 私有功能放在 src/anzhuo/extensions/名字/，写了 [ext.名字] 这一节才开；enabled = false 关掉。
+# [ext.名字]
+# enabled = true               # 下面接着写这个扩展自己的配置项

@@ -28,8 +28,10 @@ TZ = local_zone()   # 配置里写了 timezone 就由 app.Bridge 启动时换成
 def set_timezone(name: str) -> None:
     global TZ
     TZ = ZoneInfo(name) if name else local_zone()
+
+
 ACTIVE = {'dispatching', 'submitted', 'running'}
-MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt'}
+MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt', 'deepseek'}
 
 def next_slot(task: dict, now: float) -> float | None:
     if task['kind'] == 'once': return None

@@ -19,12 +19,13 @@ class Turn:
     schedule_run_id: str = ""
     codex_turn_id: str = ""
     request: str = ""  # 这一轮你说的话的开头，做标题
+    said: str = ""  # 这一轮你说的完整的话（存进每轮记录；额度用完接力时远窗拼交接材料用）
     ended: float = 0.0
     changed_files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)  # 每一步说成人话，给进度卡用
     timeline: list[dict] = field(default_factory=list)  # 完整过程：说了什么、做了什么（过程页用）
-    links: list[tuple[str, str]] = field(default_factory=list)  # 报告末尾的链接（完整过程、试课预览）
+    links: list[tuple[str, str]] = field(default_factory=list)  # 报告末尾的链接（完整过程、扩展附的链接）
     injected: int = 0  # 做的过程中你插了几次话
     accepting: bool = True  # 还能插话（出结果后就不能了，再说的话排到下一轮）
     images: list[str] = field(default_factory=list)
@@ -45,7 +46,7 @@ class Turn:
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
     last_at: float = 0.0  # 最近一次有动静（新的一步、一段话、助手进展）：网页据此提示“好一会儿没动静了”
     usage: dict = field(default_factory=dict)  # 这一轮的消耗：Claude {cost, models}；Codex {codex: 会话累计 token}
-    via: str = ""  # 这一轮是从哪说的：web / dingtalk / feedback（钉钉里说的，结果照旧全发回钉钉）
+    via: str = ""  # 这一轮是从哪说的：web / dingtalk / 扩展名（钉钉里说的，结果照旧全发回钉钉）
 
 
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}

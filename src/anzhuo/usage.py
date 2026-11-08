@@ -41,7 +41,7 @@ def _minus(cur: dict, prev: dict) -> dict:
 
 def row(s, turn, limits: dict, now: float | None = None, last: dict | None = None) -> dict | None:
     """一轮的消耗记录；这一轮没有消耗数据（比如没连上）返回 None。
-    last：这个对话上一条记录的累计值（{"cost", "tok", "models"}），对话里还没存累计值时（小E 刚升级）拿它当起点。"""
+    last：这个对话上一条记录的累计值（{"cost", "tok", "models"}），对话里还没存累计值时（远窗刚升级）拿它当起点。"""
     u = turn.usage or {}
     base = {"t": round(now or turn.ended or time.time(), 1), "owner": s.owner, "num": s.num, "name": s.name,
             "engine": s.engine, "request": (turn.request or "")[:60]}
@@ -212,7 +212,7 @@ def summary(rows: list[dict], names: dict[int, str], days: int = 30, now: float 
 
 # ---------- 受限账号的周额度 ----------
 WEEK = 7 * DAY
-DEFAULT_SHARE = 0.2   # 受限账号默认可用主账号周额度的 1/5（2026-11-04 用户定）
+DEFAULT_SHARE = 0.2   # 受限账号默认可用主账号周额度的 1/5（2026-11-04定）
 
 
 def reset_epoch(text: str | None, now: float | None = None) -> float | None:

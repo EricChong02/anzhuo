@@ -2,6 +2,7 @@
 部署在 /opt/anzhuo-watch/（venv 里装了 pywebpush）；push.json（设备订阅）由远窗在订阅变化时同步过来（配置 watch_host），
 vapid.txt 是网页推送的签名私钥。环境变量 ANZHUO_WATCH_SUB 填你的联系方式（mailto:you@example.com 或网址），VAPID 协议要求有；
 ANZHUO_WATCH_PORT 是隧道在服务器上的端口，默认 18765。
+已部署的那份照旧写死也能用；重新部署时在 cron 里带上这两个环境变量。
 cron：* * * * * ANZHUO_WATCH_SUB=mailto:you@example.com /opt/anzhuo-watch/venv/bin/python /opt/anzhuo-watch/server_watch.py"""
 import json
 import os

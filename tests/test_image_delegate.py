@@ -178,9 +178,9 @@ def test_claude_image_prompt_includes_reference_paths(tmp_path):
     ref = tmp_path / 'input.png'
     ref.write_bytes(PNG)
     async def go():
+        from anzhuo.engines import CLAUDE
         from anzhuo.sessions import Job
-        runner = Runner(None, None)
-        rows = [r async for r in runner._prompt(Job(text='修改这张照片', images=[ref]))]
+        rows = [r async for r in CLAUDE.prompt(Job(text='修改这张照片', images=[ref]))]
         content = rows[0]['message']['content']
         assert content[0]['type'] == 'image'
         assert str(ref.resolve()) in content[1]['text']

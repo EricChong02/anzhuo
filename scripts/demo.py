@@ -1,9 +1,9 @@
-"""演示模式：起一个只有网页的远窗，里面是几段虚构的对话。
+"""演示模式：起一个只有网页的远窗（远窗），里面是几段虚构的对话。
 不连 Claude / Codex、不花一分钱、不碰你的文件夹和钥匙串，退出后留下的只是一个临时文件夹。
 用来先看看界面长什么样，或者截图做文档。
 
 用法（在仓库根）：.venv/bin/python scripts/demo.py [端口，默认 8799]
-然后浏览器打开 http://127.0.0.1:8799 ，账号 demo，密码 demo。
+然后浏览器打开 http://127.0.0.1:8799/_x/ ，账号 demo，密码 demo。
 在里面发话会得到一句预先写好的回答（演示用，不是真的 AI）。
 """
 from __future__ import annotations
@@ -95,6 +95,7 @@ def build() -> Bridge:
     (TMP / "notes").mkdir()
     cfg = Config(web_base=f"http://127.0.0.1:{PORT}", web_port=PORT, web_user="demo", scratch_root=str(TMP / "scratch"),
                  folders={"my-app": str(TMP / "my-app"), "notes": str(TMP / "notes")}, translate_english=False,
+                 auto_route=False,   # 演示不连 AI：分派员也关掉
                  super_agent=os.environ.get("ANZHUO_DEMO_SUPER") == "1")   # ANZHUO_DEMO_SUPER=1：带上“总管”对话
     Runner._run = lambda self, s, job, turn: Fake().run(s, job, turn)
     Runner.refresh_usage = no_usage
@@ -155,7 +156,7 @@ def build() -> Bridge:
 async def main():
     b = build()
     await b.web.start()
-    print(f"\n演示已启动：http://127.0.0.1:{PORT}   账号 demo   密码 demo\n（按 Ctrl+C 结束；临时文件在 {TMP}）\n", flush=True)
+    print(f"\n演示已启动：http://127.0.0.1:{PORT}/_x/   账号 demo   密码 demo\n（按 Ctrl+C 结束；临时文件在 {TMP}）\n", flush=True)
     await asyncio.Event().wait()
 
 

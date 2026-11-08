@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -20,8 +21,8 @@ from typing import TYPE_CHECKING
 
 from claude_agent_sdk import tool
 
-from . import folders
-from .acp import ENGINES as ACP_ENGINES, available as acp_available, is_acp
+from . import engines, folders, split
+from .engines import MODELS
 from .dingtalk import Incoming
 from .sessions import Session
 
@@ -40,6 +41,7 @@ STATE_CN = {"ready": "做完了", "waiting": "这轮做完，等后续", "blocke
             "progress": "在做", "stopped": "被停下了", "error": "出错了", "asked": "在等用户定"}
 NOTES_MAX = 20   # 总管下次开口前要看的“期间的情况”最多攒几条
 REPORT_MAX = 4000   # 回报正文最多带多少字；再长总管用 session_status 看
+LIMIT_WAIT = 3600   # 派出去的活撞了额度：一小时内恢复就等它自动接着做，再久就换另一家接力接着做
 TAGS = ("【回报】", "【退回】", "【要用户定】", "【重启】")   # 给总管的消息；网页里折成卡片
 
 RULES = """
@@ -50,6 +52,7 @@ RULES = """
 - 选引擎和模型：用户点名就照办；没点名就照下面“用户定的分派规则”；规则没写到就都不填（用默认）。派活后告诉用户用的是哪个引擎、哪个模型。
 - 派完就结束这一轮，用一句话告诉用户交给了谁（#编号）。不要等、不要反复查状态：对话做完、要用户定、出错时会自动给你发消息。
 - 【回报】：做完了就用一两句话告诉用户结论和去哪看全文（#编号），不要整段复述、不要重新排版它的列表；卡住或做不成就说清楚卡在哪、要用户做什么。同一件事已经说过的进展不要重复说。
+- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；离恢复很久时系统会自动换另一家接力（会告诉你新编号）。用户要求换家、或对话太长时，用 relay_session。
 - 【要用户定】：把对话的问题原样转给用户（选项、推荐都带上），一次只问一个。
 - 【退回】：某个对话说这句话不属于它那件事。重新判断：另开新对话、交给别的对话，或者问用户；不要再交回给退回它的那个对话。
 - 【期间的情况】：你上次说话之后发生的事（用户直接跟某个对话说了什么、对话的进展）。只当背景，已经告诉过用户的不要再说。
@@ -121,7 +124,7 @@ def state(bridge: "Bridge", s: Session) -> str:
 
 def brief(bridge: "Bridge", s: Session) -> dict:
     return {"num": s.num, "name": s.name, "folder": folders.display(Path(s.cwd)), "state": state(bridge, s),
-            "engine": "GPT" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "Claude", "awaiting": s.awaiting,
+            "engine": engines.get(s.engine).label, "awaiting": s.awaiting,
             "last": s.last_summary, "from_router": bool(s.boss)}
 
 
@@ -150,11 +153,11 @@ def ensure(bridge: "Bridge") -> Session:
             s.name = want
         bridge.registry.save()
         return s
-    from .app import MODELS
     num = bridge.registry.reserve_num()
     cwd = bridge.data_dir / "router"
     cwd.mkdir(parents=True, exist_ok=True)
-    s = Session(num=num, name=want or NAME, cwd=str(cwd), model=MODELS.get(bridge.cfg.simple_model, bridge.cfg.simple_model),
+    simple = bridge.cfg.split["simple"]["use"]   # 总管自己用简单任务那档的 Claude 型号（那档交给别家时用 Sonnet）
+    s = Session(num=num, name=want or NAME, cwd=str(cwd), model=MODELS.get(simple, MODELS["sonnet"]),
                 role=ROUTER, pinned=True, renamed=True, titled=True, worked=True)
     bridge.registry.add(s)
     if not bridge.registry.get(bridge.registry.current):   # 钉钉里不带编号的话默认交给“当前对话”：先让它是总管
@@ -191,17 +194,16 @@ def role(bridge: "Bridge", s: Session | None) -> dict | None:
 # ---------- 用哪个引擎、哪个模型 ----------
 
 def catalog(bridge: "Bridge") -> dict[str, dict]:
-    """这台电脑上能用的引擎和各自的模型：{引擎: {"name", "models": [可填的值], "default"}}。"""
-    from .app import MODELS
-    from .codex import codex_bin
-    from .acp import MODELS_SEEN
-    out = {"claude": {"name": "Claude", "models": list(MODELS), "default": f"按文件夹：像项目用 {bridge.cfg.dev_model}，否则 {bridge.cfg.simple_model}"}}
-    if codex_bin():
-        out["gpt"] = {"name": "GPT（Codex）", "models": [], "default": "Codex 自己配置的模型"}
-    for k, v in ACP_ENGINES.items():
-        if acp_available(k):
-            seen = MODELS_SEEN.get(k) or {}
-            out[k] = {"name": v["name"], "models": seen.get("models", []), "default": seen.get("current") or "它自己配置的模型"}
+    """这台电脑上能用的引擎和各自的模型：{引擎的键: {"name", "models": [可填的值], "default"}}。"""
+    out = {}
+    for e in engines.known():
+        if not e.available():
+            continue
+        if e.pick_model == "menu":
+            models, default = list(MODELS), f"照分工表：{split.describe(bridge.cfg)}"
+        else:
+            models, default = e.models()
+        out[e.key] = {"name": e.full, "models": models, "default": default}
     return out
 
 
@@ -235,7 +237,7 @@ def take_notes(router: Session, text: str) -> str:
 
 async def tell(bridge: "Bridge", router: Session, text: str) -> None:
     """让总管跑一轮看这条消息（回报、退回、提问）。"""
-    await bridge._submit(router, text, _incoming("", REPORT))
+    await bridge.submit(router, text, _incoming("", REPORT))
 
 
 async def direct(bridge: "Bridge", router: Session, text: str) -> bool:
@@ -250,7 +252,7 @@ async def direct(bridge: "Bridge", router: Session, text: str) -> bool:
     s.boss, s.hidden = router.num, False
     note(router, f"用户直接对 #{s.num} {s.name} 说：{said[:200]}")
     bridge.registry.save()
-    await bridge._submit(s, said + follow(router), _incoming(said, VIA))
+    await bridge.submit(s, said + follow(router), _incoming(said, VIA))
     return True
 
 
@@ -278,10 +280,9 @@ def tools(bridge: "Bridge", router: Session) -> list:
           "folder 可写文件夹短名、完整路径或文件夹名里的几个字，不写就用临时文件夹；"
           "engine、model 按用户点名或用户定的分派规则填（只能从系统提示里列出的能用的引擎和模型里选），都没有就不填。",
           {"type": "object", "properties": {"task": {"type": "string"}, "folder": {"type": "string"},
-                                            "engine": {"type": "string", "enum": ["claude", "gpt", *ACP_ENGINES]},
+                                            "engine": {"type": "string", "enum": [e.key for e in engines.known()]},
                                             "model": {"type": "string"}}, "required": ["task"]})
     async def new_session(args):
-        from .app import MODELS
         task = str(args.get("task") or "").strip()
         if not task:
             return _error("task 不能为空")
@@ -297,30 +298,31 @@ def tools(bridge: "Bridge", router: Session) -> list:
                 cwd = cands[0]
                 if spec != str(cwd):   # 用户说的是短名 / 名字：告诉它说的就是当前文件夹，免得在里面再建一个同名的
                     task = f"（用户说的“{spec}”就是你现在的工作文件夹 {cwd}）\n{task}"
-        engine = str(args.get("engine") or "").lower() or "claude"
+        key = str(args.get("engine") or "").lower() or engines.CLAUDE.key
         want = str(args.get("model") or "").strip()
         cat = catalog(bridge)
-        if engine not in cat:
-            return _error(f"这台电脑上用不了 engine={engine}。能用的：{'、'.join(cat)}。")
-        known = cat[engine]["models"]
-        if want and engine == "claude":
+        if key not in cat:
+            return _error(f"这台电脑上用不了 engine={key}。能用的：{'、'.join(cat)}。")
+        eng = engines.by_key(key)
+        known = cat[key]["models"]
+        if want and eng.pick_model == "menu":   # Claude：claude-opus-5-5 这类全名也认
             want = want.lower().removeprefix("claude-").split("-")[0]
         if want and known and want not in known:
-            return _error(f"{cat[engine]['name']} 没有模型“{want}”。可填：{'、'.join(known)}；或者不填用默认。")
-        if engine == "claude":
+            return _error(f"{cat[key]['name']} 没有模型“{want}”。可填：{'、'.join(known)}；或者不填用默认。")
+        if eng.pick_model == "menu":
             model, extra = MODELS.get(want), None
-        else:
-            model, extra = engine, (want or None) if is_acp(engine) else None
+        else:   # 别家：模型那一栏写引擎的键；ACP 自己的型号另传（GPT 用 Codex 自己配置的）
+            model, extra = key, (want or None) if eng.pick_model == "own" else None
         num = reg.reserve_num()
         if cwd is None:
             cwd = folders.scratch_dir(bridge.cfg, num)
-        await bridge._start(num, cwd, [], task, _incoming(task, VIA), model=model, owner=router.owner, boss=router.num,
-                            engine_model=extra)
+        await bridge.start_session(num, cwd, [], task, _incoming(task, VIA), model=model, owner=router.owner, boss=router.num,
+                            engine_model=extra, engine=key if args.get("engine") else None)
         s = reg.get(num)
         if not s:
             return _error("没开成")
-        used = cat.get(s.engine if s.engine != "codex" else "gpt", {}).get("name", s.engine)
-        return _text(f"已开 #{s.num} {s.name}，用 {used}（模型：{s.model or cat.get(engine, {}).get('default', '默认')}），"
+        used = cat.get(engines.get(s.engine).key, {}).get("name", s.engine)
+        return _text(f"已开 #{s.num} {s.name}，用 {used}（模型：{s.model or cat.get(key, {}).get('default', '默认')}），"
                      f"在 {folders.display(Path(s.cwd))} 开工了。做完、要用户定或出错时会告诉你。")
 
     @tool("send_to_session", "把一句话交给某个已有对话（用户的后续要求、对它问题的回答）。它正在做就插话，没在做就开始新一轮。",
@@ -335,7 +337,7 @@ def tools(bridge: "Bridge", router: Session) -> list:
         if s.num in getattr(router, "_handed", {}).get(text[:80], set()):
             return _error(f"#{s.num} 刚把这句话退回来了，说它不属于那件事。换个对话或新开一个。")
         s.boss, s.hidden = router.num, False   # 之后它做完这件也告诉总管
-        await bridge._submit(s, text + follow(router), _incoming(text, VIA))
+        await bridge.submit(s, text + follow(router), _incoming(text, VIA))
         return _text(f"已交给 #{s.num} {s.name}。")
 
     @tool("session_status", "看某个对话的现状和它最后一次的完整回复。只在用户问起、或回报里信息不够时用。",
@@ -359,7 +361,21 @@ def tools(bridge: "Bridge", router: Session) -> list:
         s.ticket = "stopped"
         return _text(f"#{s.num} {'已让它停下' if stopped else '本来就没在做，排队的也清掉了'}。")
 
-    return [list_sessions, new_session, send_to_session, session_status, stop_session]
+    @tool("relay_session", "让某个对话换到新对话接着做：对话太长了、它那家额度用完了、或用户要求换家时用。"
+          "to 填换到哪（sonnet、opus、gpt 这类；不填 = 同一家同型号）。它写交接说明（额度用完了就由远窗按记录整理），"
+          "新对话开好就接着做，做完照样回报你；之后用新编号找它。",
+          {"type": "object", "properties": {"num": {"type": "integer"}, "to": {"type": "string"}}, "required": ["num"]})
+    async def relay_session(args):
+        s = worker(args.get("num"))
+        if not s:
+            return _error(f"没有 #{args.get('num')} 这个对话")
+        to = str(args.get("to") or "").strip().lower()
+        if why := bridge.relays.refuse(s, to):
+            return _error(f"{why} 现在能换到：{'、'.join(t['to'] for t in bridge.relays.targets(s)) or '没有'}。")
+        s.boss = router.num   # 新对话带着它，做完回报你
+        return _text(f"#{s.num}：" + await bridge.relays.start(s.num, via=VIA, to=to, go=True))
+
+    return [list_sessions, new_session, send_to_session, session_status, stop_session, relay_session]
 
 
 # ---------- worker 的工具：结构化汇报、退回 ----------
@@ -409,7 +425,11 @@ def _files(turn) -> str:
 
 def report_text(s: Session, turn, rep: dict | None = None) -> str:
     """派出去的对话做完一轮：给总管的回报。整段回复都带上（太长才截），选项、链接不能丢。"""
-    if turn.is_error or turn.interrupted:
+    if turn.is_error and s.limit_until > time.time():
+        at = time.strftime("%H:%M", time.localtime(s.limit_until))
+        head = f"卡在{engines.get(s.engine).label}额度，{at} 恢复" + ("后自动接着做" if s.auto_resume else "")
+        body = _cut(turn.final_text)
+    elif turn.is_error or turn.interrupted:
         head = "出错了" if turn.is_error else "被停下了"
         body = _cut("\n\n".join(x for x in (turn.error, turn.final_text) if x))
     elif rep:
@@ -422,6 +442,25 @@ def report_text(s: Session, turn, rep: dict | None = None) -> str:
     else:
         head, body = "做完了（没按格式汇报，按回复判断）", _cut(turn.final_text)
     return f"【回报】#{s.num} {s.name}：{head}{_files(turn)}\n\n{body}"
+
+
+def attach(bridge: "Bridge") -> None:
+    """总管订阅的事件：一轮做完由它来说（turn_report）、接力后交接派活关系（relayed）。"""
+    bridge.events.on("turn_report", lambda s, turn: on_turn_done(bridge, s, turn), order=10)
+    bridge.events.on("relayed", lambda p, s: on_relayed(bridge, p, s))
+
+
+def on_relayed(bridge: "Bridge", p: Session, s: Session) -> None:
+    """接力开了新对话：总管派的活（新对话已带着 boss）告诉总管换了编号；总管自己接力时，角色、置顶、
+    没看的“期间的情况”、手下的对话都交给新的。"""
+    if p.role == ROUTER:
+        s.role, s.pinned, s.notes, p.role, p.pinned, p.notes = p.role, True, list(p.notes), "", False, []
+        for w in bridge.registry.sessions.values():
+            if w.boss == p.num:
+                w.boss = s.num
+    elif router := boss_of(bridge, s):
+        note(router, f"#{p.num} {p.name} 接力到了 #{s.num}" + (f"（{engines.get(s.engine).label}）" if s.engine != p.engine else "")
+             + "，之后找它用新编号")
 
 
 async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
@@ -446,6 +485,8 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
             router.__dict__.setdefault("_handed", {}).setdefault(said[:80], set()).add(s.num)
             await tell(bridge, router, f"【退回】#{s.num} {s.name}：{back}\n\n这句话：{said}")
             return True
+        if turn.via == VIA and _limit_switch(bridge, router, s):
+            return True   # 撞线又要等很久：换另一家接力，换好告诉总管
         if turn.via != VIA:   # 你直接在这个对话里说的：照旧直接告诉你；给总管记一笔
             note(router, f"#{s.num} {s.name}（用户直接说的）{STATE_CN.get(s.ticket, s.ticket)}：{(rep or {}).get('summary') or turn.final_text[:120]}")
             bridge.registry.save()
@@ -460,6 +501,28 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
         log.exception("回报给总管失败 #%s", s.num)
         return False
     return True
+
+
+_tasks: set = set()
+
+
+def _limit_switch(bridge: "Bridge", router: Session, s: Session) -> bool:
+    """总管派的活撞了额度、离恢复超过 LIMIT_WAIT：换到另一家（不紧的）接力接着做。返回 True = 换了，这一轮不再回报。"""
+    wait = s.limit_until - time.time()
+    alts = [t for t in bridge.relays.targets(s) if t["level"] in ("充足", "偏紧")]
+    if wait <= LIMIT_WAIT or not alts:
+        return False
+    task = asyncio.create_task(_switch(bridge, router, s, alts[0]))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return True
+
+
+async def _switch(bridge: "Bridge", router: Session, s: Session, to: dict) -> None:
+    at = time.strftime("%H:%M", time.localtime(s.limit_until))
+    msg = await bridge.relays.start(s.num, via=VIA, to=to["to"], go=True, wait_idle=30)
+    await tell(bridge, router, f"【回报】#{s.num} {s.name}：卡在{engines.get(s.engine).label}额度，{at} 才恢复，"
+                               f"按规则换 {to['label']} 接力接着做。{msg}")
 
 
 # ---------- 远窗重启 ----------
@@ -477,7 +540,7 @@ async def recover(bridge: "Bridge", interrupted: list[int]) -> None:
             routers.add(s.num)
         elif boss_of(bridge, s):
             log.info("重启后接着做 #%s", s.num)
-            await bridge._submit(s, RECOVER, _incoming(RECOVER, VIA))
+            await bridge.submit(s, RECOVER, _incoming(RECOVER, VIA))
     for num in routers:
         if router := bridge.registry.get(num):
             await tell(bridge, router, "【重启】远窗重启了，打断了你上一轮。用 list_sessions 看看现状；被打断的对话已经在接着做了，"

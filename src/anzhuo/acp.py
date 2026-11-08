@@ -58,10 +58,6 @@ async def probe_all(cwd: str) -> None:
             await probe(engine, cwd)
 
 
-def is_acp(engine: str) -> bool:
-    return engine in ENGINES
-
-
 def command(engine: str) -> list[str] | None:
     spec = ENGINES.get(engine)
     if not spec:
@@ -95,6 +91,7 @@ class AcpConn:
         self.session_id = ""
         self.options: list[dict] = []   # 会话的配置项（模型、思考、模式……）
         self.quiet = False   # 载入旧会话时它会把历史重放一遍：这期间的事件不算这一轮的
+        self._tasks: set[asyncio.Task] = set()   # 读输出、读错误输出、回答它反过来问的：留着引用，关连接时一起收掉
 
     async def start(self) -> None:
         cmd = command(self.engine)
@@ -103,8 +100,8 @@ class AcpConn:
         self.proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=self.cwd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=64 * 1024 * 1024)
-        asyncio.create_task(self._read())
-        asyncio.create_task(self._drain())
+        self._spawn(self._read())
+        self._spawn(self._drain())
         r = await self.request("initialize", {
             "protocolVersion": 1, "clientInfo": {"name": "anzhuo", "version": "1"},
             "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False}}, timeout=60)
@@ -147,7 +144,7 @@ class AcpConn:
                     continue
                 method, params = msg.get("method", ""), msg.get("params") or {}
                 if "id" in msg and method:   # 它反过来问（要不要批准）：另开一路，不挡住后面的消息
-                    asyncio.create_task(self._answer(msg["id"], method, params))
+                    self._spawn(self._answer(msg["id"], method, params))
                 elif method == "session/update" and not self.quiet:
                     try:
                         r = self.on_update(params.get("update") or {})
@@ -225,6 +222,13 @@ class AcpConn:
         if self.session_id and self.proc and self.proc.returncode is None:
             await self._send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": self.session_id}})
 
+    def _spawn(self, coro) -> asyncio.Task:
+        """开一个后台任务并留住引用（只靠事件循环的弱引用，任务可能半路被回收）；做完自己从集合里拿掉。"""
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
     async def close(self) -> None:
         if self.proc and self.proc.returncode is None:
             self.proc.terminate()
@@ -232,3 +236,10 @@ class AcpConn:
                 await asyncio.wait_for(self.proc.wait(), 5)
             except asyncio.TimeoutError:
                 self.proc.kill()
+        # 进程没了，读输出的、还在等你点头的回答都收掉，免得挂在事件循环里
+        me = asyncio.current_task()
+        tasks = [t for t in self._tasks if t is not me and not t.done()]
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

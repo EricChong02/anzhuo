@@ -1,4 +1,4 @@
-"""远窗：在手机或网页上给电脑里的 Claude Code / Codex 派活、收结果。
+"""远窗（远窗）：在手机或网页上给电脑里的 Claude Code / Codex 派活、收结果。
 
   anzhuo run      常驻运行（开机自启用这个）
   anzhuo check    核对配置、密码、Claude 登录，以及钉钉（如果开了）
@@ -73,7 +73,7 @@ def check() -> int:
             ok = False
             print(f"  钉钉：{e}")
     else:
-        print("钉钉：没开（配置里没有 client_id），只用网页")
+        print("钉钉：没开（配置里没有 client_id，或写了 dingtalk = false），只用网页")
         if not cfg.web_base:
             ok = False
             print("  网页和钉钉都没开，远窗没有入口：至少开一个")
@@ -142,7 +142,7 @@ def run() -> int:
     if cfg.dingtalk_enabled and not cfg.allowed_user_ids:
         print("钉钉开着，但配置里还没有 allowed_user_ids，先运行 anzhuo whoami 拿到你的钉钉 ID。", file=sys.stderr)
         return 2
-    if cfg.web_base and not (cfg.web_user and read_web_hash(cfg.web_user)):
+    if cfg.web_base and not any(a.get("hash") for a in web_accounts(cfg).values()):
         print("提示：网页还没设登录账号密码，现在谁也登录不了。运行 anzhuo passwd 设置。", file=sys.stderr)
     dt = DingTalk(cfg.client_id, read_secret(cfg.client_id)) if cfg.dingtalk_enabled else NoDingTalk()
     bridge = Bridge(cfg, dt)
@@ -151,7 +151,7 @@ def run() -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="anzhuo", description="远窗：在手机或网页上给电脑里的 Claude Code / Codex 派活")
+    ap = argparse.ArgumentParser(prog="anzhuo", description="远窗（远窗）：在手机或网页上给电脑里的 Claude Code / Codex 派活")
     ap.add_argument("command", choices=["run", "check", "passwd", "whoami"])
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()

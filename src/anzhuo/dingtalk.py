@@ -1,4 +1,4 @@
-"""钉钉收发（可选入口）：解析机器人收到的消息；以机器人身份给某人发单聊消息、发图、下载你发来的图片和文件。"""
+"""钉钉收发：解析机器人收到的消息；以机器人身份给某人发单聊消息、发图、下载你发来的图片和文件。"""
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +28,7 @@ class Incoming:
     files: list[tuple[str, str]] = field(default_factory=list)  # (downloadCode, 文件名)
     quoted_text: str = ""
     local_images: list[str] = field(default_factory=list)  # 网页上传的图片（已存在本机）
-    via: str = "dingtalk"  # 从哪来的：dingtalk / web / schedule / auto
+    via: str = "dingtalk"  # 从哪来的：dingtalk / web / auto，或扩展的名字
 
 
 def _quoted(d: dict) -> str:
@@ -78,35 +78,6 @@ def parse_incoming(d: dict) -> Incoming:
         if code:
             inc.files.append((code, content.get("fileName") or "附件"))
     return inc
-
-
-class NoDingTalk:
-    """没开钉钉时的空实现：远窗里所有“发给钉钉”的调用都什么也不做，网页和手机通知照常工作。"""
-    secret = ""
-
-    async def check(self) -> None:
-        return None
-
-    async def send_markdown(self, user_id: str, title: str, text: str) -> None:
-        return None
-
-    async def send_text(self, user_id: str, text: str) -> None:
-        return None
-
-    async def send_image(self, user_id: str, path: Path) -> None:
-        return None
-
-    async def send_file(self, user_id: str, path: Path) -> None:
-        return None
-
-    async def create_card(self, user_id: str, out_id: str, data: dict) -> None:
-        return None
-
-    async def update_card(self, out_id: str, data: dict) -> None:
-        return None
-
-    async def download(self, code: str, dest: Path) -> Path:
-        raise RuntimeError("没开钉钉，没有可下载的钉钉附件")
 
 
 class DingTalk:
@@ -220,3 +191,32 @@ class DingTalk:
 
     async def update_card(self, out_id: str, data: dict) -> None:
         await asyncio.to_thread(self._update_card, out_id, data)
+
+
+class NoDingTalk:
+    """钉钉停用（配置 dingtalk = false）：什么都不发，提醒只走网页和手机通知。"""
+    secret = ""
+
+    async def check(self) -> None:
+        return None
+
+    async def send_markdown(self, user_id: str, title: str, text: str) -> None:
+        return None
+
+    async def send_text(self, user_id: str, text: str) -> None:
+        return None
+
+    async def send_image(self, user_id: str, path: Path) -> None:
+        return None
+
+    async def send_file(self, user_id: str, path: Path) -> None:
+        return None
+
+    async def download(self, code: str, dest: Path) -> Path:
+        raise RuntimeError("钉钉已停用")
+
+    async def create_card(self, user_id: str, out_id: str, data: dict) -> None:
+        return None
+
+    async def update_card(self, out_id: str, data: dict) -> None:
+        return None

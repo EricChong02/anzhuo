@@ -1,0 +1,80 @@
+/* ═══ 管理（只有 admin 看得到）：用量、账号 ═══
+   和对话页同一套：磨砂板、扁平旋钮按钮、圆体数字，不加说明小字。图表两色：主账号墨蓝、user 琥珀（已过色盲校验） */
+.adm{flex:1;overflow:auto;padding:6px 20px calc(48px + env(safe-area-inset-bottom));--s1:#4a76b2;--s2:#b5762a}
+@media (prefers-color-scheme:dark){.adm{--s1:#5d8bd1;--s2:#c27d2a}}
+.adm .col{gap:14px}
+.adm-tabs{display:flex;gap:2px;padding:3px;border-radius:var(--rf);background:var(--knob-in);flex:none}
+.adm-tabs button{height:30px;padding:0 14px;border-radius:var(--rf);font-size:var(--t2);color:var(--mute)}
+.adm-tabs button.on{background:var(--plate-hi);color:var(--ink);font-weight:500}
+.adm-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 6px -4px;font-size:var(--t2);color:var(--mute)}
+.plate{background:var(--plate);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);border-radius:20px;padding:16px 18px}
+.num{font-family:var(--fd);font-variant-numeric:tabular-nums}
+/* 额度：一块板一家，5 小时 / 本周两行 */
+.aq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.aq-grid>*{min-width:0} .aq-wide{grid-column:1/-1}
+.aq h3{margin:0 0 12px;font-size:var(--t3);font-weight:500}
+.aq-row+.aq-row{margin-top:14px}
+.aq-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t2);color:var(--mute)}
+.aq-top b{font-size:var(--t5);font-weight:400;color:var(--ink)}
+.aq-row .qb{height:4px;margin-top:6px} .aq-row .qr{margin-top:5px}
+.aq-row.hot .aq-top b{color:var(--amber)} .aq-row.hot .qb i{background:var(--amber)}
+.aq-row.critical .aq-top b{color:var(--red)} .aq-row.critical .qb i{background:var(--red)}
+.aq-empty{color:var(--faint);font-size:var(--t2)}
+/* 消耗：大数 + 各账号 + 每天的柱子 */
+.au-big b{display:block;font-size:40px;font-weight:300;line-height:1.1;letter-spacing:.01em}
+.au-big span{font-size:var(--t2);color:var(--mute)}
+.au-legend{display:flex;gap:6px 18px;flex-wrap:wrap;margin-top:12px;font-size:var(--t2);color:var(--mute)}
+.au-legend b{font-weight:400;color:var(--ink);margin-left:6px}
+.sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
+.au-chart{position:relative;margin-top:18px}
+.au-chart svg{display:block;width:100%;height:200px;overflow:visible;stroke:none}
+.au-chart text{fill:var(--faint);font-size:11px;font-family:var(--fd);font-variant-numeric:tabular-nums}
+.au-chart .gl{stroke:var(--line);stroke-width:1}
+.au-chart .hit{cursor:pointer} .au-chart .cur{fill:var(--knob-in)}
+.au-tip{position:absolute;z-index:3;pointer-events:none;transform:translate(-50%,calc(-100% - 10px));min-width:150px;padding:10px 12px;border-radius:var(--r2);
+  background:var(--pop);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--rim),0 12px 30px -12px rgba(40,60,80,.3);font-size:var(--t2);line-height:1.6;white-space:nowrap}
+.au-tip b{font-weight:500} .au-tip .r{display:flex;justify-content:space-between;gap:14px;color:var(--mute)} .au-tip .r span:last-child{color:var(--ink)}
+/* 每个对话：一行一个，右边金额，下面一道细线是占比 */
+.ac-list{display:flex;flex-direction:column;gap:2px;padding:8px}
+.ac{display:grid;grid-template-columns:1fr auto;gap:2px 14px;align-items:baseline;width:100%;text-align:left;padding:10px 10px 12px;border-radius:14px}
+@media (hover:hover){.ac[data-n]:hover{background:var(--plate-hi)}}
+.ac .nm{font-size:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.ac .nm span{overflow:hidden;text-overflow:ellipsis}
+.ac .v{font-size:var(--t3);text-align:right}
+.ac .st{font-size:var(--t1);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac .pc{font-size:var(--t1);color:var(--faint);text-align:right}
+.ac .bar{grid-column:1/-1;height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:6px}
+.ac .bar i{display:block;height:100%;border-radius:var(--rf)}
+.ac-more{width:100%;padding:12px;border-radius:14px;color:var(--acc);font-size:var(--t2)}
+@media (hover:hover){.ac-more:hover{background:var(--plate-hi)}}
+.ac-empty{padding:28px 0;text-align:center;color:var(--faint);font-size:var(--t2)}
+/* 账号 */
+.aa{display:flex;flex-direction:column;gap:14px}
+.aa-hd{display:flex;align-items:center;gap:12px}
+.aa-av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--knob);font-family:var(--fd);font-size:var(--t4);color:var(--mute)}
+.aa-av.u{background:rgba(181,118,42,.12);color:#9a6420}
+@media (prefers-color-scheme:dark){.aa-av.u{background:rgba(194,125,42,.16);color:#d9a35e}}
+.aa-hd .tx{flex:1;min-width:0} .aa-hd b{display:flex;align-items:center;gap:8px;font-size:var(--t4);font-weight:500}
+.aa-hd small{display:block;font-size:var(--t2);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aa-tag{font-size:var(--t1);font-weight:400;padding:1px 8px;border-radius:var(--rf);background:var(--knob-in);color:var(--mute)}
+.aa-line{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--t2);color:var(--mute)}
+.aa-acts{display:flex;gap:8px;flex-wrap:wrap}
+.aa-acts .pill.bad,.aa-dev .pill.bad{color:var(--red)}
+.aa-devs{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
+.aa-dev{display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px}
+.aa-dev>svg{width:20px;height:20px;color:var(--mute)}
+.aa-dev .tx{flex:1;min-width:0} .aa-dev b{display:flex;align-items:center;gap:6px;font-size:var(--t3);font-weight:400}
+.aa-dev small{display:block;font-size:var(--t1);color:var(--mute)}
+.aa-dev .me{font-size:var(--t1);color:var(--acc);background:var(--accsoft);border-radius:var(--rf);padding:0 7px}
+.aa-dev .pill{height:30px;padding:0 12px}
+.aa.off .aa-hd,.aa.off .aa-devs{opacity:.55}
+.pwbox{display:flex;flex-direction:column;gap:6px;padding:8px}
+.pwbox b{font-size:var(--t4);font-weight:500;padding:4px 4px 2px}
+.au-tip{background:rgba(238,242,244,.97)}
+@media (prefers-color-scheme:dark){.au-tip{background:rgba(32,40,48,.97)}}
+@media (max-width:600px){.adm{padding:6px 12px calc(48px + env(safe-area-inset-bottom))} .au-big b{font-size:34px}
+  .aq-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+  .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}}
+
+.quota-dialog .quota-manage{width:100%;justify-content:center;margin-top:20px;min-height:44px;font-size:var(--t2);color:var(--acc)}
+.au-period{font-size:var(--t1);color:var(--mute);line-height:1.7;padding:4px 6px} #admDays button{padding:0 11px}

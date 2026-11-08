@@ -19,7 +19,7 @@ def test_group_parser_rejects_missing_duplicate_foreign_and_html():
 
 
 def test_group_model_fallback_has_no_tools(monkeypatch):
-    monkeypatch.setattr(task_groups.translate, '_deepseek_key', lambda:'secret-not-logged')
+    monkeypatch.setattr(task_groups.deepseek_api, 'key', lambda:'secret-not-logged')
     monkeypatch.setattr(task_groups, '_deepseek', lambda *args:'invalid json')
     async def query(*, prompt, options):
         assert options.tools == [] and options.setting_sources == [] and options.max_turns == 1
@@ -27,6 +27,13 @@ def test_group_model_fallback_has_no_tools(monkeypatch):
     monkeypatch.setattr(task_groups,'query',query)
     result, model = asyncio.run(task_groups.classify([{'num':1,'title':'远窗界面'}],[]))
     assert result == {1:'远窗'} and model == 'Haiku'
+
+
+def test_user_group_rules_follow_builtin():
+    assert '第4条起' not in task_groups.system()
+    text = task_groups.system('同一门课各小节归课程名\n\n练习软件统一叫考试练习软件')
+    assert '4. 同一门课各小节归课程名\n5. 练习软件统一叫考试练习软件\n第4条起是用户自己定的' in text
+    assert '{"groups":[{"name":"任务名"' in text
 
 
 def test_group_endpoint_cache_manual_race_and_account_isolation(tmp_path, monkeypatch):
@@ -43,10 +50,11 @@ def test_group_endpoint_cache_manual_race_and_account_isolation(tmp_path, monkey
         reg.get(1).relay_to=2; reg.get(2).relay_from=1
         reg.get(3).owner='guest'
         reg.get(4).task_group='手动分组'; reg.get(4).task_group_manual=True
-        w=Web('http://x',0,tmp_path); w.bridge=NS(registry=reg, cfg=NS(task_grouping=True))
+        w=Web('http://x',0,tmp_path); w.bridge=NS(registry=reg, cfg=NS(task_grouping=True, task_group_rules='同一门课归课程名'))
         calls=[]
-        async def classify(items, existing, cache=None):
+        async def classify(items, existing, cache=None, rules=''):
             calls.append(items)
+            assert rules == '同一门课归课程名'   # 用户自己的分组规则带给模型
             assert [i['num'] for i in items]==[2]
             assert '手动分组' in existing
             return {2:'远窗'}, 'stub'
@@ -60,7 +68,7 @@ def test_group_endpoint_cache_manual_race_and_account_isolation(tmp_path, monkey
         assert Registry(tmp_path/'sessions.json').get(2).task_group=='远窗'
         with pytest.raises(web.HTTPForbidden): await w._api_task_groups(Request(owner='guest'))
         # 模型返回前用户手动移组，必须保留用户的选择。
-        async def racing(items,existing,cache=None):
+        async def racing(items,existing,cache=None,rules=''):
             reg.get(2).task_group='新任务'; reg.get(2).task_group_manual=True
             return {2:'错误覆盖'}, 'stub'
         monkeypatch.setattr(task_groups,'classify',racing)
@@ -71,7 +79,7 @@ def test_group_endpoint_cache_manual_race_and_account_isolation(tmp_path, monkey
 
 def test_group_cache_avoids_repeat_model_calls(tmp_path, monkeypatch):
     calls=[]
-    async def model(items, existing):
+    async def model(items, existing, rules=''):
         calls.append(items)
         return {i['num']:'远窗' for i in items}, 'stub'
     monkeypatch.setattr(task_groups,'_classify',model)
@@ -88,13 +96,13 @@ def test_group_cache_avoids_repeat_model_calls(tmp_path, monkeypatch):
 
 
 def test_course_sections_share_one_group():
-    assert task_groups.normalize('一豆一像素·第二节') == '一豆一像素'
-    assert task_groups.normalize('一豆一像素·第三小节') == '一豆一像素'
-    assert task_groups.normalize('一豆一像素·整体与素材') == '一豆一像素'
+    assert task_groups.normalize('数据可视化·第二节') == '数据可视化'
+    assert task_groups.normalize('数据可视化·第三小节') == '数据可视化'
+    assert task_groups.normalize('数据可视化·整体与素材') == '数据可视化'
     assert task_groups.normalize('数据可视化·第二节') == '数据可视化'
     assert task_groups.normalize('远窗') == '远窗'
-    raw='{"groups":[{"name":"一豆一像素·第二节","nums":[1]},{"name":"一豆一像素·第三节","nums":[2]}]}'
-    assert task_groups.parse(raw,{1,2}) == {1:'一豆一像素',2:'一豆一像素'}
+    raw='{"groups":[{"name":"数据可视化·第二节","nums":[1]},{"name":"数据可视化·第三节","nums":[2]}]}'
+    assert task_groups.parse(raw,{1,2}) == {1:'数据可视化',2:'数据可视化'}
 
 
 def test_cached_course_groups_merge_without_model(tmp_path, monkeypatch):
@@ -102,8 +110,8 @@ def test_cached_course_groups_merge_without_model(tmp_path, monkeypatch):
     item={'num':1,'title':'像素课'}
     sig=hashlib.sha256(json.dumps(item,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     cache=tmp_path/'cache.json'
-    cache.write_text(json.dumps({'1':{'sig':sig,'group':'一豆一像素·第五节'}}))
+    cache.write_text(json.dumps({'1':{'sig':sig,'group':'数据可视化·第五节'}}))
     async def forbidden(*args): raise AssertionError('旧分类合并不应调用模型')
     monkeypatch.setattr(task_groups,'_classify',forbidden)
     result,_=asyncio.run(task_groups.classify([item],[],cache))
-    assert result == {1:'一豆一像素'}
+    assert result == {1:'数据可视化'}

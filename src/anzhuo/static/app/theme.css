@@ -1,0 +1,582 @@
+/* ═══ 远窗 · Pane 视觉（2026-11-02定：雾面玻璃、干净；两套跟随系统；动效克制；墨蓝为主色；不用蓝紫渐变）═══
+   原则（参考 Apple 材质规范、visionOS 设计规范、NN/g 对玻璃拟态可读性的研究）
+   - 底是一层干净、平滑的冷灰雾，没有色团；颜色只出现在小的光点和图标上（像 logo 里那盏灯）。
+   - 玻璃只有一层：卡片、输入框、按钮浮在雾上；不在玻璃上再叠玻璃（叠多了发灰发脏、字也看不清）。
+   - 玻璃要“薄”：奶白半透明 + 顶边一道亮线 + 很淡的影子；按钮不用实心深色块，主按钮是更白一点的玻璃，墨蓝只在图标和字上。
+   - 字要清楚：正文 400，标题可以细到 300；次要文字也要够深，不用浅灰压在灰上。
+   - 状态是发光的点：墨蓝 = 在做，琥珀 = 等你定，红 = 出错，珍珠白 = 有新消息，空心环 = 暂停。琥珀不出现在别处。
+   - 进度是“光轨”：一根发丝线，每一步一个节点；做完的亮着，正在做的那段有一道光往前走，没到的是空心环。 */
+:root{
+  --sky:linear-gradient(158deg,#d4e0ea 0%,#e1eaf1 38%,#ecf2f6 72%,#f3f6f9 100%);
+  --bg:#e8eff4;--side:transparent;--panel:rgba(255,255,255,.82);--bubble:rgba(255,255,255,.72);
+  --ink:#25313e;--mute:#566474;--faint:#8592a0;--line:rgba(24,44,64,.065);--hair:rgba(24,44,64,.14);
+  --acc:#2c4a74;--acc-hi:#4a76b2;--acc-glow:rgba(74,118,178,.50);--accsoft:rgba(44,74,116,.07);--acc-shadow:rgba(44,74,116,.16);--on-acc:#fff;
+  --amber:#8f620c;--amber-hi:#e0a536;--amber-glow:rgba(224,165,54,.55);--amber-soft:rgba(206,150,40,.10);
+  --red:#a8402f;--red-hi:#e26b5a;--red-glow:rgba(226,107,90,.45);--green:#3c7c60;--pearl:#a3aeb9;
+  /* 玻璃：card 卡片 / ctl 控件 / pop 弹层；都是奶白，透明度不同 */
+  --card:rgba(255,255,255,.60);--ctl:rgba(255,255,255,.36);--ctl-hi:rgba(255,255,255,.72);
+  --pop:rgba(250,252,253,.80);--edge:rgba(255,255,255,.92);--hi:rgba(255,255,255,.95);
+  --glass:var(--ctl);--glass-hi:var(--ctl-hi);--glass-lo:rgba(255,255,255,.28);
+  --blur:saturate(1.2) blur(20px);--veil:rgba(30,44,58,.12);
+  --rim:inset 1px 1px 0 rgba(255,255,255,.95),inset 0 0 0 1px rgba(255,255,255,.72);
+  --shadow:10px 18px 48px -12px rgba(92,124,168,.22),3px 6px 14px -6px rgba(92,124,168,.10);--lift:0 0 0 transparent;
+  --float:10px 18px 48px -12px rgba(92,124,168,.22),3px 6px 14px -6px rgba(92,124,168,.10);
+  --toast-bg:var(--pop);--toast-ink:var(--ink);--toast-acc:var(--acc);
+  --r1:10px;--r2:18px;--r3:26px;--rf:999px;
+  --ff:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+  --fd:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{
+  --sky:linear-gradient(176deg,#151b22 0%,#11171d 50%,#0d1217 100%);
+  --bg:#11171d;--panel:rgba(40,48,58,.9);--bubble:rgba(255,255,255,.075);
+  --ink:#e6ebf0;--mute:#a3aeb9;--faint:#76828d;--line:rgba(255,255,255,.07);--hair:rgba(255,255,255,.12);
+  --acc:#a9c4ea;--acc-hi:#8fb6ee;--acc-glow:rgba(130,172,236,.5);--accsoft:rgba(150,186,238,.10);--acc-shadow:rgba(0,0,0,.3);--on-acc:#0c1828;
+  --amber:#e8c36f;--amber-hi:#f0c060;--amber-glow:rgba(240,192,96,.45);--amber-soft:rgba(240,192,96,.10);
+  --red:#f0907f;--red-hi:#f08070;--red-glow:rgba(240,128,112,.4);--green:#7cc8a0;--pearl:#c3ccd5;
+  --card:rgba(255,255,255,.045);--ctl:rgba(255,255,255,.035);--ctl-hi:rgba(255,255,255,.08);
+  --pop:rgba(28,35,44,.88);--edge:rgba(255,255,255,.085);--hi:rgba(255,255,255,.11);
+  --glass-lo:rgba(255,255,255,.035);--veil:rgba(0,0,0,.4);
+  --shadow:10px 18px 48px -12px rgba(0,0,0,.5),3px 6px 14px -6px rgba(0,0,0,.3);--lift:0 0 0 transparent;
+  --float:10px 18px 48px -12px rgba(0,0,0,.5),3px 6px 14px -6px rgba(0,0,0,.3);
+  --rim:inset 1px 1px 0 rgba(255,255,255,.10),inset 0 0 0 1px rgba(255,255,255,.07)}}
+
+/* ── 字 ── */
+html,body{background:var(--sky) var(--bg);background-attachment:fixed;font-family:var(--ff);font-weight:400;letter-spacing:.01em}
+b,strong,th{font-weight:500}
+::placeholder{color:var(--faint)}
+::selection{background:rgba(74,118,178,.20)}
+svg{stroke-width:1.6}
+.tick,.ql b,.quota-week b,.quota-detail-top b,.ag .am,.process-time,.sp-progress{font-variant-numeric:tabular-nums}
+*{scrollbar-width:thin;scrollbar-color:var(--hair) transparent}
+::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:var(--hair);border-radius:8px;border:2px solid transparent;background-clip:padding-box} ::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:none;box-shadow:var(--rim),0 0 0 3px var(--accsoft),0 0 0 1px var(--acc-hi)!important}
+
+/* ── 侧栏：直接落在雾上 ── */
+.side{background:transparent}
+.brand{padding:20px 14px 12px 20px}
+.conn{display:flex;align-items:center;gap:6px;flex:1;min-width:0;margin-left:12px;white-space:nowrap;overflow:hidden;font-size:12.5px;color:var(--mute,#7b8794)}
+.conn i{width:7px;height:7px;border-radius:50%;background:#9aa5b1;flex:none;transition:background .3s,box-shadow .3s}
+.conn.on i{background:#3fb37f;box-shadow:0 0 0 2.5px rgba(63,179,127,.18)}
+.conn.off i{background:#d9a441;box-shadow:0 0 0 2.5px rgba(217,164,65,.2)}
+.conn .cs{color:var(--ink);opacity:.8}
+.brand .mk{width:30px;height:30px;border-radius:8px;margin-right:11px;flex:none;overflow:hidden;box-shadow:0 1px 3px rgba(24,44,64,.12),inset 0 0 0 .5px rgba(255,255,255,.5)}
+.mk>svg{width:100%;height:100%;display:block} .mk>svg.d{display:none} @media (prefers-color-scheme:dark){.mk>svg.l{display:none}.mk>svg.d{display:block}}
+.brand b{font-family:var(--fd);font-weight:400;font-size:20px;letter-spacing:.2em;flex:none}
+.icon-btn,.back{width:36px;height:36px;border-radius:50%;background:transparent;box-shadow:none;place-items:center;transition:background .2s}
+.icon-btn{margin-left:6px} .icon-btn svg{width:18px;height:18px}
+@media (hover:hover){.icon-btn:hover,.back:hover{background:var(--ctl-hi)}}
+.sum{color:var(--mute);font-size:var(--t1)}
+.find{background:var(--ctl);border:0;box-shadow:var(--rim);height:38px;border-radius:var(--rf);color:var(--faint);transition:background .2s,box-shadow .2s}
+.find:focus-within{background:var(--ctl-hi);box-shadow:var(--rim),0 0 0 3px var(--accsoft)}
+.cat{border:0;background:var(--glass-lo);box-shadow:var(--rim);color:var(--mute);height:28px;font-size:var(--t1)}
+.cat.on{background:var(--ctl-hi);color:var(--ink);box-shadow:var(--rim),var(--lift)}
+.label,.qh,.ask .ah,.plan .ah,.agents .ah,.mmenu .lb,.amenu .t{font-size:11.5px;color:var(--faint);font-weight:500;letter-spacing:.12em}
+.label{padding:16px 10px 6px}
+.item{border-radius:var(--r2);transition:background .2s,box-shadow .2s}
+@media (hover:hover){.item:hover,.mo:hover,.amenu button:hover,.wo:hover,.blist .bo:hover{background:var(--glass-lo)}}
+.item.sel{background:var(--card);box-shadow:var(--rim),var(--lift)}
+.unread .nm{font-weight:500} .item.sel .nm{font-weight:400}
+.item .st{color:var(--mute)}
+.item .more{border-radius:50%}
+.ccard,.ccard .cgo{border-radius:var(--r2)}
+
+/* ── 光点 ── */
+.dot{--c:var(--pearl);--g:transparent;position:relative;width:6px;height:6px;border:0;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.95) 0 22%,var(--c) 64%);box-shadow:0 0 3px 1px var(--g),0 0 9px 2px var(--g)}
+.running .dot,.ccard.running .dot,.ccard.queued .dot{--c:var(--acc-hi);--g:var(--acc-glow);background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.95) 0 22%,var(--c) 64%);border:0;animation:none}
+.running .dot::after,.ccard.running .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;background:radial-gradient(closest-side,var(--acc-glow),transparent);animation:halo 2.4s ease-in-out infinite}
+@keyframes halo{0%,100%{opacity:.2;transform:scale(.7)}50%{opacity:.9;transform:scale(1.3)}}
+.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:var(--amber-hi);--g:var(--amber-glow);background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.95) 0 22%,var(--c) 64%);border:0}
+.error .dot,.error.unread .dot{--c:var(--red-hi);--g:var(--red-glow);background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.95) 0 22%,var(--c) 64%);border:0}
+.unread .dot{--c:var(--pearl);--g:rgba(140,160,180,.3);background:radial-gradient(circle at 50% 45%,#fff 0 25%,var(--c) 70%);border:0}
+.paused .dot{background:transparent;box-shadow:inset 0 0 0 1px var(--faint)}
+.offline i{width:6px;height:6px;background:radial-gradient(circle at 50% 45%,#fff 0 22%,var(--amber-hi) 64%);box-shadow:0 0 3px 1px var(--amber-glow),0 0 9px 2px var(--amber-glow)}
+
+/* ── 转圈：一道绕圈的细光 ── */
+.spin{border:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 45%,var(--acc-glow) 78%,var(--acc-hi));
+  -webkit-mask:radial-gradient(closest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));mask:radial-gradient(closest-side,transparent calc(100% - 2px),#000 calc(100% - 1.5px));
+  animation:rot 1.1s linear infinite}
+.send .spin{background:conic-gradient(from 0deg,transparent 0 45%,var(--acc-glow) 78%,var(--acc-hi))}
+
+/* ── 进度：光轨 + 节点 ── */
+.pbar{gap:0;align-items:center;padding:10px 4px 4px;margin-top:8px}
+.pbar i{position:relative;flex:1;height:10px;border-radius:0;background:linear-gradient(var(--hair),var(--hair)) left center/calc(100% - 10px) 1px no-repeat;animation:none;opacity:1}
+.pbar i::after{content:"";position:absolute;right:0;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--faint)}
+.pbar i.done{background:linear-gradient(90deg,var(--acc-glow),var(--acc-hi)) left center/calc(100% - 10px) 1.5px no-repeat}
+.pbar i.done::after{background:radial-gradient(circle at 50% 45%,#fff 0 20%,var(--acc-hi) 64%);box-shadow:0 0 3px 1px var(--acc-glow),0 0 8px 1px var(--acc-glow)}
+.pbar i.doing{background:linear-gradient(var(--hair),var(--hair)) left center/calc(100% - 10px) 1px no-repeat;animation:none;opacity:1}
+.pbar i.doing::before{content:"";position:absolute;left:0;right:10px;top:50%;height:1.5px;margin-top:-.75px;border-radius:2px;
+  background:linear-gradient(90deg,transparent 0,transparent 35%,var(--acc-glow) 46%,var(--acc-hi) 50%,transparent 50.5%,transparent 100%) 0 0/200% 100% no-repeat;
+  animation:comet 2.2s cubic-bezier(.45,.05,.55,.95) infinite}
+.pbar i.doing::after{width:8px;height:8px;margin-top:-4px;box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 6px 1px var(--acc-glow);animation:node 2.2s ease-in-out infinite}
+@keyframes comet{from{background-position:100% 0}to{background-position:-100% 0}}
+@keyframes node{0%,100%{box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 2px 0 var(--acc-glow)}50%{box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 9px 2px var(--acc-glow)}}
+.plan,.agents,.live .plist{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--line)}
+.ps .ok,.ag .ok{font-size:0;display:grid;place-items:center} .ps .ok::before,.ag .ok::before{content:"";width:6px;height:6px;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%,#fff 0 20%,var(--acc-hi) 64%);box-shadow:0 0 5px 1px var(--acc-glow)}
+.ps .n{color:var(--faint);font-size:11px} .ps.doing .an{font-weight:500} .ps.done .an{text-decoration:none;color:var(--faint)}
+/* 额度：发丝线，满的那头一颗光点 */
+.quota{border-top:1px solid var(--line)}
+.ql b,.quota-week b{font-weight:400;font-family:var(--fd)}
+.qb{height:1.5px;background:var(--hair);overflow:visible;margin-top:7px}
+.qb i{position:relative;background:var(--acc-hi)}
+.qb i::after{content:"";position:absolute;right:-2.5px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;background:radial-gradient(circle,#fff 0 20%,var(--acc-hi) 65%);box-shadow:0 0 5px 1px var(--acc-glow)}
+.qm.hot .qb i,.quota-detail-row.hot .qb i{background:var(--amber-hi)} .qm.hot .qb i::after,.quota-detail-row.hot .qb i::after{background:radial-gradient(circle,#fff 0 20%,var(--amber-hi) 65%);box-shadow:0 0 5px 1px var(--amber-glow)}
+.quota-detail-row.critical .qb i{background:var(--red-hi)} .quota-detail-row.critical .qb i::after{background:radial-gradient(circle,#fff 0 20%,var(--red-hi) 65%);box-shadow:0 0 5px 1px var(--red-glow)}
+.eng{font-weight:500;font-size:10px;letter-spacing:.1em;box-shadow:inset 0 0 0 1px var(--hair);border-radius:var(--rf);padding:0 6px}
+
+/* ── 主区：不再是一块板，内容直接在雾上，只有卡片和输入框浮起 ── */
+.main{background:transparent}
+.head{background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;border-bottom:1px solid var(--line)}
+.head .ti b{font-weight:500;color:var(--ink)} .head .ti b span{color:inherit;font-weight:inherit} .head .ti span,.item .st,.live .lsub,.facts{font-weight:300}
+.head .ti span{color:var(--mute)}
+.dock{background:none}
+.blank{color:var(--mute)}
+.blank .mk{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;overflow:hidden;box-shadow:0 8px 24px rgba(24,44,64,.14),inset 0 0 0 .5px rgba(255,255,255,.5)}
+.blank b{font-family:var(--fd);font-weight:300;font-size:28px;letter-spacing:.28em;margin:0 0 8px .28em}
+.newv h1{font-family:var(--fd);font-weight:300;font-size:32px;letter-spacing:.06em;margin-bottom:24px}
+.opening{background:var(--sky) var(--bg)}
+
+/* ── 正文 ── */
+.cl .md{line-height:1.85}
+.md b{font-weight:500} .md h4{font-weight:500} .md h5{font-weight:500;color:var(--faint);letter-spacing:.12em}
+.md li::marker{color:var(--faint)}
+.md blockquote{border-left:2px solid var(--hair);color:var(--mute)}
+.md pre,.md details.code{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--hair)} .md pre{font-family:var(--mono)}
+.md details.code pre{box-shadow:none;background:none}
+code{font-family:var(--mono);font-size:.88em;background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--hair);border-radius:6px;padding:1px 6px}
+.md hr{border-top-color:var(--hair)}
+.cl .md th{font-weight:500;color:var(--mute);font-size:.88em} .cl .md td,.cl .md th{border-bottom-color:var(--line)}
+mark{background:rgba(224,165,54,.25)}
+.facts,.note,.qtag,.ymeta,.ptog{color:var(--mute)}
+.pi.think .pt{font-style:normal}
+.pi .who{background:var(--accsoft);border-radius:var(--rf);font-size:11px}
+.caret{width:2px;border-radius:2px;background:var(--acc-hi)}
+
+/* ── 玻璃卡片（只有一层）：你说的话、在做、确认、选项、文件、输入框 ── */
+.you,.live,.confirm,.limit,.opt,.file,.plist,.composer{background:var(--card);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:0;box-shadow:var(--rim),var(--lift)}
+.you{border-radius:var(--r3) var(--r3) 8px var(--r3)}
+.live,.confirm,.composer{border-radius:var(--r3)} .live{padding:16px 18px}
+.plist{box-shadow:var(--rim)}
+.live,.composer{box-shadow:var(--rim),var(--float)} .item.sel{box-shadow:var(--rim),3px 6px 18px -8px rgba(92,124,168,.18)} @media (prefers-color-scheme:dark){.item.sel{box-shadow:var(--rim)}}
+.composer{transition:box-shadow .3s ease} .composer:focus-within{box-shadow:var(--rim),0 0 0 3px var(--accsoft),var(--float)}
+.composer.drop{box-shadow:var(--rim),0 0 0 1px var(--acc-hi),0 0 0 4px var(--accsoft)}
+.live .lh .lt,.live .lh span,.ask .q,.confirm .q,.limit .q{font-weight:400} .live .lsub .tick{font-weight:400;color:var(--ink)}
+.live .partial{border-top-color:var(--line)}
+.silence,.silence.stuck{color:var(--mute)}
+.file svg{color:var(--acc)}
+@media (hover:hover){.file:hover,.opt:hover{box-shadow:var(--rim),var(--shadow)}}
+.opt{border-radius:var(--r2);transition:box-shadow .2s ease}
+.opt .k{background:transparent;box-shadow:inset 0 0 0 1px var(--hair);color:var(--mute);font-weight:500}
+.opt.rec .k{color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc-hi)} .opt .tag{color:var(--acc)}
+.confirm pre{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--hair);font-family:var(--mono)}
+.cwarn,.hint{color:var(--amber)}
+
+/* ── 按钮：都是薄玻璃。普通的半透明；主按钮是更白、更实一点的玻璃，墨蓝只在图标和字上 ── */
+.pill,.quick button,.jump,.stop,.chipf,.note.rw button,.mp{background:var(--ctl);border:0;box-shadow:var(--rim);transition:background .2s,box-shadow .2s}
+.stop{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.mp{background:transparent;box-shadow:none;color:var(--mute)}
+@media (hover:hover){.pill:hover,.quick button:hover,.jump:hover,.stop:hover,.mp:hover{background:var(--ctl-hi);box-shadow:var(--rim),var(--lift)}}
+.mp.open{background:var(--ctl-hi);box-shadow:var(--rim)}
+.pill.on{background:var(--accsoft);color:var(--acc);box-shadow:inset 0 0 0 .5px var(--accsoft)}
+.pill.warn{color:var(--amber)}
+.stop svg{width:10px;height:10px;color:var(--mute)} .stop:hover{color:var(--red)} .stop:hover svg{color:var(--red)}
+.send,.fab,.confirm .cb .ok,.amenu button.on,.rewind-dialog .rewind-actions button.on,.sheet button.on,.schedule-dialog .on{
+  background:rgba(44,74,116,.08);color:var(--acc);font-weight:500;box-shadow:inset 0 0 0 1px rgba(44,74,116,.14)}
+@media (prefers-color-scheme:dark){.send,.fab,.confirm .cb .ok,.amenu button.on,.rewind-dialog .rewind-actions button.on,.sheet button.on,.schedule-dialog .on{
+  background:rgba(169,196,234,.12);color:var(--acc);box-shadow:inset 0 0 0 1px rgba(169,196,234,.18)}}
+.send svg,.fab svg{stroke-width:2}
+.send{transition:transform .15s ease,box-shadow .25s,color .2s,background .2s} .send:active{transform:scale(.92)}
+.send:disabled{background:transparent;color:var(--faint);box-shadow:none}
+.fab{-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:inset 0 0 0 1px rgba(44,74,116,.14),0 6px 20px rgba(24,44,64,.08)}
+.confirm .cb button{background:var(--ctl);box-shadow:var(--rim)}
+.thumb button{background:var(--pop);color:var(--ink);box-shadow:var(--rim),var(--lift)}
+.note.rw{background:var(--accsoft)}
+.ib{border-radius:50%} .ib.done{color:var(--acc-hi)}
+@media (hover:hover){.ib:hover{background:var(--ctl)} .ib:hover::after{background:var(--pop);color:var(--ink);box-shadow:var(--rim),var(--lift);border-radius:var(--rf);padding:6px 10px}}
+
+/* 朗读条 */
+.speech-player{background:transparent;border-bottom:1px solid var(--line)}
+.sp-play{color:var(--acc)} .sp-main button,.sp-download{border-radius:50%} .sp-main button:hover,.sp-download:hover{background:var(--ctl)}
+.sp-title b{font-weight:500}
+.sp-progress input{-webkit-appearance:none;appearance:none;background:transparent}
+.sp-progress input::-webkit-slider-runnable-track{height:1.5px;background:var(--hair);border-radius:2px}
+.sp-progress input::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;margin-top:-4.75px;border-radius:50%;border:0;background:#fff;box-shadow:0 0 0 .5px rgba(24,44,64,.2),0 1px 4px rgba(24,44,64,.2),0 0 0 3px var(--accsoft)}
+.sp-progress input::-moz-range-track{height:1.5px;background:var(--hair)} .sp-progress input::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(24,44,64,.25)}
+
+/* ── 弹出层 ── */
+.wmenu,.mmenu,.usage,.amenu .box,.sheet .box{background:var(--pop);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:0;border-radius:var(--r3);box-shadow:var(--rim),var(--shadow)}
+.wmenu,.mmenu{border-radius:var(--r2)}
+.amenu,.sheet{background:var(--veil)}
+.amenu button,.mo,.wo,.blist .bo{border-radius:var(--r1)}
+.mo b,.wo b,.dev b,.sheet b{font-weight:500} .mo.on,.wo.on{color:var(--acc)} .mo .ok{color:var(--acc)}
+.seg button{background:var(--glass-lo);box-shadow:var(--rim)} .seg button.on{background:var(--ctl-hi);color:var(--acc);font-weight:500;box-shadow:var(--rim),var(--lift)}
+.sheet button{background:var(--ctl);box-shadow:var(--rim)}
+.sheet button.danger{background:var(--ctl);color:var(--red);box-shadow:var(--rim)}
+.amenu input,.schedule-form input,.schedule-form textarea,.schedule-form select{background:var(--ctl);border:0;box-shadow:var(--rim),inset 0 0 0 1px var(--line);border-radius:var(--r1)}
+.amenu input:focus,.schedule-form input:focus,.schedule-form textarea:focus,.schedule-form select:focus{outline:none;box-shadow:var(--rim),0 0 0 3px var(--accsoft)}
+.blist,.amenu .browse .bx,.quota-dialog .quota-close,.schedule-dialog .schedule-head>button{background:var(--glass-lo);border:0;box-shadow:var(--rim)}
+.dev .me{background:var(--accsoft);border-radius:var(--rf)}
+.rewind-dialog h2,.quota-detail-head h2,.schedule-head h2{font-family:var(--fd);font-weight:400}
+.rewind-dialog .rewind-actions button,.schedule-dialog .schedule-tools button{background:var(--ctl);box-shadow:var(--rim);border-radius:var(--rf)}
+.rewind-option,.quota-detail-group+.quota-detail-group,.schedule-card,.dev{border-color:var(--line)}
+.toast,.notice,.offline{background:var(--pop);color:var(--ink);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border:0;box-shadow:var(--rim),var(--shadow)}
+.toast button{color:var(--acc);font-weight:500}
+
+@media (min-width:821px){.side{box-shadow:inset -1px 0 0 var(--line)}}
+@media (max-width:820px){
+  .side,.main{background:transparent}
+  .brand b{font-size:24px} .brand .mk{width:34px;height:34px;border-radius:9px}
+  .fab{background:rgba(255,255,255,.7)}
+}
+/* 系统要求“降低透明度”时，玻璃都变实 */
+@media (prefers-reduced-transparency:reduce){:root{--card:var(--panel);--ctl:var(--panel);--ctl-hi:var(--panel);--glass-lo:var(--panel);--pop:var(--bg)}}
+/* 模型菜单开着时输入框不磨砂：带 backdrop-filter 的元素会成为 fixed 子元素的定位参照，手机上的底部面板会贴着输入框往上弹、
+   撞到标题栏；菜单自己的磨砂也只能糊到输入框里面，看着是透明的 */
+.composer:has(.mmenu){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+@media (prefers-reduced-motion:reduce){.pbar i.doing::before,.pbar i.doing::after,.running .dot::after,.ccard.running .dot::after{animation:none}}
+
+/* 状态光点：轻一点。小的实点 + 一圈很淡的光晕，没有珠子高光；在做的那圈光晕慢慢呼吸 */
+.dot,.running .dot,.ccard.running .dot,.ccard.queued .dot,.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot,.error .dot,.error.unread .dot,.unread .dot{
+  width:5px;height:5px;background:var(--c);box-shadow:0 0 0 2.5px var(--g),0 0 6px var(--g)}
+.dot{--g:transparent}
+.running .dot,.ccard.running .dot,.ccard.queued .dot{--c:var(--acc-hi);--g:rgba(74,118,178,.16)}
+.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:#d9a441;--g:rgba(217,164,65,.18)}
+.error .dot,.error.unread .dot{--c:var(--red-hi);--g:rgba(226,107,90,.16)}
+.unread .dot{--c:#a9b5c1;--g:rgba(169,181,193,.18)}
+@media (prefers-color-scheme:dark){.running .dot,.ccard.running .dot{--g:rgba(143,182,238,.16)} .awaiting .dot,.awaiting.unread .dot{--c:#e8c06a;--g:rgba(232,192,106,.16)}}
+.running .dot::after,.ccard.running .dot::after{inset:-5px;background:radial-gradient(closest-side,rgba(74,118,178,.22),transparent);animation:halo 2.6s ease-in-out infinite}
+.paused .dot{background:transparent;box-shadow:inset 0 0 0 1px var(--faint)}
+/* 进度节点、步骤勾、额度光点同样轻一点 */
+.pbar i.done::after,.ps .ok::before,.ag .ok::before{background:var(--acc-hi);box-shadow:0 0 0 2.5px rgba(74,118,178,.15)}
+.pbar i.doing::after{box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 0 3px rgba(74,118,178,.12);animation:none}
+.qb i::after{background:var(--acc-hi);box-shadow:0 0 0 2px rgba(74,118,178,.15)}
+.offline i{width:5px;height:5px;background:#d9a441;box-shadow:0 0 0 2.5px rgba(217,164,65,.18)}
+
+.brand .mk,.blank .mk{box-shadow:0 1px 3px rgba(24,44,64,.10),0 0 0 .5px rgba(24,44,64,.14)}
+@media (prefers-color-scheme:dark){.brand .mk,.blank .mk{box-shadow:0 0 0 .5px rgba(255,255,255,.12)}}
+
+/* ═══ 第五版：对照参考图——扁平磨砂 ═══
+   背景只有一层平滑的灰蓝渐变（右上深、左下浅）；卡片、按钮都是没有边、没有高光、没有影子的半透明磨砂板，
+   靠和背景的一点明暗差分开；颜色只从“在做”卡片背后淡淡透出一小团。 */
+:root{
+  --sky:linear-gradient(200deg,#a9b9c4 0%,#c3cfd7 30%,#d9e1e4 62%,#e8eeec 100%);
+  --bg:#d3dde2;
+  --ink:#24323e;--mute:#566673;--faint:#7d8c98;--line:rgba(36,56,72,.08);--hair:rgba(36,56,72,.14);
+  --plate:rgba(255,255,255,.40);--plate-hi:rgba(255,255,255,.56);--knob:rgba(255,255,255,.34);--knob-in:rgba(60,84,104,.07);
+  --frost:saturate(1.15) blur(30px);
+  --fd:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+@media (prefers-color-scheme:dark){:root{
+  --sky:linear-gradient(200deg,#26323c 0%,#1b242c 40%,#13191e 100%);--bg:#161d23;
+  --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--line:rgba(255,255,255,.06);--hair:rgba(255,255,255,.11);
+  --plate:rgba(255,255,255,.055);--plate-hi:rgba(255,255,255,.085);--knob:rgba(255,255,255,.06);--knob-in:rgba(255,255,255,.06)}}
+html,body{background:var(--sky) var(--bg);background-attachment:fixed}
+/* 不要分隔线：侧栏、标题栏靠留白分开 */
+.side{box-shadow:none!important} .head{border-bottom:0} .quota{border-top:0} .speech-player{border-bottom:0}
+/* 磨砂板：卡片、你说的话、选项、文件、输入框、选中的对话 */
+.live,.composer,.item.sel,.you,.opt,.file,.confirm,.limit,.plist{background:var(--plate);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);box-shadow:none;border:0}
+.composer{background:var(--plate-hi)}
+.composer:focus-within{box-shadow:0 0 0 3px var(--accsoft)} .composer.drop{box-shadow:0 0 0 2px var(--acc-hi)}
+.live,.composer,.confirm{border-radius:26px} .opt,.file,.item.sel{border-radius:20px}
+@media (hover:hover){.file:hover,.opt:hover{background:var(--plate-hi);box-shadow:none}}
+.opt.rec{background:var(--plate-hi);box-shadow:none}
+.plan,.agents,.live .plist,.md pre,.md details.code,code,.confirm pre{background:var(--knob-in);box-shadow:none}
+/* 圆形、胶囊按钮：扁平半透明，没有边 */
+.find,.pill,.quick button,.jump,.cat,.stop,.chipf,.note.rw button,.seg button,.sheet button,.confirm .cb button,.rewind-dialog .rewind-actions button,.schedule-dialog .schedule-tools button,.blist,.amenu .browse .bx,.quota-dialog .quota-close,.schedule-dialog .schedule-head>button{
+  background:var(--knob);box-shadow:none;border:0}
+.live .stop,.opt .k,.composer .mp.open{background:var(--knob-in);box-shadow:none}
+.opt .k{box-shadow:none} .opt.rec .k{background:var(--accsoft);box-shadow:none}
+.icon-btn,.back{background:var(--knob)} .composer .ib,.composer .icon-btn{background:transparent}
+@media (hover:hover){.pill:hover,.quick button:hover,.jump:hover,.stop:hover,.icon-btn:hover,.back:hover,.mp:hover{background:var(--plate-hi);box-shadow:none}}
+.cat.on,.seg button.on{background:var(--plate-hi);box-shadow:none}
+.pill.on{background:var(--accsoft);box-shadow:none}
+/* 主按钮：淡淡一层墨蓝的磨砂圆，没有边 */
+.send,.fab,.confirm .cb .ok,.amenu button.on,.rewind-dialog .rewind-actions button.on,.sheet button.on,.schedule-dialog .on{background:rgba(44,74,116,.12);color:var(--acc);box-shadow:none}
+@media (prefers-color-scheme:dark){.send,.fab,.confirm .cb .ok,.amenu button.on,.rewind-dialog .rewind-actions button.on,.sheet button.on,.schedule-dialog .on{background:rgba(169,196,234,.14);box-shadow:none}}
+.send:disabled{background:transparent}
+.fab{background:var(--plate-hi);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);box-shadow:none}
+/* 弹层：更实一点的磨砂，只留很淡的影子把它和下面分开 */
+.wmenu,.mmenu,.usage,.amenu .box,.sheet .box,.toast,.notice,.offline{background:rgba(236,241,243,.78);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);box-shadow:0 20px 50px -20px rgba(40,60,80,.25)}
+@media (prefers-color-scheme:dark){.wmenu,.mmenu,.usage,.amenu .box,.sheet .box,.toast,.notice,.offline{background:rgba(32,40,48,.86);box-shadow:0 20px 50px -20px rgba(0,0,0,.6)}}
+.amenu input,.schedule-form input,.schedule-form textarea,.schedule-form select{background:var(--knob-in);box-shadow:none}
+/* “在做”的卡片：背后淡淡透出一小团墨蓝光，像参考图里卡片后面的光 */
+.live{position:relative;isolation:isolate;overflow:hidden}
+.live::before{content:"";position:absolute;z-index:-1;left:-6%;top:-70%;width:46%;height:170%;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(92,128,190,.22),transparent);pointer-events:none}
+@media (prefers-color-scheme:dark){.live::before{background:radial-gradient(closest-side,rgba(110,150,220,.16),transparent)}}
+/* 字：标题细一点，数字用圆体（苹果设备上有） */
+.brand b{font-family:var(--fd);font-weight:400}
+.newv h1,.blank b{font-family:var(--fd);font-weight:300}
+.live .lh .lt,.head .ti b{font-weight:500}
+
+/* 第六版：底色提亮一档；状态不用灯、字不变色，颜色从玻璃后面透出来 */
+:root{--sky:linear-gradient(200deg,#c2cfd8 0%,#d6dfe5 32%,#e5ebee 64%,#f0f4f3 100%);--bg:#dfe6ea;--plate:rgba(255,255,255,.46);--plate-hi:rgba(255,255,255,.60);
+  --haze-run:rgba(74,118,178,.22);--haze-ask:rgba(226,172,82,.30);--haze-err:rgba(214,108,92,.22)}
+@media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);
+  --haze-run:rgba(122,166,234,.20);--haze-ask:rgba(232,186,96,.20);--haze-err:rgba(238,139,124,.18)}}
+/* 会话状态：实色灯和文字同时区分，排队与暂停使用不同形状。 */
+.dot,.running .dot,.ccard.running .dot,.queued .dot,.ccard.queued .dot,.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot,.error .dot,.error.unread .dot,.unread .dot{
+  width:9px;height:9px;border:0;border-radius:50%;background:var(--c);box-shadow:none}
+.running .dot::after,.ccard.running .dot::after{display:none}
+.unread .dot{--c:var(--ink)}
+.running .dot,.running.unread .dot,.ccard.running .dot{--c:var(--acc);animation:soft 2s ease-in-out infinite}
+.queued .dot,.queued.unread .dot,.ccard.queued .dot{display:block;--c:var(--acc);background:transparent;box-shadow:inset 0 0 0 2px var(--acc);border-radius:3px;animation:none}
+.awaiting .dot,.awaiting.unread .dot,.ccard.awaiting .dot{--c:var(--amber);animation:none}
+.error .dot,.error.unread .dot{--c:var(--red);border-radius:2px;animation:none}
+.paused .dot,.paused.unread .dot{display:block;background:linear-gradient(to right,var(--mute) 0 32%,transparent 32% 68%,var(--mute) 68%);border-radius:0;box-shadow:none;animation:none}
+@keyframes soft{0%,100%{opacity:.65}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.running .dot,.ccard.running .dot{animation:none}}
+/* 往左滑露出的删除 */
+.swipe{position:relative;overflow:hidden;border-radius:20px}
+.swipe>.item{position:relative;z-index:1;touch-action:pan-y}
+.swdel{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:64px;height:40px;border:0;border-radius:999px;padding:0;cursor:pointer;
+  background:#cf7f74;color:#fff;font:inherit;font-size:15px;font-weight:500;letter-spacing:.08em;opacity:0;pointer-events:none}
+@media (prefers-color-scheme:dark){.swdel{background:#b36c63}}
+/* 状态文字提高对比，和灯一起表达含义。 */
+.item.running .st,.item.queued .st,.ccard.running .st,.ccard.queued .st,.head .ti span.running,.head .ti span.queued{color:var(--acc);font-weight:500}
+.item.awaiting .st,.ccard.awaiting .st,.head .ti span.awaiting{color:var(--amber);font-weight:500}
+.item.error .st,.ccard.error .st,.head .ti span.error{color:var(--red);font-weight:500}
+.item.paused .st,.head .ti span.paused,.item.unread.idle .st{color:var(--ink);font-weight:500}
+/* 没看过的：标题稍实一点 */
+.item .nm{font-weight:400} .item.unread .nm{font-weight:500}
+
+/* 在做的卡片也不透色：转圈和进度条已经说明在做 */
+.live::before{display:none}
+
+/* 打字的地方不画框：输入框聚焦时只是板子亮一点 */
+textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable]:focus-visible{box-shadow:none!important;outline:none}
+.composer:focus-within{box-shadow:none;background:rgba(255,255,255,.70)}
+@media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
+.find:focus-within{box-shadow:none}
+
+/* 第七版：再亮一档，字从近黑改成灰蓝（参考图的 #334455 一路）；底部输入区重新挡住后面的字 */
+:root{--sky:linear-gradient(200deg,#d5dee5 0%,#e3e9ed 34%,#edf1f3 66%,#f5f7f7 100%);--bg:#e9eef1;
+  --ink:#34434f;--mute:#67757f;--faint:#909ca6;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
+@media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;
+  --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
+/* 底板的磨砂和上沿淡出放在 ::before 上：mask 会把子元素一起裁掉，放在 .dock 本身会切掉往上弹的模型菜单 */
+.dock{isolation:isolate}
+.dock::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  -webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px)}
+.newv .dock{isolation:auto} .newv .dock::before{content:none}   /* 新对话页没有底板：不隔离，免得往下弹的菜单被文件夹按钮盖住 */
+.composer:focus-within{background:rgba(255,255,255,.80)}
+@media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
+/* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边。
+   和底板一样放在 ::before 上：mask 放在 .head 本身会把往下弹的用量小窗整个裁掉 */
+:root{--headbg:rgba(231,236,240,.74)}
+@media (prefers-color-scheme:dark){:root{--headbg:rgba(38,48,58,.74)}}
+.head{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;isolation:isolate}
+.head::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--headbg);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent)}
+/* 模型菜单：背景几乎不透，后面的字不再透出来 */
+.mmenu{background:rgba(238,242,244,.97)}
+@media (prefers-color-scheme:dark){.mmenu{background:rgba(32,40,48,.98)}}
+
+
+/* 桌面工作区保留原有雾蓝色与阅读列宽。 */
+.desktop-tools,.sidebar-grip{display:none}
+@media (min-width:821px) and (pointer:fine){
+  html:not(.ipad) .app{grid-template-columns:var(--sidebar-width,320px) minmax(0,1fr)}
+  html:not(.ipad) .desktop-tools{display:flex;position:absolute;top:17px;left:calc(var(--sidebar-width,320px) + 12px);gap:4px;z-index:12}
+  .desktop-tools button{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;font-size:18px;color:var(--mute)}
+  .desktop-tools button:hover{background:var(--line);color:var(--ink)}
+  html:not(.ipad) .head{padding-left:94px;min-height:64px}
+  html:not(.ipad) .sidebar-grip{display:block;position:absolute;top:0;bottom:0;left:calc(var(--sidebar-width,320px) - 4px);width:8px;cursor:col-resize;z-index:14;touch-action:none}
+  .sidebar-grip:hover,.sidebar-grip:focus-visible{background:var(--accsoft)}
+  .sidebar-resizing{cursor:col-resize;user-select:none}
+  html:not(.ipad) .app.sidebar-hidden{grid-template-columns:minmax(0,1fr)}
+  html:not(.ipad) .sidebar-hidden .side,html:not(.ipad) .sidebar-hidden .sidebar-grip{display:none}
+  html:not(.ipad) .sidebar-hidden .desktop-tools{left:12px}
+  html:not(.ipad) .feed{scrollbar-gutter:stable;overscroll-behavior-y:contain}
+  html:not(.ipad) .composer textarea{overflow-y:auto;overscroll-behavior:contain}
+  html:not(.ipad) :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+  html:not(.ipad) #feed:focus-visible{outline-offset:-3px}
+  html:not(.ipad) .item:focus-within .more{display:grid}
+}
+.desktop-dialog{align-items:center}
+.desktop-dialog .box{max-height:85dvh;overflow:auto;padding:24px;width:min(500px,100%)}
+.desktop-dialog h2{font-size:20px;margin:0 0 12px}
+.desktop-dialog p{color:var(--mute);line-height:1.7;font-size:14px}
+.desktop-dialog dl{display:grid;grid-template-columns:1fr auto;gap:12px;font-size:14px;margin:24px 0}
+.desktop-dialog dd{margin:0;color:var(--mute)}
+.desktop-dialog .send-preference{display:flex;align-items:center;gap:10px;font-size:16px}
+.desktop-dialog input{width:18px;height:18px;accent-color:var(--acc)}
+.desktop-dialog .box>button{justify-content:center;background:var(--accsoft)}
+
+.phone-list,.phone-keyboard,.phone-menu-close{display:none}
+.offline button{flex:none;min-height:36px;padding:0 10px;color:var(--acc);font-size:14px}
+@media (max-width:600px) and (pointer:coarse), (max-height:500px) and (pointer:coarse){
+  /* 常用操作放在拇指附近；视觉图标不放大，点按范围至少 44px。 */
+  .phone-list{display:grid}
+  .phone-menu-close{display:block;position:sticky;top:0;z-index:1;width:100%;min-height:44px;text-align:right;padding:0 12px;background:var(--panel);border-radius:var(--r1);color:var(--acc)}
+  .mmenu .mo,.mmenu .seg button{min-height:44px}
+  .keyboard-open .phone-keyboard{display:grid}
+  .icon-btn,.send,.ib,.jump,.quick button,.pill{min-width:44px;min-height:44px}
+  .composer .row{gap:2px}
+  .composer .mp{min-height:44px;max-width:calc(100vw - 218px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .head{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+  .feed{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));overscroll-behavior-y:contain}
+  .dock{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));transition:none}
+  .keyboard-open .dock{padding-top:8px;padding-bottom:8px}
+  .keyboard-open .composer textarea{max-height:calc(var(--visible-height,100dvh) * .3)}
+  .mmenu{position:fixed;left:10px;right:10px;width:auto;top:auto!important;bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:calc(var(--visible-height,100dvh) - 100px)}
+  .sheet .box,.amenu .box{max-height:calc(var(--visible-height,100dvh) - 32px);overflow-y:auto;overscroll-behavior:contain}
+  .sheet,.amenu{padding-bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom))}
+  .yw .ibs{visibility:hidden}.yw.show .ibs{visibility:visible}
+  .ymeta{min-height:44px}.cl .acts{flex-wrap:wrap}
+  .file-row{min-width:0;max-width:100%}.file{min-width:0;min-height:48px}.file .fn{overflow-wrap:anywhere;min-width:0}
+  .file-download{display:grid;place-items:center;min-width:44px;min-height:44px}
+  .md{overflow-wrap:anywhere}.md .tw{max-width:100%;overscroll-behavior-x:contain}
+  .thumb button{min-width:32px;min-height:32px}
+  .more,.ptog{min-height:44px;align-items:center}
+  .offline{white-space:normal;line-height:1.5;gap:6px;padding:8px 10px}
+  .offline span{min-width:0}.offline i{flex:none}
+}
+/* iPhone 横屏同样避开两侧刘海；不改变 iPad 的栏宽。 */
+@media (pointer:coarse) and (max-height:500px){
+  html:not(.ipad) .head,html:not(.ipad) .feed,html:not(.ipad) .dock{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+}
+
+/* iPad 按可用窗口宽度切换布局，不把竖屏硬挤成双栏。 */
+html.ipad .icon-btn,html.ipad .send,html.ipad .ib,html.ipad .pill,html.ipad .jump,html.ipad .quick button,html.ipad .mo,html.ipad .seg button{min-height:44px;min-width:44px}
+html.ipad .composer textarea{font-size:18px;line-height:1.65}
+html.ipad .feed{overscroll-behavior-y:contain;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+html.ipad .dock{transition:none;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+html.ipad.keyboard-open .phone-keyboard{display:grid}
+html.ipad.keyboard-open .dock{padding-top:8px;padding-bottom:8px}
+html.ipad .phone-menu-close{display:block;position:sticky;top:0;z-index:1;width:100%;min-height:44px;text-align:right;padding:0 12px;color:var(--acc);background:var(--panel);border-radius:var(--r1)}
+html.ipad .mmenu{position:fixed;top:auto!important;left:auto;right:max(16px,env(safe-area-inset-right));bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom));width:min(420px,calc(100vw - 32px));max-height:calc(var(--visible-height,100dvh) - 100px);overflow:auto;overscroll-behavior:contain}
+html.ipad .sheet,html.ipad .amenu{padding-bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom))}
+html.ipad .sheet .box,html.ipad .amenu .box{max-height:calc(var(--visible-height,100dvh) - 40px);overflow:auto;overscroll-behavior:contain}
+html.ipad .md{overflow-wrap:anywhere}html.ipad .md .tw{max-width:100%;overscroll-behavior-x:contain}
+html.ipad .file-row,html.ipad .file{min-width:0;max-width:100%}html.ipad .file .fn{min-width:0;overflow-wrap:anywhere}
+html.ipad .file-download{min-width:44px;min-height:44px;display:grid;place-items:center}
+html.ipad .ptog,html.ipad .more{min-height:44px}
+html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (hover:none){html.ipad .yw .ibs{visibility:hidden}html.ipad .yw.show .ibs{visibility:visible}}
+@media (min-width:1000px){
+  html.ipad .app{grid-template-columns:var(--sidebar-width,280px) minmax(0,1fr)}
+  html.ipad .desktop-tools{display:flex;position:absolute;top:calc(16px + env(safe-area-inset-top));left:calc(var(--sidebar-width,280px) + 12px);gap:4px;z-index:12}
+  html.ipad .desktop-tools button{width:36px;height:44px;color:var(--mute);border-radius:8px}
+  html.ipad .head{padding-left:100px;min-height:76px}
+  html.ipad .sidebar-grip{display:block;position:absolute;left:calc(var(--sidebar-width,280px) - 6px);width:12px;top:0;bottom:0;z-index:14;touch-action:none;cursor:col-resize}
+  html.ipad .sidebar-grip:hover,html.ipad .sidebar-grip:focus-visible{background:var(--accsoft)}
+  html.ipad .app.sidebar-hidden{grid-template-columns:minmax(0,1fr)}
+  html.ipad .sidebar-hidden .side,html.ipad .sidebar-hidden .sidebar-grip{display:none}
+  html.ipad .sidebar-hidden .desktop-tools{left:12px}
+}
+@media (max-width:999px){
+  html.ipad .app{grid-template-columns:minmax(0,1fr)}
+  html.ipad .app.in .side,html.ipad .app:not(.in) .main{display:none}
+  html.ipad .back,html.ipad .phone-list,html.ipad .app:not(.in) .fab{display:grid}
+  html.ipad #newBtn{display:none}
+  html.ipad .col,html.ipad .composer,html.ipad .quick{max-width:720px}
+  html.ipad .head{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  html.ipad .composer .mp{max-width:calc(100vw - 224px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+
+/* 列表收紧：一行一件事，选中用小圆角浅底；状态灯、状态字保留 */
+.side .item,.side .ccard{border-radius:9px;padding:7px 10px;gap:9px;min-height:0}
+.side .item .nm{font-size:14.5px}
+.side .item .st{font-size:12.5px;margin-top:0}
+.side .item .tm{font-size:12px}
+.side .item.one{min-height:36px}
+.swipe{border-radius:9px}
+.swdel{height:34px}
+#list .label,.course-toggle{padding:14px 10px 4px;font-size:11.5px}
+.task-group>summary{padding:6px 10px;border-radius:9px;min-height:34px}
+.task-group>summary b{font-size:14px}
+.task-rows{padding:0 0 4px 10px}
+#boss{padding-top:2px}
+.item .bossic{width:26px;height:26px}
+@media (pointer:coarse){
+  .side .item.one,.side .item,.task-group>summary{min-height:46px}
+  .side .item .nm{font-size:16px}
+  .side .item .st{font-size:13px}
+  .task-group>summary b{font-size:16px}
+  html.ipad .side .item{min-height:46px}
+}
+
+/* 第八版浅色（2026-11-08 保留灰蓝主调和雾面玻璃，只是底更白、字更清楚，不要暖黄）。
+   底：很浅的冷灰蓝雾；玻璃：更白一点的磨砂 + 顶边亮线 + 一层很淡的冷影；正文接近黑的墨蓝灰。 */
+@media not (prefers-color-scheme:dark){
+:root{--sky:linear-gradient(200deg,#e2e9ee 0%,#ebf0f3 34%,#f3f6f8 68%,#f9fbfc 100%);--bg:#eef2f5;
+  --ink:#1f2b37;--mute:#4b5967;--faint:#7c8996;--line:rgba(24,44,64,.08);
+  --plate:rgba(255,255,255,.62);--plate-hi:rgba(255,255,255,.82);--dock:rgba(243,246,248,.94);--headbg:rgba(240,244,247,.78);
+  --glass-lo:rgba(255,255,255,.45);--glass-float:inset 0 1px 0 rgba(255,255,255,.95),0 0 0 1px rgba(255,255,255,.6),0 6px 20px -10px rgba(60,90,130,.22)}
+.live,.you,.opt,.file,.limit,.plist,.item.sel{box-shadow:var(--glass-float)}
+.composer,.composer:focus-within{background:rgba(255,255,255,.84);box-shadow:var(--glass-float),0 14px 36px -18px rgba(60,90,130,.30)}
+.confirm{box-shadow:var(--glass-float),inset 0 0 0 1px rgba(143,98,12,.30)}
+.confirm .cb button{background:rgba(214,225,234,.55)} .confirm .cb .ok{background:var(--acc);color:#fff}
+.md code,.md pre{background:rgba(214,225,234,.5)}
+.md pre code{background:none}
+.find{background:rgba(255,255,255,.55);box-shadow:var(--glass-float)}
+.mmenu{background:rgba(246,249,251,.97)}
+}
+/* 悬停不改行高：⋯ 按钮缩到行内，悬停直接用选中那层玻璃色 */
+.side .item .more{width:26px;height:22px;margin:-4px -4px -4px 0}
+@media (hover:hover){.side .item:hover{background:var(--plate,var(--glass-lo))}}
+/* 阅读区更白：侧栏留灰蓝雾，对话区在雾上铺一层近白，顶端透一点蓝，保留玻璃层次 */
+@media not (prefers-color-scheme:dark){
+:root{--headbg:rgba(251,252,253,.84);--dock:rgba(253,254,254,.95)}
+.main{background:linear-gradient(180deg,rgba(255,255,255,.66) 0,rgba(255,255,255,.9) 220px,rgba(255,255,255,.94))}
+.main .you{background:rgba(228,236,243,.78)}
+.main .md code,.main .md pre{background:rgba(232,238,244,.8)}
+.main .md pre code{background:none}
+}
+
+/* 控件减重：保留冷灰蓝玻璃，以细边界代替宽散阴影。 */
+html .side .find input:focus-visible{outline:none;box-shadow:none}
+.side .find{border-radius:12px}
+.side .find:focus-within{box-shadow:inset 0 0 0 1.5px var(--acc)}
+.confirm{border-radius:16px;padding:14px 16px}
+.confirm .q{line-height:1.55;margin-bottom:10px;overflow-wrap:anywhere}
+.confirm .cb{justify-content:flex-end;flex-wrap:wrap}
+.confirm .cb button{flex:0 1 auto;min-width:88px;height:36px;padding:0 18px;border-radius:9px;font-weight:500}
+.live{border-radius:16px;padding:14px 16px}
+.live .lsub{font-weight:400;color:var(--mute)}
+.mmenu{border-radius:16px;padding:8px}
+.mmenu .mo{border-radius:8px}
+.mmenu .lb{letter-spacing:0;font-weight:500}
+.mmenu .seg{gap:2px;margin:4px 4px 2px;padding:3px;border-radius:9px}
+.mmenu .seg button{border-radius:6px;background:transparent;box-shadow:none}
+@media (pointer:coarse){.confirm .cb button{min-height:44px;min-width:96px}}
+@media not (prefers-color-scheme:dark){
+.confirm,.live{background:rgba(239,245,249,.8);box-shadow:inset 0 0 0 1px rgba(62,88,112,.16)}
+.confirm .q,.live .lh,.live .lh .lt{color:#253747}
+.confirm .cb button{background:transparent;color:#344d64;box-shadow:inset 0 0 0 1px rgba(62,88,112,.22)}
+.confirm .cb .ok{background:#e0eaf3;color:#28496a;box-shadow:inset 0 0 0 1px rgba(47,78,111,.25)}
+.live .stop{background:rgba(218,228,237,.65);color:#344d64}
+.live .spin{border-color:rgba(47,78,111,.2);border-top-color:#355b80}
+.side .find{background:rgba(255,255,255,.55);box-shadow:inset 0 0 0 1px rgba(62,88,112,.14)}
+.side .find:focus-within{box-shadow:inset 0 0 0 1.5px rgba(47,78,111,.6)}
+.side .find input::placeholder{color:#596b7b;opacity:1}
+.mmenu{background:rgba(247,250,252,.97);box-shadow:0 0 0 1px rgba(62,88,112,.17),0 8px 24px -8px rgba(35,57,78,.2)}
+.mmenu .lb{color:#526577}
+.mmenu .mo.on{background:rgba(215,228,239,.65)}
+.mmenu .seg{background:#e8eef3}
+.mmenu .seg button{color:#42596e}
+.mmenu .seg button.on{background:#fff;color:#28496a;box-shadow:0 1px 3px rgba(35,57,78,.12)}
+.composer,.composer:focus-within{box-shadow:inset 0 0 0 1px rgba(62,88,112,.13),0 4px 14px -6px rgba(35,57,78,.16)}
+}
+
+/* 菜单收起入口不再铺一条白色按钮底，触屏仍保留 44px 点按区。 */
+html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-height:44px;padding:0 10px;background:transparent;border-radius:8px;box-shadow:none;font-size:14px}
+
+/* 给连接灯光晕留出空间，只让文字截断。 */
+.conn{overflow:visible;padding-left:3px}
+.conn .cs{min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+/* iPhone：搜索退为辅助入口，输入区只保留附件、模型和发送。 */
+@media (max-width:600px) and (pointer:coarse), (max-height:500px) and (pointer:coarse){
+  html:not(.ipad) .composer .phone-list,html:not(.ipad) .composer .phone-keyboard{display:none}
+  html:not(.ipad) .composer .mp{max-width:calc(100vw - 130px)}
+  html:not(.ipad) .side .find{border-radius:10px;background:rgba(255,255,255,.18);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+  html:not(.ipad) .side .find:focus-within{background:rgba(255,255,255,.32);box-shadow:inset 0 0 0 1px var(--line)}
+}
+@media (prefers-color-scheme:dark) and (max-width:600px) and (pointer:coarse), (prefers-color-scheme:dark) and (max-height:500px) and (pointer:coarse){
+  html:not(.ipad) .side .find{background:rgba(255,255,255,.035)}
+  html:not(.ipad) .side .find:focus-within{background:rgba(255,255,255,.07)}
+}
