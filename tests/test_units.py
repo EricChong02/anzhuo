@@ -126,7 +126,32 @@ def test_router_parse():
     r = _parse('好的 {"action":"new","folder":"课程根","kind":"dev"}', {1})
     assert (r.action, r.folder, r.kind) == ("new", "课程根", "dev")
     assert _parse('{"action":"continue","target":9}', {1}).action == "ask"
+    assert _parse('{"action":"continue","target":"#1"}', {1}).target == 1   # 编号带 # 也认，不当判断失败
     assert _parse("不是 JSON", {1}) is None
+
+
+def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
+    """判断档位先问 DeepSeek；它出错或答非所问再问 Haiku。"""
+    import asyncio
+    import requests
+    from claude_agent_sdk import AssistantMessage, TextBlock
+    from remote_claude import deepseek_api, router
+    asked = []
+
+    async def haiku(*, prompt, options):
+        asked.append(prompt)
+        yield AssistantMessage(content=[TextBlock(text="dev")], model="haiku")
+    monkeypatch.setattr(router, "query", haiku)
+    monkeypatch.setattr(deepseek_api, "key", lambda: "k")
+    monkeypatch.setattr(deepseek_api, "chat", lambda *a, **k: " Design\n")
+    assert asyncio.run(real_classify_kind("设计一节课")) == "design" and not asked
+
+    def down(*a, **k):
+        raise requests.Timeout()
+    for bad in (down, lambda *a, **k: "我觉得是开发"):
+        monkeypatch.setattr(deepseek_api, "chat", bad)
+        assert asyncio.run(real_classify_kind("加个功能")) == "dev"
+    assert len(asked) == 2
 
 
 def test_needs_translation(monkeypatch):

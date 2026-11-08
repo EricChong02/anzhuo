@@ -9,7 +9,6 @@ Anthropic 兼容接口（https://api.deepseek.com/anthropic）。按量计费、
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,19 +25,12 @@ FLASH, PRO = "deepseek-flash", "deepseek-v4-pro"
 # 元 / 百万 token（闲时价，2026-11-08 查；工作日 9–12、14–18 点翻倍）。记消耗时折成美元，只是个估数
 PRICE_CNY = {FLASH: {"in": 1.0, "cached": 0.02, "out": 4.0}, PRO: {"in": 4.0, "cached": 0.1, "out": 16.0}}
 CNY_PER_USD = 7.1
-_key_cache: tuple[float, str | None] = (0.0, None)
 
 
 def api_key() -> str | None:
-    """钥匙串里的 DeepSeek 密钥（一分钟内不重复读）。"""
-    global _key_cache
-    if time.time() - _key_cache[0] > 60:
-        from ..translate import _deepseek_key
-        try:
-            _key_cache = (time.time(), _deepseek_key())
-        except OSError:   # 没有 security 命令（非 macOS）
-            _key_cache = (time.time(), None)
-    return _key_cache[1]
+    """钥匙串里的 DeepSeek 密钥（和翻译、任务分组共用，见 deepseek_api）。"""
+    from ..deepseek_api import key
+    return key()
 
 
 def blocked_by(paths: list[str], names: list[str]) -> str:

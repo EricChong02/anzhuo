@@ -19,7 +19,7 @@ def test_group_parser_rejects_missing_duplicate_foreign_and_html():
 
 
 def test_group_model_fallback_has_no_tools(monkeypatch):
-    monkeypatch.setattr(task_groups.translate, '_deepseek_key', lambda:'secret-not-logged')
+    monkeypatch.setattr(task_groups.deepseek_api, 'key', lambda:'secret-not-logged')
     monkeypatch.setattr(task_groups, '_deepseek', lambda *args:'invalid json')
     async def query(*, prompt, options):
         assert options.tools == [] and options.setting_sources == [] and options.max_turns == 1

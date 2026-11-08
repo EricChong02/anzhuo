@@ -14,7 +14,7 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, qu
 from .commands import HELP
 from .folders import display
 from .sessions import Session
-from . import split
+from . import deepseek_api, split
 from .engines import HELPER_MODEL
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def _parse(raw: str, valid: set[int]) -> Route | None:
     if action not in ("reply", "continue", "new", "ask"):
         return None
     target = j.get("target")
-    target = int(target) if isinstance(target, (int, str)) and str(target).lstrip("#").isdigit() else None
+    target = int(str(target).lstrip("#")) if isinstance(target, (int, str)) and str(target).lstrip("#").isdigit() else None
     if isinstance(target, int) and target not in valid:
         target = None
     if action == "continue" and target is None:
@@ -147,7 +147,16 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
 
 
 async def classify_kind(text: str, timeout: float = 15) -> str | None:
-    """只判断这件事是定方案（design）、开发（dev）还是简单任务（simple），挑模型用；出错、超时返回 None，由调用方按老规矩。"""
+    """只判断这件事是定方案（design）、开发（dev）还是简单任务（simple），挑模型用；出错、超时返回 None，由调用方按老规矩。
+    先问 DeepSeek（约 1 秒、不占 Claude 额度；2026-11-08 拿 109 条真实消息对比，和 Haiku 一样准），没密钥或出错再问 Haiku。
+    分派（route）仍用 Haiku：同样对比下 DeepSeek 爱凭记忆直接答、爱塞给当前对话，不如 Haiku。"""
+    if key := await asyncio.to_thread(deepseek_api.key):
+        try:
+            word = await asyncio.to_thread(deepseek_api.chat, KIND_SYSTEM, text[:1500], key, timeout=timeout, temperature=0)
+            if (word := word.strip().lower()) in KINDS:
+                return word
+        except Exception as e:  # noqa: BLE001
+            log.warning("DeepSeek 判断任务轻重失败，改用 Haiku：%s", type(e).__name__)
     options = ClaudeAgentOptions(model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=KIND_SYSTEM, tools=[], max_turns=1,
                                  setting_sources=[], cwd=str(Path.home()), extra_args={"no-session-persistence": None})
     out = []
