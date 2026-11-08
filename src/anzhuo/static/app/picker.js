@@ -33,16 +33,13 @@ function renderModel(st, onPick, isNew) {
   // 新对话“自动”又没动深度：模型和深度都照分工表，按钮上只写“自动”
   const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(head)}${ICON.chev}</button>`
-    + (mpOpen ? `<div class="mmenu"><button class="phone-menu-close" id="modelDone" aria-label="收起模型菜单">收起</button>${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+    + (mpOpen ? `<div class="mmenu">${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
   fitModelMenu(el.querySelector('.mmenu'));
-  if ($('#modelDone')) $('#modelDone').onclick = e => { e.stopPropagation(); mpOpen = false; renderModel(st, onPick, isNew); };
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
     e.stopPropagation();
-    const was = st.model + st.effort;
     if (b.dataset.m) { st.model = b.dataset.m; delete st.label; mpOpen = false; } else st.effort = b.dataset.e;
     onPick(st); renderModel(st, onPick, isNew);
-    if (!isNew && was !== st.model + st.effort) toast(`下一句起用 ${label(st.model)} · ${(EFFORT_OPTS.find(x => x[0] === st.effort) || [, ''])[1]}`);
   });
 }
 // 菜单跟着按钮弹出时，朝空间大的一侧展开，高度不超过那一侧的可见空间（窗口矮、新对话页按钮靠下都不再超框）

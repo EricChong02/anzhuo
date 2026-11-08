@@ -9,7 +9,7 @@
 :root{
   --sky:linear-gradient(158deg,#d4e0ea 0%,#e1eaf1 38%,#ecf2f6 72%,#f3f6f9 100%);
   --bg:#e8eff4;--side:transparent;--panel:rgba(255,255,255,.82);--bubble:rgba(255,255,255,.72);
-  --ink:#25313e;--mute:#566474;--faint:#8592a0;--line:rgba(24,44,64,.065);--hair:rgba(24,44,64,.14);
+  --ink:#25313e;--mute:#566474;--faint:#697685;--line:rgba(24,44,64,.065);--hair:rgba(24,44,64,.14);
   --acc:#2c4a74;--acc-hi:#4a76b2;--acc-glow:rgba(74,118,178,.50);--accsoft:rgba(44,74,116,.07);--acc-shadow:rgba(44,74,116,.16);--on-acc:#fff;
   --amber:#8f620c;--amber-hi:#e0a536;--amber-glow:rgba(224,165,54,.55);--amber-soft:rgba(206,150,40,.10);
   --red:#a8402f;--red-hi:#e26b5a;--red-glow:rgba(226,107,90,.45);--green:#3c7c60;--pearl:#a3aeb9;
@@ -54,7 +54,7 @@ svg{stroke-width:1.6}
 /* ── 侧栏：直接落在雾上 ── */
 .side{background:transparent}
 .brand{padding:20px 14px 12px 20px}
-.conn{display:flex;align-items:center;gap:6px;flex:1;min-width:0;margin-left:12px;white-space:nowrap;overflow:hidden;font-size:12.5px;color:var(--mute,#7b8794)}
+.conn{display:flex;align-items:center;gap:6px;flex:1;min-width:0;margin-left:12px;white-space:nowrap;overflow:hidden;font-size:var(--t1);color:var(--mute,#7b8794)}
 .conn i{width:7px;height:7px;border-radius:50%;background:#9aa5b1;flex:none;transition:background .3s,box-shadow .3s}
 .conn.on i{background:#3fb37f;box-shadow:0 0 0 2.5px rgba(63,179,127,.18)}
 .conn.off i{background:#d9a441;box-shadow:0 0 0 2.5px rgba(217,164,65,.2)}
@@ -70,7 +70,7 @@ svg{stroke-width:1.6}
 .find:focus-within{background:var(--ctl-hi);box-shadow:var(--rim),0 0 0 3px var(--accsoft)}
 .cat{border:0;background:var(--glass-lo);box-shadow:var(--rim);color:var(--mute);height:28px;font-size:var(--t1)}
 .cat.on{background:var(--ctl-hi);color:var(--ink);box-shadow:var(--rim),var(--lift)}
-.label,.qh,.ask .ah,.plan .ah,.agents .ah,.mmenu .lb,.amenu .t{font-size:11.5px;color:var(--faint);font-weight:500;letter-spacing:.12em}
+.label,.qh,.ask .ah,.plan .ah,.agents .ah,.mmenu .lb,.amenu .t{font-size:var(--t1);color:var(--faint);font-weight:500;letter-spacing:.04em}
 .label{padding:16px 10px 6px}
 .item{border-radius:var(--r2);transition:background .2s,box-shadow .2s}
 @media (hover:hover){.item:hover,.mo:hover,.amenu button:hover,.wo:hover,.blist .bo:hover{background:var(--glass-lo)}}
@@ -114,7 +114,7 @@ svg{stroke-width:1.6}
 .plan,.agents,.live .plist{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--line)}
 .ps .ok,.ag .ok{font-size:0;display:grid;place-items:center} .ps .ok::before,.ag .ok::before{content:"";width:6px;height:6px;border-radius:50%;
   background:radial-gradient(circle at 50% 45%,#fff 0 20%,var(--acc-hi) 64%);box-shadow:0 0 5px 1px var(--acc-glow)}
-.ps .n{color:var(--faint);font-size:11px} .ps.doing .an{font-weight:500} .ps.done .an{text-decoration:none;color:var(--faint)}
+.ps .n{color:var(--faint);font-size:var(--t1)} .ps.doing .an{font-weight:500} .ps.done .an{text-decoration:none;color:var(--faint)}
 /* 额度：发丝线，满的那头一颗光点 */
 .quota{border-top:1px solid var(--line)}
 .ql b,.quota-week b{font-weight:400;font-family:var(--fd)}
@@ -123,7 +123,7 @@ svg{stroke-width:1.6}
 .qb i::after{content:"";position:absolute;right:-2.5px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;background:radial-gradient(circle,#fff 0 20%,var(--acc-hi) 65%);box-shadow:0 0 5px 1px var(--acc-glow)}
 .qm.hot .qb i,.quota-detail-row.hot .qb i{background:var(--amber-hi)} .qm.hot .qb i::after,.quota-detail-row.hot .qb i::after{background:radial-gradient(circle,#fff 0 20%,var(--amber-hi) 65%);box-shadow:0 0 5px 1px var(--amber-glow)}
 .quota-detail-row.critical .qb i{background:var(--red-hi)} .quota-detail-row.critical .qb i::after{background:radial-gradient(circle,#fff 0 20%,var(--red-hi) 65%);box-shadow:0 0 5px 1px var(--red-glow)}
-.eng{font-weight:500;font-size:10px;letter-spacing:.1em;box-shadow:inset 0 0 0 1px var(--hair);border-radius:var(--rf);padding:0 6px}
+.eng{font-weight:500;font-size:var(--t1);letter-spacing:.02em;box-shadow:inset 0 0 0 1px var(--hair);border-radius:var(--rf);padding:0 6px}
 
 /* ── 主区：不再是一块板，内容直接在雾上，只有卡片和输入框浮起 ── */
 .main{background:transparent}
@@ -134,12 +134,12 @@ svg{stroke-width:1.6}
 .blank{color:var(--mute)}
 .blank .mk{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;overflow:hidden;box-shadow:0 8px 24px rgba(24,44,64,.14),inset 0 0 0 .5px rgba(255,255,255,.5)}
 .blank b{font-family:var(--fd);font-weight:300;font-size:28px;letter-spacing:.28em;margin:0 0 8px .28em}
-.newv h1{font-family:var(--fd);font-weight:300;font-size:32px;letter-spacing:.06em;margin-bottom:24px}
-.opening{background:var(--sky) var(--bg)}
+.newv h1{font-family:var(--fd);font-weight:300;font-size:var(--t6);letter-spacing:.06em;margin-bottom:24px}
+.opening{background:transparent}
 
 /* ── 正文 ── */
 .cl .md{line-height:1.85}
-.md b{font-weight:500} .md h4{font-weight:500} .md h5{font-weight:500;color:var(--faint);letter-spacing:.12em}
+.md b{font-weight:500} .md h4{font-weight:500} .md h5{font-weight:500;color:var(--faint);letter-spacing:.04em}
 .md li::marker{color:var(--faint)}
 .md blockquote{border-left:2px solid var(--hair);color:var(--mute)}
 .md pre,.md details.code{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--hair)} .md pre{font-family:var(--mono)}
@@ -150,7 +150,7 @@ code{font-family:var(--mono);font-size:.88em;background:var(--glass-lo);box-shad
 mark{background:rgba(224,165,54,.25)}
 .facts,.note,.qtag,.ymeta,.ptog{color:var(--mute)}
 .pi.think .pt{font-style:normal}
-.pi .who{background:var(--accsoft);border-radius:var(--rf);font-size:11px}
+.pi .who{background:var(--accsoft);border-radius:var(--rf);font-size:var(--t1)}
 .caret{width:2px;border-radius:2px;background:var(--acc-hi)}
 
 /* ── 玻璃卡片（只有一层）：你说的话、在做、确认、选项、文件、输入框 ── */
@@ -262,13 +262,13 @@ mark{background:rgba(224,165,54,.25)}
 :root{
   --sky:linear-gradient(200deg,#a9b9c4 0%,#c3cfd7 30%,#d9e1e4 62%,#e8eeec 100%);
   --bg:#d3dde2;
-  --ink:#24323e;--mute:#566673;--faint:#7d8c98;--line:rgba(36,56,72,.08);--hair:rgba(36,56,72,.14);
+  --ink:#24323e;--mute:#566673;--faint:#697785;--line:rgba(36,56,72,.08);--hair:rgba(36,56,72,.14);
   --plate:rgba(255,255,255,.40);--plate-hi:rgba(255,255,255,.56);--knob:rgba(255,255,255,.34);--knob-in:rgba(60,84,104,.07);
   --frost:saturate(1.15) blur(30px);
   --fd:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
 @media (prefers-color-scheme:dark){:root{
   --sky:linear-gradient(200deg,#26323c 0%,#1b242c 40%,#13191e 100%);--bg:#161d23;
-  --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--line:rgba(255,255,255,.06);--hair:rgba(255,255,255,.11);
+  --ink:#e2e8ed;--mute:#9eabb6;--faint:#7d8a95;--line:rgba(255,255,255,.06);--hair:rgba(255,255,255,.11);
   --plate:rgba(255,255,255,.055);--plate-hi:rgba(255,255,255,.085);--knob:rgba(255,255,255,.06);--knob-in:rgba(255,255,255,.06)}}
 html,body{background:var(--sky) var(--bg);background-attachment:fixed}
 /* 不要分隔线：侧栏、标题栏靠留白分开 */
@@ -330,7 +330,7 @@ html,body{background:var(--sky) var(--bg);background-attachment:fixed}
 .swipe{position:relative;overflow:hidden;border-radius:20px}
 .swipe>.item{position:relative;z-index:1;touch-action:pan-y}
 .swdel{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:64px;height:40px;border:0;border-radius:999px;padding:0;cursor:pointer;
-  background:#cf7f74;color:#fff;font:inherit;font-size:15px;font-weight:500;letter-spacing:.08em;opacity:0;pointer-events:none}
+  background:#cf7f74;color:#fff;font:inherit;font-size:var(--t3);font-weight:500;letter-spacing:.08em;opacity:0;pointer-events:none}
 @media (prefers-color-scheme:dark){.swdel{background:#b36c63}}
 /* 状态文字提高对比，和灯一起表达含义。 */
 .item.running .st,.item.queued .st,.ccard.running .st,.ccard.queued .st,.head .ti span.running,.head .ti span.queued{color:var(--acc);font-weight:500}
@@ -351,9 +351,9 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 
 /* 第七版：再亮一档，字从近黑改成灰蓝（参考图的 #334455 一路）；底部输入区重新挡住后面的字 */
 :root{--sky:linear-gradient(200deg,#d5dee5 0%,#e3e9ed 34%,#edf1f3 66%,#f5f7f7 100%);--bg:#e9eef1;
-  --ink:#34434f;--mute:#67757f;--faint:#909ca6;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
+  --ink:#34434f;--mute:#67757f;--faint:#6c7983;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
 @media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;
-  --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
+  --ink:#e2e8ed;--mute:#9eabb6;--faint:#7d8a95;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
 /* 底板的磨砂和上沿淡出放在 ::before 上：mask 会把子元素一起裁掉，放在 .dock 本身会切掉往上弹的模型菜单 */
 .dock{isolation:isolate}
 .dock::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);
@@ -397,16 +397,16 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 }
 .desktop-dialog{align-items:center}
 .desktop-dialog .box{max-height:85dvh;overflow:auto;padding:24px;width:min(500px,100%)}
-.desktop-dialog h2{font-size:20px;margin:0 0 12px}
-.desktop-dialog p{color:var(--mute);line-height:1.7;font-size:14px}
-.desktop-dialog dl{display:grid;grid-template-columns:1fr auto;gap:12px;font-size:14px;margin:24px 0}
+.desktop-dialog h2{font-size:var(--t5);margin:0 0 12px}
+.desktop-dialog p{color:var(--mute);line-height:1.7;font-size:var(--t2)}
+.desktop-dialog dl{display:grid;grid-template-columns:1fr auto;gap:12px;font-size:var(--t2);margin:24px 0}
 .desktop-dialog dd{margin:0;color:var(--mute)}
-.desktop-dialog .send-preference{display:flex;align-items:center;gap:10px;font-size:16px}
+.desktop-dialog .send-preference{display:flex;align-items:center;gap:10px;font-size:var(--t3)}
 .desktop-dialog input{width:18px;height:18px;accent-color:var(--acc)}
 .desktop-dialog .box>button{justify-content:center;background:var(--accsoft)}
 
 .phone-list,.phone-keyboard,.phone-menu-close{display:none}
-.offline button{flex:none;min-height:36px;padding:0 10px;color:var(--acc);font-size:14px}
+.offline button{flex:none;min-height:36px;padding:0 10px;color:var(--acc);font-size:var(--t2)}
 @media (max-width:600px) and (pointer:coarse), (max-height:500px) and (pointer:coarse){
   /* 常用操作放在拇指附近；视觉图标不放大，点按范围至少 44px。 */
   .phone-list{display:grid}
@@ -441,7 +441,7 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 
 /* iPad 按可用窗口宽度切换布局，不把竖屏硬挤成双栏。 */
 html.ipad .icon-btn,html.ipad .send,html.ipad .ib,html.ipad .pill,html.ipad .jump,html.ipad .quick button,html.ipad .mo,html.ipad .seg button{min-height:44px;min-width:44px}
-html.ipad .composer textarea{font-size:18px;line-height:1.65}
+html.ipad .composer textarea{font-size:var(--t4);line-height:1.65}
 html.ipad .feed{overscroll-behavior-y:contain;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
 html.ipad .dock{transition:none;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
 html.ipad.keyboard-open .phone-keyboard{display:grid}
@@ -479,23 +479,23 @@ html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid 
 
 /* 列表收紧：一行一件事，选中用小圆角浅底；状态灯、状态字保留 */
 .side .item,.side .ccard{border-radius:9px;padding:7px 10px;gap:9px;min-height:0}
-.side .item .nm{font-size:14.5px}
-.side .item .st{font-size:12.5px;margin-top:0}
-.side .item .tm{font-size:12px}
+.side .item .nm{font-size:var(--t2)}
+.side .item .st{font-size:var(--t1);margin-top:0}
+.side .item .tm{font-size:var(--t1)}
 .side .item.one{min-height:36px}
 .swipe{border-radius:9px}
 .swdel{height:34px}
-#list .label,.course-toggle{padding:14px 10px 4px;font-size:11.5px}
+#list .label,.course-toggle{padding:14px 10px 4px;font-size:var(--t1)}
 .task-group>summary{padding:6px 10px;border-radius:9px;min-height:34px}
-.task-group>summary b{font-size:14px}
+.task-group>summary b{font-size:var(--t2)}
 .task-rows{padding:0 0 4px 10px}
 #boss{padding-top:2px}
 .item .bossic{width:26px;height:26px}
 @media (pointer:coarse){
   .side .item.one,.side .item,.task-group>summary{min-height:46px}
-  .side .item .nm{font-size:16px}
-  .side .item .st{font-size:13px}
-  .task-group>summary b{font-size:16px}
+  .side .item .nm{font-size:var(--t3)}
+  .side .item .st{font-size:var(--t2)}
+  .task-group>summary b{font-size:var(--t3)}
   html.ipad .side .item{min-height:46px}
 }
 
@@ -503,7 +503,7 @@ html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid 
    底：很浅的冷灰蓝雾；玻璃：更白一点的磨砂 + 顶边亮线 + 一层很淡的冷影；正文接近黑的墨蓝灰。 */
 @media not (prefers-color-scheme:dark){
 :root{--sky:linear-gradient(200deg,#e2e9ee 0%,#ebf0f3 34%,#f3f6f8 68%,#f9fbfc 100%);--bg:#eef2f5;
-  --ink:#1f2b37;--mute:#4b5967;--faint:#7c8996;--line:rgba(24,44,64,.08);
+  --ink:#1f2b37;--mute:#4b5967;--faint:#677582;--line:rgba(24,44,64,.08);
   --plate:rgba(255,255,255,.62);--plate-hi:rgba(255,255,255,.82);--dock:rgba(243,246,248,.94);--headbg:rgba(240,244,247,.78);
   --glass-lo:rgba(255,255,255,.45);--glass-float:inset 0 1px 0 rgba(255,255,255,.95),0 0 0 1px rgba(255,255,255,.6),0 6px 20px -10px rgba(60,90,130,.22)}
 .live,.you,.opt,.file,.limit,.plist,.item.sel{box-shadow:var(--glass-float)}
@@ -563,7 +563,7 @@ html .side .find input:focus-visible{outline:none;box-shadow:none}
 }
 
 /* 菜单收起入口不再铺一条白色按钮底，触屏仍保留 44px 点按区。 */
-html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-height:44px;padding:0 10px;background:transparent;border-radius:8px;box-shadow:none;font-size:14px}
+html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-height:44px;padding:0 10px;background:transparent;border-radius:8px;box-shadow:none;font-size:var(--t2)}
 
 /* 给连接灯光晕留出空间，只让文字截断。 */
 .conn{overflow:visible;padding-left:3px}
@@ -580,3 +580,19 @@ html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-hei
   html:not(.ipad) .side .find{background:rgba(255,255,255,.035)}
   html:not(.ipad) .side .find:focus-within{background:rgba(255,255,255,.07)}
 }
+
+/* 选项框（等你定）：实底 + 清楚的细边，字母章和“推荐”标签分明，字号随正文 */
+button.opt{align-items:flex-start;gap:14px;padding:14px 16px;min-height:56px;border-radius:var(--r2);background:var(--panel);
+  -webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:inset 0 0 0 1px var(--hair);font-size:var(--t3);line-height:1.5;color:var(--ink)}
+button.opt .k{width:28px;height:28px;margin-top:-1px;font-size:var(--t2);background:var(--knob-in);color:var(--mute);box-shadow:none}
+button.opt .v{min-width:0;overflow-wrap:anywhere}
+button.opt .tag{flex:none;align-self:flex-start;padding:1px 8px;border-radius:var(--rf);background:var(--accsoft);font-size:var(--t1);font-weight:500;line-height:20px}
+button.opt.rec{background:var(--panel);box-shadow:inset 0 0 0 1.5px var(--acc)}
+button.opt.rec .k{background:var(--acc);color:var(--on-acc,#fff)}
+@media (hover:hover){button.opt:hover{background:var(--panel);box-shadow:inset 0 0 0 1.5px var(--acc)}}
+button.opt:active{background:var(--accsoft)}
+
+/* 顶部状态栏那一条：纯色底取渐变最上面的颜色，和渐变接上，不留色差分界 */
+:root{--sky-top:#e2e9ee}
+@media (prefers-color-scheme:dark){:root{--sky-top:#2e3a45}}
+html,body{background:var(--sky) var(--sky-top);background-attachment:fixed}
