@@ -62,6 +62,10 @@ function wireComposer(sendFn, onSent, onOpening) {
     finally { state.reading--; refreshComposer(key); }
   };
   ta.oninput = sync;
+  $('#phoneList').onclick = () => { flushComposerText(); ta.blur(); $('#back')?.click(); };
+  $('#phoneKeyboard').onpointerdown = e => e.preventDefault();
+  $('#phoneKeyboard').onclick = () => ta.blur();
+  ta.setAttribute('aria-label', '消息');
   $('#file').onchange = e => { const files = [...e.target.files]; e.target.value = ''; add(files); };
   ta.onpaste = e => { const fs = [...e.clipboardData.items].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean); if (fs.length) { e.preventDefault(); add(fs); } };
   const box = ta.closest('.composer'); let depth = 0;
@@ -70,7 +74,7 @@ function wireComposer(sendFn, onSent, onOpening) {
   document.ondragover = e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
   document.ondragleave = e => { if (hasFiles(e) && --depth <= 0) { depth = 0; box.classList.remove('drop'); } };
   document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
-  const phone = matchMedia('(pointer:coarse) and (max-width:600px)').matches;
+  const phone = coarsePhone();
   ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
   ta.onkeydown = e => {
     if (e.key === 'ArrowUp' && !ta.value && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && lastYou[num0]) {   // 输入框空着按 ↑：调出上一句，改一下重发

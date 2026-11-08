@@ -1,8 +1,8 @@
 function composerHTML(ph) {
   return `<div class="dock"><div style="text-align:center"><button class="jump" id="jump">${ICON.down}最新</button></div><div class="quick" id="quick" hidden></div><div class="composer"><div class="relay" id="relay" hidden></div><div class="hint" id="hint" hidden></div><div class="cwarn" id="warn" hidden></div><div class="thumbs" id="thumbs" hidden></div>
     <textarea id="ta" rows="1" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}"></textarea>
-    <div class="row"><label class="icon-btn" title="图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
-    <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
+    <div class="row"><button class="icon-btn phone-list" id="phoneList" title="返回对话列表" aria-label="返回对话列表">${ICON.back}</button><label class="icon-btn" title="图片或文件" aria-label="添加图片或文件">${ICON.clip}<input type="file" multiple id="file" hidden></label>
+    <button class="icon-btn phone-keyboard" id="phoneKeyboard" title="收起键盘" aria-label="收起键盘"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="12" rx="2"/><path d="M7 7h1m3 0h1m3 0h1M7 11h10m-8 8 3 3 3-3"/></svg></button><span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”：按管理 · 设置里的分工表挑（定方案、开发、简单任务各交给谁）
@@ -33,7 +33,8 @@ function renderModel(st, onPick, isNew) {
   // 新对话“自动”又没动深度：模型和深度都照分工表，按钮上只写“自动”
   const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(head)}${ICON.chev}</button>`
-    + (mpOpen ? `<div class="mmenu">${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+    + (mpOpen ? `<div class="mmenu"><button class="phone-menu-close" id="modelDone">完成</button>${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+  if ($('#modelDone')) $('#modelDone').onclick = e => { e.stopPropagation(); mpOpen = false; renderModel(st, onPick, isNew); };
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
     e.stopPropagation();

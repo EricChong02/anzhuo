@@ -8,6 +8,8 @@ if (window.visualViewport) {
     const full = document.documentElement.clientHeight || innerHeight;
     const kb = Math.max(0, Math.round(full - vv.height - vv.offsetTop));
     document.documentElement.style.setProperty('--kb', kb + 'px');
+    document.documentElement.style.setProperty('--visible-height', vv.height + 'px');
+    document.documentElement.classList.toggle('keyboard-open', kb > 100);
     const t = $('#ta'); if (t && t.oninput) t.oninput();   // 键盘弹起后看得见的区域变小，输入框高度跟着收
   };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
@@ -108,9 +110,8 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   // 输入条变高后仍能把末条回复滚到它的上方。
   let observed = null;
   const ro = new ResizeObserver(entries => {
-    if (!desktop()) return;
     const feed = $('#feed');
-    if (feed) { feed.style.paddingBottom = Math.ceil(entries[0].target.getBoundingClientRect().height + 24) + 'px'; if (stick) feed.scrollTop = feed.scrollHeight; }
+    if (feed) { feed.style.paddingBottom = Math.ceil($('#main').getBoundingClientRect().bottom - entries[0].target.getBoundingClientRect().top + 24) + 'px'; if (stick) feed.scrollTop = feed.scrollHeight; }
   });
   const observe = () => {
     const dock = $('#main .dock'); if (observed === dock) return;
@@ -118,5 +119,17 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     const feed = $('#feed'); if (feed) { feed.tabIndex = 0; feed.setAttribute('aria-label', '对话内容'); }
   };
   new MutationObserver(observe).observe($('#main'), {childList: true}); observe();
-  addEventListener('resize', () => { if (!desktop()) $('#feed')?.style.removeProperty('padding-bottom'); else if (observed) { ro.unobserve(observed); ro.observe(observed); } });
+  const refit = () => { if (observed) { ro.unobserve(observed); ro.observe(observed); } };
+  addEventListener('resize', refit);
+  window.visualViewport?.addEventListener('resize', refit);
 })();
+
+// 切换 WiFi / 蜂窝与从系统返回时，立即重建实时连接；不自动重发消息。
+function resumeConnection() {
+  if (document.hidden) return;
+  if (es) es.close(); es = null; esOk = false;
+  connectEvents(); loadSessions(); loadThread();
+}
+addEventListener('online', resumeConnection);
+addEventListener('offline', () => setOffline(true));
+addEventListener('pageshow', e => { if (e.persisted) resumeConnection(); });

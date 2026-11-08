@@ -404,3 +404,37 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 .desktop-dialog .send-preference{display:flex;align-items:center;gap:10px;font-size:16px}
 .desktop-dialog input{width:18px;height:18px;accent-color:var(--acc)}
 .desktop-dialog .box>button{justify-content:center;background:var(--accsoft)}
+
+.phone-list,.phone-keyboard,.phone-menu-close{display:none}
+.offline button{flex:none;min-height:36px;padding:0 10px;color:var(--acc);font-size:14px}
+@media (max-width:600px) and (pointer:coarse), (max-height:500px) and (pointer:coarse){
+  /* 常用操作放在拇指附近；视觉图标不放大，点按范围至少 44px。 */
+  .phone-list{display:grid}
+  .phone-menu-close{display:block;position:sticky;top:0;z-index:1;width:100%;min-height:44px;text-align:right;padding:0 12px;background:var(--panel);border-radius:var(--r1);color:var(--acc)}
+  .mmenu .mo,.mmenu .seg button{min-height:44px}
+  .keyboard-open .phone-keyboard{display:grid}
+  .icon-btn,.send,.ib,.jump,.quick button,.pill{min-width:44px;min-height:44px}
+  .composer .row{gap:2px}
+  .composer .mp{min-height:44px;max-width:calc(100vw - 218px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .head{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+  .feed{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));overscroll-behavior-y:contain}
+  .dock{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right));transition:none}
+  .keyboard-open .dock{padding-top:8px;padding-bottom:8px}
+  .keyboard-open .composer textarea{max-height:calc(var(--visible-height,100dvh) * .3)}
+  .mmenu{position:fixed;left:10px;right:10px;width:auto;top:auto!important;bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom));max-height:calc(var(--visible-height,100dvh) - 100px)}
+  .sheet .box,.amenu .box{max-height:calc(var(--visible-height,100dvh) - 32px);overflow-y:auto;overscroll-behavior:contain}
+  .sheet,.amenu{padding-bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom))}
+  .yw .ibs{visibility:hidden}.yw.show .ibs{visibility:visible}
+  .ymeta{min-height:44px}.cl .acts{flex-wrap:wrap}
+  .file-row{min-width:0;max-width:100%}.file{min-width:0;min-height:48px}.file .fn{overflow-wrap:anywhere;min-width:0}
+  .file-download{display:grid;place-items:center;min-width:44px;min-height:44px}
+  .md{overflow-wrap:anywhere}.md .tw{max-width:100%;overscroll-behavior-x:contain}
+  .thumb button{min-width:32px;min-height:32px}
+  .more,.ptog{min-height:44px;align-items:center}
+  .offline{white-space:normal;line-height:1.5;gap:6px;padding:8px 10px}
+  .offline span{min-width:0}.offline i{flex:none}
+}
+/* iPhone 横屏同样避开两侧刘海；不改变 iPad 的栏宽。 */
+@media (pointer:coarse) and (max-height:500px){
+  html:not(.ipad) .head,html:not(.ipad) .feed,html:not(.ipad) .dock{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+}

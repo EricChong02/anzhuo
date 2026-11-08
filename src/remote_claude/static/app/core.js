@@ -94,7 +94,7 @@ function watchStatus() {
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let me = {name: '', role: 'admin', root: ''};
 let stick = false, sessions = [], folders = [], sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
-const coarsePhone = () => matchMedia('(max-width:600px) and (pointer:coarse)').matches;
+const coarsePhone = () => matchMedia('(pointer:coarse) and (max-width:600px)').matches || (matchMedia('(pointer:coarse) and (max-height:500px)').matches && !document.documentElement.classList.contains('ipad'));
 const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
 
 // Mac 连不上（睡着、断网、小E 在更新）时阿里云回 502/504 或干脆不通：顶上挂一条提示，连上了自己消失
@@ -108,7 +108,9 @@ function setOffline(off) {
   if (!off) { if (el) el.remove(); return; }
   if (el) return;
   el = document.createElement('div'); el.id = 'offline'; el.className = 'offline';
-  el.innerHTML = '<i></i>连不上 Mac：可能睡着、断网，或远窗正在更新。连上后自动恢复';
+  el.innerHTML = '<i></i><span></span><button type="button">重连</button>';
+  el.querySelector('span').textContent = navigator.onLine === false ? '设备已离线，联网后自动恢复' : '暂时连不上 Mac，正在自动重连';
+  el.querySelector('button').onclick = () => resumeConnection();
   document.body.appendChild(el);
 }
 async function api(path, body) {
