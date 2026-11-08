@@ -1688,8 +1688,15 @@ function openSession(num, fromPop) {
   feed.addEventListener('load', toEnd, true);   // 图片加载完
   const unstick = () => { stick = false; };
   feed.addEventListener('touchmove', unstick, {passive: true}); feed.addEventListener('wheel', e => { if (e.deltaY < 0) unstick(); }, {passive: true});
-  feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; if (gap < 40) stick = true; $('#jump').classList.toggle('on', gap > 500); };
-  $('#jump').onclick = () => { stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
+  const resumeAtEnd = () => { if (feed.querySelector('.plist[data-reading="1"]')) return; if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 4) stick = true; };
+  feed.addEventListener('touchend', () => setTimeout(resumeAtEnd, 0), {passive: true});
+  feed.addEventListener('pointerdown', e => { if (e.target === feed) unstick(); });
+  feed.addEventListener('pointerup', () => setTimeout(resumeAtEnd, 0));
+  feed.addEventListener('keyup', resumeAtEnd);
+  feed.addEventListener('wheel', e => { if (e.deltaY > 0) resumeAtEnd(); }, {passive: true});
+  feed.addEventListener('keydown', e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) unstick(); });
+  feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; $('#jump').classList.toggle('on', gap > 40); };
+  $('#jump').onclick = () => { document.querySelectorAll('.live .plist').forEach(x => { delete x.dataset.reading; x.scrollTop = x.scrollHeight; }); stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
   wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now(), base: saidBase(num, text)}; (pending[num] ||= []).push(p); return p; });
   renderSide(); headStatus(); showCached(num); loadThread();
 }
@@ -1722,7 +1729,7 @@ function showPartial() {
   const live = document.querySelector('.live'), feed = $('#feed');
   let el = document.querySelector('.live .partial');
   if (!live || !partialText) { if (el) el.remove(); return; }
-  const near = feed && feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  const near = feed && stick;
   if (!el) { el = document.createElement('div'); el.className = 'partial'; live.appendChild(el); el.onclick = () => { partialOpen = !partialOpen; showPartial(); }; }
   // 正在写的这段：默认只露最后一句（多半是“我先看看…”这类过程话），点开看全文；写完的回复会整段出现在下面
   const lastLine = partialText.trim().split('\n').filter(Boolean).pop() || '';
@@ -1981,7 +1988,7 @@ setInterval(() => { document.querySelectorAll('.tick').forEach(t => { t.textCont
 const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
-  const near = stick || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+  const near = stick, savedTop = feed.scrollTop;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
   const relayTail = x => x.startsWith('（这是接力的新对话') && x.includes('用户这次说：\n\n') ? x.split('用户这次说：\n\n').pop() : x;   // 接力对话第一句：记录里带着交接说明
   const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40)) || relayTail(x).startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
@@ -2058,7 +2065,7 @@ function renderThread(d) {
       <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${eta ? ` · 预计还要约 ${eta} 分钟` : ''}${L.injected ? ` · 插话 ${L.injected} 次` : ''}</div>
       ${seg}${popen && plan.length > 1 ? planHTML(plan) : ''}
       <div class="silence" data-t0="${Date.now() / 1000 - (L.idle || 0)}"></div>${agentsHTML(L.agents || [])}
-      ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process.slice(-14), 'live') : ''}` : ''}</div>`;
+      ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process, 'live') : ''}` : ''}</div>`;
     }
   }
   const restQ = (d.queue || []).filter(q => !shownQ.has(q));
@@ -2072,9 +2079,20 @@ function renderThread(d) {
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   setTimeout(showPartial);
   const pos = {};
-  document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.scrollHeight - x.scrollTop - x.clientHeight < 24}; });
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.dataset.reading !== '1' && x.scrollHeight - x.scrollTop - x.clientHeight < 4, reading: x.dataset.reading}; });
   $('#col').innerHTML = h;
-  document.querySelectorAll('.plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid]; if (p && !p.end) x.scrollTop = p.top; else x.scrollTop = x.scrollHeight; });
+  document.querySelectorAll('.plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid]; if (p && !p.end) x.scrollTop = p.top; else x.scrollTop = x.scrollHeight;
+    if (p && p.reading) x.dataset.reading = p.reading;
+    const pause = () => { x.dataset.reading = '1'; stick = false; };
+    const resume = () => { if (x.scrollHeight - x.scrollTop - x.clientHeight < 4) delete x.dataset.reading; };
+    x.addEventListener('wheel', e => { if (e.deltaY < 0) pause(); else resume(); }, {passive: true});
+    x.addEventListener('touchmove', pause, {passive: true});
+    x.addEventListener('touchend', () => setTimeout(resume, 0), {passive: true});
+    x.addEventListener('pointerdown', pause);
+    x.addEventListener('pointerup', () => setTimeout(resume, 0));
+    x.addEventListener('keyup', resume);
+    x.addEventListener('keydown', e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) pause(); });
+  });
   document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {
     const allow = b.dataset.allow === '1'; b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
     b.innerHTML = '<i class="spin"></i>' + (allow ? '允许' : '不允许');
@@ -2157,8 +2175,9 @@ function renderThread(d) {
   const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
   const an = anchor && document.querySelector('#col ' + anchor.sel);
   if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
-  else if (fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
+  else if (near && fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
   else if (near) feed.scrollTop = feed.scrollHeight;
+  else feed.scrollTop = savedTop;
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
 

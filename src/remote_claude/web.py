@@ -1418,8 +1418,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             b.registry.save()
         live = None
         if turn:
-            proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1200], "detail": str(e.get("detail") or "")[:400], "sub": e.get("sub", "")}
-                    for e in turn.timeline if e["kind"] in ("think", "say", "do")][-40:]
+            proc = [{"k": e["kind"], "text": str(e.get("text", "")), "detail": str(e.get("detail") or ""), "sub": e.get("sub", "")}
+                    for e in turn.timeline if e["kind"] in ("think", "say", "do")]
             for e in proc:
                 if e["k"] in ("think", "say"):
                     e.update(self._zh_proc(e))
