@@ -208,7 +208,7 @@ class ListingMixin:
         elif act == "autoresume":
             s.auto_resume = bool(data.get("value"))
             if s.auto_resume and s.limit_until > time.time():
-                asyncio.create_task(b.auto_resume(s.num, s.limit_until))
+                asyncio.create_task(b.quota.auto_resume(s.num, s.limit_until))
         elif act == "dismiss":   # 不想回答了：把“等你定 / 出错了”的状态撤掉，对话回到空闲
             if s.num in b.runner.turns or b.runner.busy(s.num):
                 return web.json_response({"ok": False, "error": "还在做，没有可撤的状态"})
@@ -337,7 +337,7 @@ class ListingMixin:
             async with b.schedules.lock:
                 action = data.get("action", "save")
                 if action == "save":
-                    task = b.create_schedule(data)
+                    task = b.jobs.create(data)
                     return web.json_response({"ok": True, "task": task})
                 b.schedules.action(str(data.get("id") or ""), action)
             return web.json_response({"ok": True})

@@ -7,7 +7,7 @@
   turn_done(s, turn)         一轮做完、报告写好之前（接力开新对话、定时任务记结果）
   turn_report(s, turn)       claim：要不要由别人来告诉你这一轮的结果（总管）
   quota(engine, level, prev, limits, num)
-                             某家额度变了档：充足 / 偏紧 / 告急 / 撞线；撞线恢复后回到 充足（见 Bridge._quota_check）
+                             某家额度变了档：充足 / 偏紧 / 告急 / 撞线；撞线恢复后回到 充足（见 QuotaWatch.check）
   relayed(old, new)          接力开好了新对话（总管交接派活关系、总管身份）
 """
 from __future__ import annotations

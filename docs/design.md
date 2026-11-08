@@ -334,3 +334,16 @@ Claude与Codex生图委派（2026-11-02用户确认并已实现）：Claude的ge
 - 用量页：额度每家一块板，手机上竖排（原来两列挤压、右边被截掉）；其他账号的周上限并成一块板直接列出，不再折叠；消耗图例改成一行内联；“对话消耗排行”改名“用得多的对话”，先列 8 个，其余点“显示全部”。只有一个账号时不再在每行写“主账号”。
 - 账号页：设备先列这台和最近 3 台，其余点“其余 N 台”展开；“全部退出”改名“退出其他设备”。
 - 修：Codex 对话只发图时，网页一直显示“没开工”——记录里是“（见图）”，和网页摆的“[图片]”对不上字；改成只发图或文件时按“记录里你说的话多了一条”判断。Codex 每轮记下图片路径（timeline 里 `imgs`），历史带上图，`/api/uimg` 对 GPT、Kimi 对话从收件目录取文件（只认 `inbox/` 下的）。这之前的轮次没有记路径，旧图仍只显示“（见图）”。
+
+## 额度预测只在偏紧时说（2026-11-08）
+- 庄毅：额度小窗里每行都写“按这速度几点用完 / 够用”太吵，只在快耗尽、值得警惕时才说。改成只有这一格在 `quota.window` 里分到“偏紧”“告急”、并且重置前会用完，才显示“按这速度某时用完”；“够用”的定心话去掉。
+
+## 拆 app.py（2026-11-08，P7）
+- `app.py` 原来 1125 行，一个 `Bridge` 管了六件不相干的事。导出开源版前先拆开，行为不变，公开接口（`message`、`submit`、`new_session`、`start_session`、`say`、`record`、`compact`、`answer_confirm`、`quota_levels`）不动。
+- 拆法沿用 `Relays(self)`、`superagent.attach(self)` 的写法：旁支各自持有 bridge，订阅自己关心的事件。
+  - `quota_watch.QuotaWatch`（`b.quota`）：定时读额度、分档、发 quota 事件；撞线后到点自动说“继续”（`auto_resume`）。
+  - `schedule_jobs.ScheduleJobs`（`b.jobs`）：建任务校验、到点交给对话、做完记结果、话里说的定时安排（`from_text`）。存储和到点循环仍在 `schedules.py`。
+  - `dingtalk_chat.DingChat`（`b.ding`）：钉钉收消息、攒图、文字指令、等你回编号（`pending`）、Stream 长连接。
+  - `dingtalk_cards.DingCards`（`b.dcards`）：工作台、确认卡、要你定卡、回复卡，按钮被点（`on_click`），把一轮完整结果发回钉钉（`deliver`）。
+  - `housekeeping`：本机消耗统计、每日清理、每月体检三个后台循环。
+- `Bridge` 只留：收配置、找对话、开对话、交话、一轮做完后的通用处理（记过程页、等你回答、撞线、通知），约 450 行。以后清理钉钉代码，删 `dingtalk_chat.py`、`dingtalk_cards.py` 两个文件和 `Bridge` 里几处 `self.ding` / `self.dcards` 调用即可。

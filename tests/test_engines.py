@@ -200,12 +200,12 @@ def test_other_engines_keep_their_model(tmp_path, monkeypatch):
         b = Bridge(Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), dingtalk_quiet=False),
                    dt, data_dir=tmp_path / "data")
         k = b.registry.add(Session(num=7, name="查资料", cwd=str(tmp_path), engine="kimi", model="k3"))
-        await b.on_raw(msg("模型 7 opus"))
+        await b.ding.on_raw(msg("模型 7 opus"))
         assert k.model == "k3" and "中途换不了" in dt.sent[-1][1]
         with pytest.raises(ValueError, match="不能切换"):
-            b.create_schedule({"target": 7, "model": "opus", "prompt": "每天查一下", "kind": "daily", "time": "08:00"})
+            b.jobs.create({"target": 7, "model": "opus", "prompt": "每天查一下", "kind": "daily", "time": "08:00"})
         c = b.registry.add(Session(num=8, name="写代码", cwd=str(tmp_path)))
-        await b.on_raw(msg("模型 8 sonnet"))
+        await b.ding.on_raw(msg("模型 8 sonnet"))
         assert c.model == "claude-sonnet-5-5"
 
     asyncio.run(go())

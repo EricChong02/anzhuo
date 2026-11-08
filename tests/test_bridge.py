@@ -71,25 +71,25 @@ def test_flow(tmp_path, monkeypatch):
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 0
-        await b.on_raw({**msg("你好"), "senderStaffId": "stranger"})
+        await b.ding.on_raw({**msg("你好"), "senderStaffId": "stranger"})
         assert dt.sent == []  # 陌生人不理
-        await b.on_raw(msg("新开 菜谱：整理一下"))
+        await b.ding.on_raw(msg("新开 菜谱：整理一下"))
         assert "回编号" in dt.sent[-1][1]
-        await b.on_raw(msg("2"))
+        await b.ding.on_raw(msg("2"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("新开：随便查查"))
+        await b.ding.on_raw(msg("新开：随便查查"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("再看看", quoted="【做完了】#1 整理一下"))
+        await b.ding.on_raw(msg("再看看", quoted="【做完了】#1 整理一下"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("列表"))
+        await b.ding.on_raw(msg("列表"))
         # 先发图、再发话：合成一件活
-        await b.on_raw({"msgtype": "picture", "content": {"downloadCode": "c1"}, "senderStaffId": "me",
+        await b.ding.on_raw({"msgtype": "picture", "content": {"downloadCode": "c1"}, "senderStaffId": "me",
                         "conversationType": "1"})
-        await b.on_raw(msg("这张图里有什么"))
+        await b.ding.on_raw(msg("这张图里有什么"))
         await asyncio.sleep(0.05)
         # 只发图不说话：等一会儿单独交
-        b.photo_wait = 0.01
-        await b.on_raw({"msgtype": "picture", "content": {"downloadCode": "c2"}, "senderStaffId": "me",
+        b.ding.photo_wait = 0.01
+        await b.ding.on_raw({"msgtype": "picture", "content": {"downloadCode": "c2"}, "senderStaffId": "me",
                         "conversationType": "1"})
         await asyncio.sleep(0.1)
         return b
@@ -138,17 +138,17 @@ def test_auto_route(tmp_path, monkeypatch):
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 0
-        await b.on_raw(msg("把第二课封面标题改大"))
+        await b.ding.on_raw(msg("把第二课封面标题改大"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("再大一点"))  # 一看就是回复：不请小E判断，直接接当前对话
+        await b.ding.on_raw(msg("再大一点"))  # 一看就是回复：不请小E判断，直接接当前对话
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("顺便查下天气"))
+        await b.ding.on_raw(msg("顺便查下天气"))
         assert "回编号" in dt.sent[-1][1]
-        await b.on_raw(msg("2"))  # 选新开
+        await b.ding.on_raw(msg("2"))  # 选新开
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("去那个文件夹看看"))
+        await b.ding.on_raw(msg("去那个文件夹看看"))
         assert "回编号" in dt.sent[-1][1]
-        await b.on_raw(msg("1"))  # 选接着当前
+        await b.ding.on_raw(msg("1"))  # 选接着当前
         await asyncio.sleep(0.05)
 
     asyncio.run(go())
@@ -178,9 +178,9 @@ def test_chat_follow_up(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        await b.on_raw(msg("见到洪老师的老公怎么称呼"))
-        await b.on_raw(msg("她老公不是老师"))
-        await b.on_raw(msg("好的"))  # 平时会直接交给当前对话；刚闲聊过就还给小E
+        await b.ding.on_raw(msg("见到洪老师的老公怎么称呼"))
+        await b.ding.on_raw(msg("她老公不是老师"))
+        await b.ding.on_raw(msg("好的"))  # 平时会直接交给当前对话；刚闲聊过就还给小E
 
     asyncio.run(go())
     assert [c[0] for c in calls] == ["见到洪老师的老公怎么称呼", "她老公不是老师", "好的"]
@@ -220,16 +220,16 @@ def test_hide_and_delete(tmp_path, monkeypatch):
         old = time.time() - 8 * 86400
         for n, upd in [(1, old), (2, time.time()), (3, time.time())]:
             b.registry.add(Session(num=n, name=f"事{n}", cwd=str(tmp_path), updated=upd))
-        await b.on_raw(msg("删 2"))
+        await b.ding.on_raw(msg("删 2"))
         assert "收起了" in dt.sent[-1][1] and b.registry.current == 3
-        await b.on_raw(msg("列表"))
+        await b.ding.on_raw(msg("列表"))
         listing = dt.sent[-1][1]
         assert "#3" in listing and "#1" not in listing and "#2" not in listing and "另有 2 个收起了" in listing
-        await b.on_raw(msg("列表 全部"))
+        await b.ding.on_raw(msg("列表 全部"))
         assert "#1" in dt.sent[-1][1] and "（收起）" in dt.sent[-1][1]
-        await b.on_raw(msg("帮我看看这一节的封面"))
+        await b.ding.on_raw(msg("帮我看看这一节的封面"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("#2 其实还要接着做"))
+        await b.ding.on_raw(msg("#2 其实还要接着做"))
         await asyncio.sleep(0.05)
         assert not b.registry.sessions[2].hidden
 
@@ -241,7 +241,7 @@ def test_hide_and_delete(tmp_path, monkeypatch):
 def test_desktop_resume(tmp_path, monkeypatch):
     """“接着桌面”接上最近的桌面端对话；小E 自己开的、临时文件夹、家目录里的不算；回编号换一段。"""
     from types import SimpleNamespace as NS
-    from remote_claude import app as app_mod
+    from remote_claude import dingtalk_chat
     from remote_claude.sessions import Session
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"))
     home = str(Path.home())
@@ -256,20 +256,20 @@ def test_desktop_resume(tmp_path, monkeypatch):
         info("desk-a", str(tmp_path / "平台"), "远程开发课程工具", 600),
         info("desk-b", str(tmp_path / "课"), "做第二课", 500),
     ]
-    monkeypatch.setattr(app_mod, "list_sessions", lambda *a: infos)
+    monkeypatch.setattr(dingtalk_chat, "list_sessions", lambda *a: infos)
     dt = FakeDT()
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.registry.add(Session(num=b.registry.reserve_num(), name="小E 开的", cwd=str(tmp_path / "课"), claude_id="mine"))
-        await b.on_raw(msg("接着桌面"))
+        await b.ding.on_raw(msg("接着桌面"))
         s = b.registry.get(b.registry.current)
         assert (s.claude_id, s.from_desktop) == ("desk-a", True)
         assert "接上了" in dt.sent[-1][1] and "做第二课" in dt.sent[-1][1]
-        await b.on_raw(msg("2"))  # 换成第二段，刚接错的那段收起
+        await b.ding.on_raw(msg("2"))  # 换成第二段，刚接错的那段收起
         assert b.registry.get(b.registry.current).claude_id == "desk-b"
         assert b.registry.get(2).hidden
-        await b.on_raw(msg("接着桌面"))  # 再接同一段：沿用原编号，不重复登记
+        await b.ding.on_raw(msg("接着桌面"))  # 再接同一段：沿用原编号，不重复登记
         assert b.registry.current == 2 and not b.registry.get(2).hidden
         assert len(b.registry.sessions) == 3
 
@@ -302,22 +302,22 @@ def test_cards_flow(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        b.receipt_delay, b.progress_every = 0.01, (0.01, 0.01)
+        b.receipt_delay, b.dcards.progress_every = 0.01, (0.01, 0.01)
         b.registry.add(Session(num=1, name="封面", cwd=str(tmp_path)))
-        await b.on_raw(msg("把封面标题改大"))
+        await b.ding.on_raw(msg("把封面标题改大"))
         await asyncio.sleep(0.4)
         boards = [v for k, v in dt.cards.items() if k.startswith("b-")]
         assert boards and any("跑命令：测试" in d["markdown"] for d in boards[0])
         assert boards[-1][-1]["title"].endswith("都做完了")  # 做完了就收尾
         oid = next(k for k in dt.cards if k.startswith("d1-"))
         assert "选 B（推荐）" in dt.cards[oid][0]["sys_full_json_obj"]
-        await b.on_card({"userId": "stranger", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
-        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
-        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
+        await b.dcards.on_click({"userId": "stranger", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
+        await b.dcards.on_click({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
+        await b.dcards.on_click({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:A"]}}'})
         await asyncio.sleep(0.2)
         assert "你选了 B" in dt.cards[oid][-1]["markdown"]
         b2 = Bridge(cfg, dt, data_dir=tmp_path / "data")  # 重启后还认得这张卡
-        assert b2.cards[oid]["picked"] == "B"
+        assert b2.dcards.store[oid]["picked"] == "B"
 
     asyncio.run(go())
     assert seen == ["把封面标题改大", "选 B：中"]
@@ -349,15 +349,15 @@ def test_reply_forward(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 0
         b.registry.add(Session(num=4, name="开发小E", cwd=str(tmp_path)))
-        await b.on_raw(msg("以后能同时做几个对话吗"))
+        await b.ding.on_raw(msg("以后能同时做几个对话吗"))
         oid = next(k for k in dt.cards if k.startswith("r4-"))
         assert "交给 #4" in dt.cards[oid][0]["sys_full_json_obj"]
-        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["fwd"]}}'})
+        await b.dcards.on_click({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["fwd"]}}'})
         await asyncio.sleep(0.05)
         assert "已转给" in dt.cards[oid][-1]["tips"]
         pic = {"msgtype": "picture", "content": {"downloadCode": "c1"}, "senderStaffId": "me", "conversationType": "1"}
-        await b.on_raw(pic)
-        await b.on_raw(msg("按了之后好像没啥反应"))
+        await b.ding.on_raw(pic)
+        await b.ding.on_raw(msg("按了之后好像没啥反应"))
         await asyncio.sleep(0.05)
 
     asyncio.run(go())
@@ -393,7 +393,7 @@ def test_folder_blocked(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 5
         b.registry.add(Session(num=1, name="清理", cwd=str(tmp_path)))
-        await b.on_raw(msg("清理一下"))
+        await b.ding.on_raw(msg("清理一下"))
         await asyncio.sleep(0.2)
 
     asyncio.run(go())
@@ -434,10 +434,10 @@ def test_unsent_carried_over(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 5
         b.registry.add(Session(num=1, name="清理", cwd=str(tmp_path)))
-        await b.on_raw(msg("清理下载文件夹"))
+        await b.ding.on_raw(msg("清理下载文件夹"))
         await asyncio.sleep(0.1)
         ok["v"] = True
-        await b.on_raw(msg("权限开好了"))
+        await b.ding.on_raw(msg("权限开好了"))
         await asyncio.sleep(0.1)
 
     asyncio.run(go())
@@ -474,19 +474,19 @@ def test_board_follows(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        b.receipt_delay, b.progress_every = 0.05, (0.02, 0.02)
+        b.receipt_delay, b.dcards.progress_every = 0.05, (0.02, 0.02)
         b.registry.add(Session(num=1, name="甲", cwd=str(tmp_path)))
         b.registry.add(Session(num=2, name="乙", cwd=str(tmp_path)))
-        await b.on_raw(msg("#2 做乙"))
+        await b.ding.on_raw(msg("#2 做乙"))
         await asyncio.sleep(0.15)
-        first = b.board
+        first = b.dcards.board
         assert first and "#2 乙" in dt.cards[first][-1]["markdown"]
-        await b.on_raw(msg("#1 做甲"))  # 甲很快做完 → 报告 → 工作台挪下来
+        await b.ding.on_raw(msg("#1 做甲"))  # 甲很快做完 → 报告 → 工作台挪下来
         await asyncio.sleep(0.15)
-        assert b.board != first and dt.cards[first][-1]["markdown"].startswith("进展挪到下面了")
-        await b.on_card({"userId": "me", "outTrackId": b.board, "content": '{"cardPrivateData":{"params":{"id":"stop:2"}}}'})
+        assert b.dcards.board != first and dt.cards[first][-1]["markdown"].startswith("进展挪到下面了")
+        await b.dcards.on_click({"userId": "me", "outTrackId": b.dcards.board, "content": '{"cardPrivateData":{"params":{"id":"stop:2"}}}'})
         await asyncio.sleep(0.2)
-        assert stopped == [2] and b.board is None
+        assert stopped == [2] and b.dcards.board is None
 
     asyncio.run(go())
 
@@ -519,9 +519,9 @@ def test_inject_while_running(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 5
         b.registry.add(Session(num=1, name="开发", cwd=str(tmp_path)))
-        await b.on_raw(msg("把按钮做大"))
+        await b.ding.on_raw(msg("把按钮做大"))
         await asyncio.sleep(0.05)
-        await b.on_raw(msg("顺便把颜色改成蓝色"))
+        await b.ding.on_raw(msg("顺便把颜色改成蓝色"))
         await asyncio.sleep(0.1)
         assert any(t == "插话" for t, _ in dt.sent)
 
@@ -561,7 +561,7 @@ def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
         b.receipt_delay = 5
         b.registry.add(Session(num=6, name="做课", cwd=str(tmp_path), awaiting="要我按 C 来做吗？"))
         b.registry.add(Session(num=4, name="开发", cwd=str(tmp_path)))  # 后加的，是当前对话
-        await b.on_raw(msg("按C来做"))
+        await b.ding.on_raw(msg("按C来做"))
         await asyncio.sleep(0.05)
         assert b.registry.get(6).awaiting == ""
 
@@ -594,10 +594,10 @@ def test_compact(tmp_path, monkeypatch):
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 5
         b.registry.add(Session(num=6, name="做课", cwd=str(tmp_path), claude_id="sid", context_pct=59))
-        await b.on_raw(msg("改封面"))
+        await b.ding.on_raw(msg("改封面"))
         await asyncio.sleep(0.05)
         b.runner.live[6] = object()       # 假装正在做、能插话
-        await b.on_raw(msg("压缩"))
+        await b.ding.on_raw(msg("压缩"))
         assert "等手上 1 件做完再压" in dt.sent[-1][1]
         gate.set()
         await asyncio.sleep(0.2)
@@ -636,10 +636,10 @@ def test_quiet_dingtalk(tmp_path, monkeypatch):
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
         b.receipt_delay = 0.01
-        await b.on_raw(msg("新开 根：做一件要很久的事"))      # 文件夹找不到也会回话；改用临时文件夹
-        await b.on_raw(msg("新开：做一件要很久的事"))
+        await b.ding.on_raw(msg("新开 根：做一件要很久的事"))      # 文件夹找不到也会回话；改用临时文件夹
+        await b.ding.on_raw(msg("新开：做一件要很久的事"))
         await asyncio.sleep(0.1)
-        await b.on_raw(msg("顺便看看别的"))                    # 正在做 → 插话
+        await b.ding.on_raw(msg("顺便看看别的"))                    # 正在做 → 插话
         await asyncio.sleep(0.05)
         gate.set()
         await asyncio.sleep(0.2)
@@ -712,7 +712,7 @@ def test_notify_routing(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)
         assert len(dt.sent) == 1 and "在远窗看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
         dt.sent.clear()
-        await b.on_raw(msg("#1 钉钉里问"))                              # 钉钉里说的：完整报告回钉钉
+        await b.ding.on_raw(msg("#1 钉钉里问"))                              # 钉钉里说的：完整报告回钉钉
         await asyncio.sleep(0.2)
         assert any("改好了" in t for _, t in dt.sent)
 
@@ -743,7 +743,7 @@ def test_limit_auto_resume(tmp_path, monkeypatch):
 
     async def go():
         b = Bridge(cfg, dt, data_dir=tmp_path / "data")
-        await b.on_raw(msg("新开：做件事"))
+        await b.ding.on_raw(msg("新开：做件事"))
         await asyncio.sleep(0.5)
         assert runs == ["做件事", "继续"] and b.registry.get(1).limit_until == 0
 

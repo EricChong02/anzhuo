@@ -111,7 +111,7 @@ class ActionsMixin:
                 plan.update(target=data.get("num"), model=data.get("model") or model, effort=data.get("effort") or e or "medium",
                             folder=data.get("folder") if data.get("folder") in self.bridge.cfg.folders else "")
                 async with self.bridge.schedules.lock:
-                    task = self.bridge.create_schedule(plan)
+                    task = self.bridge.jobs.create(plan)
                 return web.json_response({"ok": True, "scheduled": task})
         except ValueError as e:
             return web.json_response({"ok": False, "error": str(e)}, status=400)

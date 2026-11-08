@@ -364,7 +364,7 @@ def test_dingtalk_flow(tmp_path, monkeypatch):
         router = superagent.find(b)
         assert b.registry.current == router.num               # 钉钉里不带编号的话默认给总管
         b.receipt_delay = 0
-        await b.on_raw(msg("帮我修登录页"))
+        await b.ding.on_raw(msg("帮我修登录页"))
         await asyncio.sleep(0.4)
         assert runs[0][:2] == (router.num, "dingtalk") and runs[1][1] == "router" and runs[2][1] == "report"
         texts = " ".join(t for _, t in dt.sent)
@@ -376,7 +376,7 @@ def test_dingtalk_flow(tmp_path, monkeypatch):
         await t["send_to_session"]({"num": w.num, "text": "标题也改一下"})   # 总管转话 → worker 提问 → 回到总管 → 按钮卡
         await asyncio.sleep(0.4)
         oid = next(k for k in dt.cards if k.startswith(f"d{router.num}-"))
-        await b.on_card({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
+        await b.dcards.on_click({"userId": "me", "outTrackId": oid, "content": '{"cardPrivateData":{"actionIds":["pick:B"]}}'})
         await asyncio.sleep(0.4)
         to_router = [r[2] for r in runs if r[0] == router.num and r[1] == "dingtalk"]
         assert to_router and to_router[0].startswith("【期间的情况】") and to_router[0].endswith("选 B：中")   # 点按钮交回总管，带着期间的情况

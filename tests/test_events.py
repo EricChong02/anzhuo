@@ -1,4 +1,4 @@
-"""事件总线（events.py）和额度变档事件（Bridge._quota_check）。"""
+"""事件总线（events.py）和额度变档事件（QuotaWatch.check）。"""
 import asyncio
 import time
 
@@ -67,16 +67,16 @@ def test_quota_events(tmp_path):
         got = []
         b.events.on("quota", lambda **k: got.append((k["engine"], k["prev"], k["level"])))
         b.runner.limits.update({"five_hour": (0.8, "x")})
-        await b._quota_check()
-        await b._quota_check()                                   # 没变档不重复发
+        await b.quota.check()
+        await b.quota.check()                                   # 没变档不重复发
         b.runner.limits.update({"five_hour": (0.92, "x")})
-        await b._quota_check()
+        await b.quota.check()
         s = b.registry.add(Session(num=b.registry.reserve_num(), name="a", cwd=str(tmp_path), limit_until=time.time() + 600))
-        await b._quota_level("claude", "撞线", num=s.num)
+        await b.quota.set_level("claude", "撞线", num=s.num)
         b.runner.limits.update({"five_hour": (0.1, "x")})
-        await b._quota_check()                                   # 还没到点：仍算撞线
+        await b.quota.check()                                   # 还没到点：仍算撞线
         s.limit_until = time.time() - 1
-        await b._quota_check()
+        await b.quota.check()
         assert [g for g in got if g[0] == "claude"] == [("claude", "充足", "偏紧"), ("claude", "偏紧", "告急"),
                                                         ("claude", "告急", "撞线"), ("claude", "撞线", "充足")]
     asyncio.run(go())

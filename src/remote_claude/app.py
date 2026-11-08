@@ -1,4 +1,6 @@
-"""小E 本体：收到你的话（网页或钉钉）→ 认人 → 解析指令或找对话 → 交给 Claude / Codex → 把结果推回网页、手机通知和钉钉。"""
+"""小E 本体：收到你的话（网页或钉钉）→ 找对话 → 交给 Claude / Codex → 一轮做完把结果推回网页、手机通知和钉钉。
+旁支各在自己的模块里，都持有这个 Bridge：钉钉收消息和文字指令（dingtalk_chat）、钉钉卡片（dingtalk_cards）、
+额度监视（quota_watch）、定时任务（schedule_jobs）、后台维护（housekeeping）、接力（relay）、总管（superagent）。"""
 from __future__ import annotations
 
 import asyncio
@@ -8,26 +10,26 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 
-from claude_agent_sdk import list_sessions
-
 from .localspend import LocalSpend
-from . import cards, engines, ext, folders, quota, report, router, split, superagent, translate, usage
+from . import engines, ext, folders, housekeeping, report, router, split, superagent, translate, usage
 from .events import Bus
-from .commands import HELP, Cmd, parse
+from .commands import Cmd
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
-from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
+from .dingtalk import DingTalk, Incoming, NoDingTalk
+from .dingtalk_cards import DingCards
+from .dingtalk_chat import DingChat
+from .quota_watch import QuotaWatch
 from .report import Turn
 from .relay import RELAY, Relays
+from .schedule_jobs import ScheduleJobs
 from .web import Web
-from .engines import EFFORTS, MODELS
-from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
+from .engines import MODELS
+from .sessions import COMPACT, Job, Registry, Runner, Session
 from .intent import (KIND_CN, _is_reply, _looks_like_project, asks_user, awaiting_kind, inline_overrides, limit_reset,
                      said_engine_model)
 
-DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
 CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它还接得上
 
@@ -45,6 +47,11 @@ class Bridge:
         self._cfg = cfg
         if runner := getattr(self, "runner", None):
             runner.cfg = cfg
+
+    @property
+    def quota_levels(self) -> dict[str, str]:
+        """各家额度现在在哪一档（充足 / 偏紧 / 告急 / 撞线），分工表、接力换家时看。"""
+        return self.quota.levels
 
     def __init__(self, cfg: Config, dt: DingTalk | NoDingTalk, data_dir: Path = DATA_DIR):
         self.cfg = cfg
@@ -69,11 +76,6 @@ class Bridge:
             log.warning("消耗记录迁移失败", exc_info=True)
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
-        self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
-        self.board_task: asyncio.Task | None = None
-        self.board_lock = asyncio.Lock()
-        self.board_shown = ""
-        self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir,
                        watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash,
                        web_prefix=cfg.web_prefix)
@@ -81,17 +83,12 @@ class Bridge:
         # 事件：一轮做完、额度变档……谁关心谁订阅（events.py）；扩展在这之后加载，也能订阅
         self.events = Bus()
         self.relays = Relays(self)   # 接力（含换家、额度用完时小E 拼交接材料）；订阅 turn_done
-        self.events.on("turn_done", self._schedule_ran, order=20)
+        self.jobs = ScheduleJobs(self)   # 定时任务落到对话上；订阅 turn_done 记结果
         superagent.attach(self)   # 总管：回报（turn_report）、接力后交接派活关系（relayed）
-        self.events.on("quota", self._quota_said, order=90)
-        self.quota_levels: dict[str, str] = {}   # 各家额度现在在哪一档（充足 / 偏紧 / 告急 / 撞线）
+        self.quota = QuotaWatch(self)   # 额度分档、撞线后到点接着做；订阅 quota 记日志
+        self.dcards = DingCards(self)   # 钉钉卡片：工作台、确认、要你定、回复
+        self.ding = DingChat(self)      # 钉钉收消息和文字指令
         self.web.exts = self.exts = ext.load(self)
-        self.cards_path = data_dir / "cards.json"
-        self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
-        self.pending: dict | None = None  # 等你回编号选文件夹 / 选最近的对话
-        self.photo_buf: Incoming | None = None  # 只发了图、还没跟话时先攒着，等后面那句话一起交
-        self.photo_task: asyncio.Task | None = None
-        self.photo_wait = 15.0
         self.receipt_delay = 4.0
         self.chat: list[tuple[float, str, str]] = []  # 小E 自己直接回过的几轮（时间、你说的、它答的），接话时带上
         self.chat_at = 0.0  # 最近一次小E 直接回答的时间
@@ -106,67 +103,6 @@ class Bridge:
             superagent.ensure(self)
             self.runner.use_spare = True
         self.registry.save()
-
-    def create_schedule(self, data: dict) -> dict:
-        target = self.registry.get(int(data["target"])) if data.get("target") else None
-        if data.get("target") and (not target or target.hidden):
-            raise ValueError("目标对话不存在")
-        model = data.get("model") or "auto"
-        if target and model != "auto" and engines.switches(model, target.engine):
-            raise ValueError("已有对话不能切换 Claude / Codex，请选择继承模型或新开专用对话")
-        if data.get("folder") and data["folder"] not in self.cfg.folders:
-            raise ValueError("请选择已配置的工作文件夹")
-        return self.schedules.upsert(data)
-
-    async def _schedule_failed(self, task: dict):
-        body = f"{task['title']}：{task['error']}。计划已暂停，可在定时任务中修改。"
-        pushed = await self.web.notify("admin", "定时任务未执行", body, task.get("target")) if self.web.enabled else 0
-        if not pushed:
-            await self.say("定时任务未执行", body, board=False)
-
-    def _scheduled_busy(self, num: int) -> bool:
-        s = self.registry.get(num)
-        return self.runner.busy(num) or bool(s and s.status in ("queued", "running"))
-
-    async def _dispatch_schedule(self, task: dict) -> int:
-        s = self.registry.get(task.get("target"))
-        if task.get("target") and (not s or s.hidden):
-            raise ValueError("目标对话已收起或不存在，请修改任务")
-        if s and self._scheduled_busy(s.num):
-            raise ValueError("目标对话正忙，请稍后重新安排")
-        model = task["model"]
-        if s and model != "auto" and engines.switches(model, s.engine):
-            raise ValueError("目标对话的模型类型发生变化，请修改任务")
-        if not s:
-            num = self.registry.reserve_num()
-            folder = task.get("folder")
-            cwd = Path(self.cfg.folders[folder]).expanduser() if folder else folders.scratch_dir(self.cfg, num)
-            if not cwd.is_dir(): raise ValueError("工作文件夹不存在")
-            if why := await asyncio.to_thread(folders.blocked, [cwd]):
-                raise ValueError("工作文件夹不可访问")
-            if model == "auto":   # 没点名：按分工表（代码仓里按开发，别处按简单任务）
-                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd], levels=self.quota_levels)
-                pick, full = c.pick, c.full_model
-            else:
-                pick, full = model, MODELS.get(model)
-            alt = engines.engine_of(pick)
-            s = Session(num=num, name=task['title'], cwd=str(cwd), engine=alt or engines.CLAUDE.name,
-                        model=full, effort=task['effort'], renamed=True, titled=True)
-            current = self.registry.current
-            self.registry.add(s)
-            self.registry.current = current
-            self.registry.save()
-            task['target'] = s.num
-            self.schedules.save()
-        else:
-            if model != "auto" and not engines.engine_of(model): s.model = MODELS[model]
-            s.effort = task['effort']
-        s.awaiting = s.awaiting_kind = ""
-        self.registry.save()
-        job = Job(text=task['prompt'], via="schedule", schedule_id=task['id'], schedule_run_id=task['run_id'])
-        self.outgoing.setdefault(s.num, []).append({'t': time.time(), 'text': task['prompt']})
-        self.runner.submit(s, job)
-        return s.num
 
     def _usage(self, s: Session, turn: Turn) -> None:
         last = None
@@ -201,86 +137,7 @@ class Bridge:
         for i, part in enumerate(report.split(text)):
             await self.dt.send_markdown(self.user_id, title if i == 0 else f"{title}（续）", part)
         if board:
-            await self._board_follow()
-
-    def _load_cards(self) -> dict[str, dict]:
-        try:
-            return json.loads(self.cards_path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _save_cards(self) -> None:
-        keep = dict(list(self.cards.items())[-100:])
-        self.cards = keep
-        self.cards_path.parent.mkdir(parents=True, exist_ok=True)
-        self.cards_path.write_text(json.dumps(keep, ensure_ascii=False))
-
-    def _active(self) -> list[tuple[str, int, Turn | None]]:
-        """在做的和排队的对话，给工作台用。"""
-        items = []
-        for num, s in sorted(self.registry.sessions.items()):
-            if s.owner != "admin":
-                continue
-            if num in self.runner.turns:
-                items.append((s.label, num, self.runner.turns[num]))
-            elif self.runner.busy(num):
-                items.append((s.label, num, None))
-        return items
-
-    async def _board_post(self) -> None:
-        """在聊天最下面发一张新的工作台，旧的那张缩成一行“挪到下面了”。"""
-        async with self.board_lock:
-            old, oid = self.board, f"b-{int(time.time() * 1000)}"
-            data = cards.board_data(self._active())
-            await self.dt.create_card(self.user_id, oid, data)
-            self.board, self.board_shown = oid, data["markdown"]
-            self.cards[oid] = {"kind": "board", "num": 0}
-            self._save_cards()
-            if old:
-                try:
-                    await self.dt.update_card(old, cards.board_data([], moved=True))
-                except Exception:  # noqa: BLE001
-                    log.debug("旧工作台收起失败", exc_info=True)
-        if not self.board_task or self.board_task.done():
-            self.board_task = asyncio.create_task(self._board_loop())
-
-    async def _board_follow(self) -> None:
-        """小E 刚发了别的消息：还有活在做，就把工作台挪到它下面，免得被顶上去看不到；都做完了就当场收尾。"""
-        if not self.board:
-            return
-        try:
-            if self._active():
-                await self._board_post()
-            else:
-                async with self.board_lock:
-                    oid, self.board = self.board, None
-                    if oid:
-                        await self.dt.update_card(oid, cards.board_data([]))
-        except Exception:  # noqa: BLE001
-            log.debug("挪工作台失败", exc_info=True)
-
-    async def _board_loop(self) -> None:
-        """原地更新工作台；都做完了就改成“都做完了”，不再跟着挪。"""
-        while self.board:
-            items = self._active()
-            long = any(t and time.time() - t.started > 300 for _, _, t in items)
-            if not items:
-                async with self.board_lock:
-                    oid, self.board = self.board, None
-                    if oid:
-                        try:
-                            await self.dt.update_card(oid, cards.board_data([]))
-                        except Exception:  # noqa: BLE001
-                            log.debug("工作台收尾失败", exc_info=True)
-                return
-            data = cards.board_data(items)
-            if data["markdown"] != self.board_shown and self.board:
-                try:
-                    await self.dt.update_card(self.board, data)
-                    self.board_shown = data["markdown"]
-                except Exception:  # noqa: BLE001
-                    log.debug("更新工作台失败", exc_info=True)
-            await asyncio.sleep(self.progress_every[long])
+            await self.dcards.follow()
 
     async def _turn_started(self, s: Session, turn: Turn, job: Job) -> None:
         """几秒内答完的不打扰；做得久的上工作台（没有就发一张）。网页开着时进度只在网页里看，钉钉只在钉钉里说的话才发。"""
@@ -289,10 +146,10 @@ class Bridge:
         await asyncio.sleep(self.receipt_delay)
         if job.finished or turn.ended or self.cfg.dingtalk_quiet or (self.web.enabled and job.via != "dingtalk"):
             return
-        if self.board:
+        if self.dcards.board:
             return  # 工作台自己会刷新出这一件
         try:
-            await self._board_post()
+            await self.dcards.post_board()
         except Exception:  # noqa: BLE001 - 卡片发不出就退回一句文字
             log.warning("发工作台失败", exc_info=True)
             await self.say("收到", f"收到 · {s.label} 在做：{turn.request or '看图'}", board=False)
@@ -316,35 +173,6 @@ class Bridge:
     def _limits(self, s: Session) -> dict:
         """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
         return engines.get(s.engine).limits(self.runner)
-
-    def _schedule_ran(self, s: Session, turn: Turn) -> None:
-        if turn.schedule_id:
-            self.schedules.finish(turn.schedule_id, turn.schedule_run_id, turn.error or ("任务未完成" if turn.is_error or turn.interrupted else ""))
-
-    # ---------- 额度变档（事件 quota）----------
-    async def _quota_level(self, engine: str, level: str, num: int | None = None) -> None:
-        """记下某家额度到了哪一档；变了才发事件。"""
-        prev = self.quota_levels.get(engine, "充足")
-        if level == prev:
-            return
-        self.quota_levels[engine] = level
-        await self.events.emit("quota", engine=engine, level=level, prev=prev,
-                               limits=dict(engines.get(engine).limits(self.runner)), num=num)
-
-    async def _quota_check(self) -> None:
-        """刚读过额度：各家按用了多少分档。撞线的要等撞线的对话都到点恢复了，才按用量重新分档。"""
-        now = time.time()
-        for eng in engines.known():
-            if not eng.has_quota:
-                continue
-            if self.quota_levels.get(eng.key) == "撞线" and any(
-                    s.limit_until > now and engines.get(s.engine) is eng for s in self.registry.visible()):
-                continue
-            await self._quota_level(eng.key, quota.level(eng.limits(self.runner)))
-
-    def _quota_said(self, engine: str, level: str, prev: str, limits: dict, num: int | None = None) -> None:
-        e = engines.get(engine)
-        log.info("%s 额度：%s → %s（%s）", e.label, prev, level, quota.describe(limits) or "没读数")
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         await self.events.emit("turn_done", s, turn)   # 接力、定时任务、扩展各自订阅（见 events.py）
@@ -382,9 +210,7 @@ class Bridge:
         s.awaiting = "" if turn.is_error else asks_user(turn.final_text)
         s.awaiting_kind = awaiting_kind(turn.final_text) if s.awaiting else ""
         if turn.is_error and (until := limit_reset(turn.error or turn.final_text)):
-            s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
-            asyncio.create_task(self.auto_resume(s.num, until))
-            await self._quota_level(s.engine, "撞线", num=s.num)
+            await self.quota.hit_limit(s, until)   # 撞上 5 小时额度：恢复后一分钟自动接着做
         self.registry.save()
         if await self.events.claim("turn_report", s, turn):
             return   # 别人接了（总管派的活：先回报给总管，由总管告诉你）
@@ -407,62 +233,7 @@ class Bridge:
                 except Exception:  # noqa: BLE001
                     log.exception("钉钉提醒 #%s 失败", s.num)
             return
-        try:
-            await self.say(title, body, board=False)
-            for img in turn.images:
-                await self.dt.send_image(self.user_id, Path(img))
-            for f in turn.files:
-                path = Path(f)
-                if path.stat().st_size > DINGTALK_FILE_MAX:
-                    await self.say("文件太大", f"{path.name} 超过 20MB，钉钉发不了，到网页对话里下载。", board=False)
-                    continue
-                try:
-                    await self.dt.send_file(self.user_id, path)
-                except Exception:  # noqa: BLE001
-                    log.exception("发文件失败")
-                    await self.say("文件没发出去", f"{path.name} 钉钉没发出去，到网页对话里下载。", board=False)
-            if not turn.is_error and (d := cards.parse_decision(turn.final_text)):
-                oid = f"d{s.num}-{int(time.time() * 1000)}"
-                await self.dt.create_card(self.user_id, oid, cards.decision_data(s.label, d))
-                self.cards[oid] = {"kind": "decision", "num": s.num, "question": d.question,
-                                   "options": d.options, "recommend": d.recommend}
-                self._save_cards()
-        except Exception:
-            log.exception("推送 #%s 的结果失败", s.num)
-        await self._board_follow()
-
-    async def auto_resume(self, num: int, until: float) -> None:
-        """额度恢复后一分钟，替你说一句“继续”（你点了“别自动接”、或已经自己接着说了就不说）。"""
-        await asyncio.sleep(max(0.0, until + 60 - time.time()))
-        s = self.registry.get(num)
-        if s:
-            try:
-                await engines.get(s.engine).refresh_quota(self.runner, force=True)
-            except Exception:  # noqa: BLE001
-                log.debug("读额度失败", exc_info=True)
-            await self._quota_check()   # 撞线的那家：到点了就按用量回到 充足 / 偏紧（发 quota 事件）
-        if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden or s.relay_to:
-            return
-        s.limit_until = 0.0
-        self.record("小E", "额度恢复，自动接着做", num=num)
-        inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text="继续", via="auto")
-        await self.submit(s, "继续", inc)
-
-    async def _reply(self, answer: str, text: str, inc: Incoming) -> None:
-        """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
-        cur = self.registry.get(self.registry.current)
-        if not cur or cur not in self.registry.visible():
-            return await self.say("回复", f"{answer}\n\n---\n\n远窗直接回的（Haiku），没占用任何对话")
-        oid = f"r{cur.num}-{int(time.time() * 1000)}"
-        try:
-            await self.dt.create_card(self.user_id, oid, cards.reply_data(answer, cur.label))
-        except Exception:  # noqa: BLE001
-            log.warning("发回复卡失败", exc_info=True)
-            return await self.say("回复", f"{answer}\n\n---\n\n远窗直接回的（Haiku）。要说给 {cur.label}，发“#{cur.num} 原话”")
-        self.record("小E", answer, title="回复卡", forward_to=cur.num)
-        self.cards[oid] = {"kind": "reply", "num": cur.num, "text": text, "answer": answer}
-        self._save_cards()
-        await self._board_follow()
+        await self.dcards.deliver(s, turn, title, body)
 
     async def _confirm_asked(self, s: Session, turn: Turn) -> None:
         """有危险操作等你点头：手机通知 + 钉钉按钮卡（网页对话里也会出现允许 / 不允许）。"""
@@ -472,15 +243,8 @@ class Bridge:
         self.record("确认", c["what"], num=s.num)
         if self.web.enabled:
             asyncio.create_task(self.web.notify(s.owner, s.name, "等你确认：" + c["what"], s.num))
-        if s.owner != "admin":
-            return
-        try:
-            oid = f"c{s.num}-{int(time.time() * 1000)}"
-            await self.dt.create_card(self.user_id, oid, cards.confirm_data(s.label, c["what"], c["cmd"], s.num))
-            self.cards[oid] = {"kind": "confirm", "num": s.num, "what": c["what"], "cmd": c["cmd"]}
-            self._save_cards()
-        except Exception:  # noqa: BLE001 - 钉钉发不出去，网页和手机通知照样能点
-            log.exception("发确认卡失败")
+        if s.owner == "admin":
+            await self.dcards.ask_confirm(s, c)
 
     async def answer_confirm(self, num: int, allow: bool, where: str) -> bool:
         """不管在哪点的（网页 / 钉钉），都走这里：交给对话，把钉钉卡改成结果。"""
@@ -488,235 +252,10 @@ class Bridge:
             return False
         result = ("你允许了" if allow else "你没允许") + f"（{where}）"
         self.record("你", f"确认 #{num}：{result}")
-        for oid, info in self.cards.items():
-            if info.get("kind") == "confirm" and info["num"] == num and not info.get("done"):
-                info["done"] = True
-                s = self.registry.get(num)
-                try:
-                    await self.dt.update_card(oid, cards.confirm_data(s.label if s else f"#{num}", info["what"],
-                                                                      info["cmd"], num, result))
-                except Exception:  # noqa: BLE001
-                    log.exception("改确认卡失败")
-        self._save_cards()
+        await self.dcards.confirm_done(num, result)
         return True
 
-    async def on_card(self, data: dict) -> None:
-        """卡片上的按钮被点了：停下，或把选择交回那个对话。"""
-        if data.get("userId") not in self.cfg.allowed_user_ids:
-            log.warning("忽略一次卡片点击：%s", data.get("userId"))
-            return
-        oid, action = data.get("outTrackId", ""), cards.action_of(data)
-        info = self.cards.get(oid)
-        log.info("卡片点击：%s %s", oid, action)
-        self.record("你", f"点了卡片按钮 {action}", card=oid, raw=json.dumps(data, ensure_ascii=False)[:1500])
-        if not info:
-            return await self.say("按钮失效了", "这张卡片的按钮已经失效，直接回字告诉我吧。")
-        if action.startswith(("allow:", "deny:")):
-            num = int(action.split(":")[1])
-            if not await self.answer_confirm(num, action.startswith("allow"), "钉钉"):
-                await self.say("确认", f"#{num} 这一步已经过去了（点过了或超时了）。")
-            return
-        if action.startswith("stop:"):
-            num = int(action.split(":")[1])
-            if not await self.runner.stop(num):
-                await self.say("停", f"#{num} 已经做完了，不用停。")
-            return
-        if not action:
-            return await self.say("按钮没认出来", "这个按钮我没认出来（已记下来排查），先直接回字告诉我选哪个吧。")
-        s = self.registry.get(info["num"])
-        if not s:
-            return await self.say("没有这个对话", f"#{info['num']} 已经不在了。")
-        if action == "stop":
-            stopped = await self.runner.stop(s.num)
-            if not stopped:
-                await self.say("停", f"{s.label} 已经做完了，不用停。")
-            return
-        if action == "fwd" and info["kind"] == "reply":
-            if info.get("done"):
-                return
-            info["done"] = True
-            self._save_cards()
-            self.chat = [c for c in self.chat if c[1] != info["text"]]  # 这句不算小E 的闲聊了
-            await self.dt.update_card(oid, cards.reply_data(info["answer"], s.label, forwarded=True))
-            inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=info["text"])
-            await self.message(Cmd("message", num=s.num, text=info["text"]), inc, routed=True)
-            return
-        if action.startswith("pick:") and info["kind"] == "decision":
-            if info.get("picked"):
-                return
-            letter = action.split(":", 1)[1]
-            options = dict(info["options"])
-            info["picked"] = letter
-            self._save_cards()
-            d = cards.Decision(info["question"], [tuple(o) for o in info["options"]], info.get("recommend"))
-            await self.dt.update_card(oid, cards.decision_data(s.label, d, picked=letter))
-            text = f"选 {letter}：{options.get(letter, '')}"
-            inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=text)
-            await self.message(Cmd("message", num=s.num, text=text), inc, routed=True)
-
-    # ---------- 收消息 ----------
-    async def on_raw(self, data: dict) -> None:
-        inc = parse_incoming(data)
-        if inc.sender_id not in self.cfg.allowed_user_ids or inc.conversation_type != "1":
-            log.warning("忽略一条消息：发送人 %s（%s），会话类型 %s", inc.sender_id, inc.sender_nick, inc.conversation_type)
-            return
-        log.info("收到 %s，文字 %d 字，图片 %d，文件 %d，引用 %s", inc.kind, len(inc.text), len(inc.image_codes),
-                 len(inc.files), "有" if inc.quoted_text else "无")
-        self.record("你", inc.text, kind=inc.kind, images=len(inc.image_codes), files=len(inc.files),
-                    quoted=inc.quoted_text[:200])
-        try:
-            await self.handle(inc)
-        except Exception as e:  # noqa: BLE001
-            log.exception("处理消息失败")
-            await self.say("出错了", f"远窗处理这条消息时出错：{type(e).__name__}: {str(e)[:200]}")
-
-    async def handle(self, inc: Incoming) -> None:
-        if inc.kind == "audio" and not inc.text:
-            return await self.say("没听清", "这条语音没拿到文字。可以用键盘上的麦克风听写，说完再发。")
-        if inc.kind not in ("text", "picture", "richText", "audio", "file"):
-            return await self.say("看不懂", f"这种消息（{inc.kind}）我还处理不了，请发文字、图片或文件。")
-        if inc.image_codes and not inc.text:
-            if self.photo_buf:
-                self.photo_buf.image_codes += inc.image_codes
-            else:
-                self.photo_buf = inc
-                self.photo_task = asyncio.create_task(self._flush_photos())
-            return
-        if self.photo_buf and inc.text:
-            inc.image_codes = self.photo_buf.image_codes + inc.image_codes
-            self.photo_buf = None
-            if self.photo_task:
-                self.photo_task.cancel()
-        cmd = parse(inc.text) if inc.text else Cmd("message")
-        if getattr(cmd, "num", None) and cmd.kind != "pick" and not self.registry.mine(cmd.num):
-            cmd.num = -1   # 别的账号的对话：钉钉里当作没有
-        if cmd.kind == "pick" and self.pending:
-            return await self._pick(cmd.num)
-        if cmd.kind == "pick":
-            cmd = Cmd("message", text=inc.text)
-        self.pending = None if cmd.kind != "message" else self.pending
-
-        if cmd.kind == "help":
-            return await self.say("用法", HELP)
-        if cmd.kind == "list":
-            return await self._list(show_all="全部" in cmd.text)
-        if cmd.kind == "delete":
-            return await self._delete(cmd.num)
-        if cmd.kind == "switch":
-            s = self.registry.get(cmd.num)
-            if not s:
-                return await self.say("没有这个对话", f"没有 #{cmd.num}。发“列表”看看有哪些。")
-            self.registry.current = s.num
-            self.registry.save()
-            return await self.say("已切换", f"之后直接说的话交给 {s.label}。")
-        if cmd.kind == "stop":
-            num = cmd.num or self.registry.current
-            s = self.registry.get(num)
-            if not s:
-                return await self.say("没有这个对话", "没找到要停的对话。")
-            stopped = await self.runner.stop(s.num)
-            return await self.say("停", f"{s.label}：{'已让它停下，稍后发停下时的情况' if stopped else '本来就没在做，排队的也清掉了'}。")
-        if cmd.kind == "rename":
-            s = self.registry.get(cmd.num)
-            if not s:
-                return await self.say("没有这个对话", f"没有 #{cmd.num}。")
-            s.name = cmd.name[:30]
-            self.registry.save()
-            return await self.say("已改名", s.label)
-        if cmd.kind in ("model", "effort"):
-            return await self._set_model(cmd)
-        if cmd.kind == "web":
-            if not self.web.enabled:
-                return await self.say("网页", "网页没有开启（配置里 web = false）。")
-            return await self.say("网页", f"远窗网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
-                                          "里面有所有对话和最近每一轮的完整过程。")
-        if cmd.kind == "compact":
-            return await self.compact(cmd.num)
-        if cmd.kind == "quota":
-            return await self._quota()
-        if cmd.kind == "recent":
-            return await self._recent(cmd.folders[0])
-        if cmd.kind == "desktop":
-            return await self._desktop(cmd.num)
-        if cmd.kind == "resume":
-            return await self._recent(cmd.folders[0], pick=cmd.num)
-        if cmd.kind == "new":
-            return await self.new_session(cmd.folders, cmd.text, inc)
-        if cmd.kind == "mkdir":
-            return await self._mkdir(cmd.folders[0] if cmd.folders else "", cmd.text, inc)
-        await self.message(cmd, inc)
-
-    async def _flush_photos(self) -> None:
-        await asyncio.sleep(self.photo_wait)
-        inc, self.photo_buf = self.photo_buf, None
-        if inc:
-            await self.message(Cmd("message"), inc)
-
-    # ---------- 指令 ----------
-    async def _list(self, show_all: bool = False) -> None:
-        if not self.registry.sessions:
-            return await self.say("对话列表", "还没有对话。发“新开 文件夹：要做的事”开一个，发“帮助”看用法。")
-        visible = self.registry.visible()
-        shown = list(self.registry.sessions.values()) if show_all else visible
-        rows = []
-        for s in sorted(shown, key=lambda x: -x.updated)[:30 if show_all else 15]:
-            mark = "（当前）" if s.num == self.registry.current else ""
-            mark += "（收起）" if s not in visible else ""
-            rows.append(f"- {describe(s, s.num in self.runner.turns)}{mark}")
-        hidden = len(self.registry.sessions) - len(visible)
-        if not rows:
-            rows.append("最近 7 天没有在动的对话。")
-        if hidden and not show_all:
-            rows.append(f"\n另有 {hidden} 个收起了（7 天没动或删掉的），发“列表 全部”看；发“#编号 …”可以接着聊。")
-        await self.say("对话列表", "\n".join(rows))
-
-    async def _delete(self, num: int | None) -> None:
-        s = self.registry.get(num)
-        if not s:
-            return await self.say("没有这个对话", f"没有 #{num}。发“列表”看看有哪些。")
-        if s.num in self.runner.turns or s.status in ("running", "queued"):
-            return await self.say("还在做", f"{s.label} 还在做，先发“停 {s.num}”，停下后再删。")
-        s.hidden, s.hidden_at, s.pinned = True, time.time(), False
-        if self.registry.current == s.num:
-            self.registry.current = None
-        self.registry.save()
-        await self.say("已收起", f"{s.label} 收起了：不再出现在列表里，远窗也不会再把话交给它。"
-                                  f"聊天记录还在，要找回发“#{s.num} 接着说的话”。")
-
-    async def _set_model(self, cmd: Cmd) -> None:
-        s = self.registry.get(cmd.num or self.registry.current)
-        if not s:
-            return await self.say("没有这个对话", "先开一个对话，或写上编号，比如“模型 7 sonnet”。")
-        if cmd.kind == "model":
-            if not cmd.name:
-                return await self.say("模型", f"{s.label} 用的是 {report.model_name(MODELS.get(s.model or '', s.model or '')) or '默认（' + str(user_setting('model')) + '）'}。")
-            if cmd.name not in MODELS and cmd.name != "默认":
-                return await self.say("模型", "可选：" + "、".join(MODELS) + "、默认")
-            if engines.get(s.engine).pick_model != "menu":   # 别家（GPT、Kimi）的对话：中途不换成 Claude 的型号
-                return await self.say("模型", f"{s.label} 用的是 {engines.get(s.engine).label}，中途换不了模型。")
-            s.model = None if cmd.name == "默认" else MODELS[cmd.name]
-            shown = report.model_name(s.model) if s.model else "默认"
-        else:
-            if not cmd.name:
-                cur = s.effort or self.runner.default_effort
-                return await self.say("深度", f"{s.label} 的思考深度：{report.EFFORT_CN.get(cur, cur) or '默认'}。")
-            if cmd.name not in EFFORTS:
-                return await self.say("深度", "可选：" + "、".join(EFFORTS))
-            s.effort = EFFORTS[cmd.name]
-            shown = cmd.name
-        self.registry.save()
-        await self.say("已设置", f"{s.label} 从下一句起用：{shown}。")
-
-    async def _quota(self) -> None:
-        await self.runner.refresh_usage(force=True)
-        if not self.runner.limits:
-            return await self.say("额度", "这次没查到额度，稍后再试。")
-        lines = []
-        for key, (util, resets) in self.runner.limits.items():
-            when = f"，{resets} 重置" if resets else ""
-            lines.append(f"- {report.LIMIT_CN.get(key, key)}：已用 {util * 100:.0f}%{when}")
-        await self.say("额度", "\n".join(lines))
-
+    # ---------- 开对话、交话 ----------
     async def _resolve_all(self, tokens: list[str]) -> tuple[list[Path], str | None, list[Path]]:
         """返回 (已确定的目录, 有歧义的词, 该词的候选)。"""
         done: list[Path] = []
@@ -745,110 +284,10 @@ class Bridge:
             return await self.say("没找到文件夹", f"没找到“{e.args[0]}”。可以写短名（{'、'.join(self.cfg.folders)}）、完整路径，或文件夹名里更具体的几个字。")
         resolved += more
         if ambiguous:
-            self.pending = {"kind": "folder", "tokens": tokens, "resolved": resolved, "cands": cands,
-                            "text": text, "inc": inc, "note": note, "task_kind": kind}
-            lines = [f"{i}. {folders.display(p)}" for i, p in enumerate(cands, 1)]
-            return await self.say("选文件夹", f"“{ambiguous}”找到几个，回编号选一个：\n\n" + "\n".join(lines))
+            return await self.ding.ask_folder(ambiguous, cands, tokens=tokens, resolved=resolved, text=text, inc=inc,
+                                              note=note, task_kind=kind)
         num = self.registry.reserve_num()
         await self.start_session(num, resolved[0], resolved[1:], text, inc, note=note, kind=kind, model=model, effort=effort)
-
-    async def _mkdir(self, spec: str, text: str, inc: Incoming) -> None:
-        parent_tok, name = folders.split_new_path(spec)
-        if not name or "/" in name or name.startswith("."):
-            return await self.say("新建文件夹", "要写成“新建 位置/名字：要做的事”，比如“新建 personal/菜谱整理：…”。")
-        if parent_tok:
-            cands = folders.candidates(parent_tok, self.cfg)
-            if len(cands) != 1:
-                return await self.say("新建文件夹", f"位置“{parent_tok}”{'没找到' if not cands else '有好几个，请写完整路径或短名'}。")
-            parent = cands[0]
-        else:
-            parent = Path(self.cfg.scratch_root).expanduser()
-        target = parent / name
-        existed = target.exists()
-        target.mkdir(parents=True, exist_ok=True)
-        num = self.registry.reserve_num()
-        await self.start_session(num, target, [], text, inc, note="（文件夹本来就有，直接用了）" if existed else "（已新建文件夹）")
-
-    async def _pick(self, n: int | None) -> None:
-        p, self.pending = self.pending, None
-        if p["kind"] == "folder":
-            if not n or not 1 <= n <= len(p["cands"]):
-                return await self.say("选文件夹", "编号不对，这次先取消了，重新发一次“新开 …”吧。")
-            await self.new_session(p["tokens"], p["text"], p["inc"], resolved=p["resolved"] + [p["cands"][n - 1]],
-                            note=p.get("note", ""), kind=p.get("task_kind"))
-        elif p["kind"] == "desktop":
-            await self._desktop(n, p["infos"], replace=p["num"])
-        elif p["kind"] == "recent":
-            await self._recent(p["folder"], pick=n)
-        elif p["kind"] == "route":
-            if n == 1:
-                await self.message(Cmd("message", num=p["cur"], text=p["cmd"].text), p["inc"], routed=True)
-            elif n == 2:
-                await self.new_session([p["folder"]] if p["folder"] else [], p["cmd"].text, p["inc"])
-            else:
-                await self.say("接着还是新开", "编号不对，这句先没交出去，请重新发一次。")
-
-    async def _recent(self, token: str, pick: int | None = None) -> None:
-        cands = folders.candidates(token, self.cfg)
-        if len(cands) != 1:
-            return await self.say("最近的对话", f"文件夹“{token}”{'没找到' if not cands else '有好几个，请写短名或完整路径'}。")
-        d = cands[0]
-        infos = await asyncio.to_thread(list_sessions, str(d), 10, 0, False)
-        if not infos:
-            return await self.say("最近的对话", f"{folders.display(d)} 里还没有对话。")
-        if pick is None:
-            lines = []
-            for i, x in enumerate(infos, 1):
-                when = datetime.fromtimestamp(x.last_modified / 1000 if x.last_modified > 1e12 else x.last_modified)
-                title = (x.custom_title or x.summary or x.first_prompt or "").replace("\n", " ")[:40]
-                lines.append(f"{i}. {when:%m-%d %H:%M}　{title}")
-            self.pending = {"kind": "recent", "folder": token}
-            return await self.say("最近的对话", f"{folders.display(d)} 最近的对话，回编号接着聊：\n\n" + "\n".join(lines))
-        if not 1 <= pick <= len(infos):
-            return await self.say("最近的对话", "编号不对。")
-        x = infos[pick - 1]
-        num = self.registry.reserve_num()
-        name = report.brief(x.custom_title or x.summary or x.first_prompt or "接着聊", 16)
-        s = self.registry.add(Session(num=num, name=name, cwd=str(d), claude_id=x.session_id, from_desktop=True))
-        await self.say("接上了", f"{s.label} 接上了，之后直接说的话交给它。")
-
-    async def _desktop(self, pick: int | None, infos: list | None = None, replace: int | None = None) -> None:
-        """接上你最近在桌面端聊的那段：不用记文件夹和编号。小E 自己新开的、临时文件夹里的不算。"""
-        if infos is None:
-            mine = {s.claude_id for s in self.registry.sessions.values() if not s.from_desktop}
-            skip = (str(Path.home()), str(Path(self.cfg.scratch_root).expanduser()))
-            everything = await asyncio.to_thread(list_sessions, None, 150, 0, False)
-            infos = [x for x in everything
-                     if x.session_id not in mine and x.cwd and x.cwd != skip[0] and not x.cwd.startswith(skip[1])][:5]
-        if not infos:
-            return await self.say("接着桌面", "没找到桌面端最近的对话。")
-        pick = pick or 1
-        if not 1 <= pick <= len(infos):
-            return await self.say("接着桌面", f"编号不对，只有 1—{len(infos)}。")
-        if replace and (old := self.registry.get(replace)) and old.status == "idle" and not old.hidden:
-            old.hidden = True  # 刚才接错的那段收起来
-        x = infos[pick - 1]
-        title = (x.custom_title or x.summary or x.first_prompt or "接着聊").replace("\n", " ")
-        s = next((v for v in self.registry.sessions.values() if v.claude_id == x.session_id), None)
-        new = s is None
-        if s:
-            s.hidden = False
-            self.registry.current = s.num
-            self.registry.save()
-        else:
-            s = self.registry.add(Session(num=self.registry.reserve_num(), name=report.brief(title, 16),
-                                          cwd=x.cwd, claude_id=x.session_id, from_desktop=True))
-        when = datetime.fromtimestamp(x.last_modified / 1000 if x.last_modified > 1e12 else x.last_modified)
-        lines = [f"{s.label} 接上了，之后直接说的话交给它。",
-                 f"文件夹：{folders.display(Path(x.cwd))}　桌面端最后说话：{when:%m-%d %H:%M}",
-                 "**注意**：桌面端那段先别再说话，两边同时说会乱；回到电脑前想在桌面端接着聊，先等这边做完。"]
-        others = [(i, y) for i, y in enumerate(infos, 1) if i != pick]
-        if others:
-            self.pending = {"kind": "desktop", "infos": infos, "num": s.num if new else None}
-            lines.append("不是这段？回编号换：\n\n" + "\n".join(
-                f"{i}. {(y.custom_title or y.summary or y.first_prompt or '').replace(chr(10), ' ')[:24]}"
-                f"（{folders.display(Path(y.cwd))}）" for i, y in others))
-        await self.say("接着桌面", "\n\n".join(lines))
 
     async def start_session(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                             kind: str | None = None, model: str | None = None, effort: str | None = None,
@@ -862,7 +301,6 @@ class Bridge:
         if kind is None:
             kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
             if text and not model and not inline_overrides(text)[0]:
-                from . import router
                 kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活照分工表的 design 档
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root, boss=boss)
         said_model, said_effort = inline_overrides(text)
@@ -893,21 +331,8 @@ class Bridge:
 
     async def message(self, cmd: Cmd, inc: Incoming, routed: bool = False) -> None:
         """对外接口：一句话交给哪个对话（带编号的直接给；没带的按自动判断 / 总管），最后走 submit。"""
-        if not routed:
-            from .schedules import parse_request, TZ
-            try:
-                plan = parse_request(cmd.text or "")
-                if plan:
-                    if inc.image_codes or inc.local_images or inc.files:
-                        raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
-                    m, e = inline_overrides(cmd.text)
-                    model = "gpt" if m == "gpt" else next((k for k, v in MODELS.items() if v == m), "auto")
-                    plan.update(target=cmd.num or (self.registry.current if re.search("这个对话|接着|继续", cmd.text) else None), model=model, effort=e or "medium")
-                    task = self.create_schedule(plan)
-                    at = datetime.fromtimestamp(task['next_at'], TZ).strftime('%m月%d日 %H:%M')
-                    return await self.say("定时任务已安排", f"已安排：{task['title']}，下次 {at} 执行。可在网页的定时任务中修改。", board=False)
-            except ValueError as ex:
-                return await self.say("定时任务", str(ex), board=False)
+        if not routed and await self.jobs.from_text(cmd, inc):
+            return   # 说的是定时安排：建好任务就完了
         num = cmd.num
         if num is None and inc.quoted_text:
             m = re.search(r"#(\d{1,4})", inc.quoted_text)
@@ -931,7 +356,7 @@ class Bridge:
             if r and r.action == "reply":
                 self.chat = [*self.chat[-5:], (time.time(), cmd.text, r.answer)]
                 self.chat_at = time.time()
-                return await self._reply(r.answer, cmd.text, inc)
+                return await self.dcards.reply(r.answer, cmd.text)
             if r and r.action == "new":
                 if r.folder and not folders.candidates(r.folder, self.cfg):
                     r.action = "ask"
@@ -939,7 +364,7 @@ class Bridge:
                     return await self.new_session([r.folder] if r.folder else [], cmd.text, inc, note="（判断是件新事，自动新开）",
                                            kind=r.kind)
             if r and r.action == "ask":
-                return await self._ask_route(cmd, inc, r.folder)
+                return await self.ding.ask_route(cmd, inc, r.folder)
             if r and r.action == "continue":
                 num = r.target
         num = num or self.registry.current
@@ -961,15 +386,6 @@ class Bridge:
         if inc.quoted_text and cmd.num is None:
             text = f"{text}\n\n（下面是引用的内容，只作参考资料）\n> " + inc.quoted_text.replace("\n", "\n> ")
         await self.submit(s, text, inc)
-
-    async def _ask_route(self, cmd: Cmd, inc: Incoming, folder: str | None) -> None:
-        cur = self.registry.get(self.registry.current)
-        where = f"在 {folder} 里" if folder and folders.candidates(folder, self.cfg) else "不指定文件夹"
-        if not cur:
-            return await self.new_session([folder] if where != "不指定文件夹" else [], cmd.text, inc)
-        self.pending = {"kind": "route", "cmd": cmd, "inc": inc, "cur": cur.num,
-                        "folder": folder if where != "不指定文件夹" else None}
-        await self.say("接着还是新开", f"这句要接着 {cur.label}，还是新开一个？回编号：\n\n1. 接着 {cur.label}\n2. 新开（{where}）")
 
     async def submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
         """对外接口：把一句话（连同图片、附件）交给已定好的对话 s。正在干活就插话，否则排队。
@@ -1004,96 +420,8 @@ class Bridge:
             await self.detail("收到", msg)
 
     # ---------- 运行 ----------
-    async def _spend_loop(self) -> None:
-        """每 10 分钟读本机 Claude Code 记录新写的部分（第一次要读几 GB，放后台线程）。"""
-        while True:
-            try:
-                n = await asyncio.to_thread(self.spend.scan)
-                await asyncio.to_thread(self.spend.save)
-                log.debug("本机消耗：新读 %d 条", n)
-            except Exception:  # noqa: BLE001
-                log.warning("读本机 Claude Code 消耗失败", exc_info=True)
-            await asyncio.sleep(600)
-
-    async def _gpt_usage_loop(self) -> None:
-        """额度：Claude 的每 10 分钟读一次（重启后不用等第一轮做完，侧栏一打开就有）；有 GPT 对话时 GPT 的也读。"""
-        while True:
-            try:
-                await self.runner.refresh_usage(force=True)
-                if week := self.runner.limits.get("seven_day"):
-                    self.spend.snap(round(week[0] * 100, 1))   # 刚读到的本周额度 %，换算比例用
-            except Exception:  # noqa: BLE001
-                log.debug("读 Claude 额度失败", exc_info=True)
-            for eng in {engines.get(s.engine) for s in self.registry.visible()} - {engines.CLAUDE}:   # 别家：有对话在用、能查才查
-                if not eng.has_quota:
-                    continue
-                try:
-                    await eng.refresh_quota(self.runner, force=True)
-                except Exception:  # noqa: BLE001
-                    log.debug("读 %s 额度失败", eng.label, exc_info=True)
-            await self._quota_check()
-            await asyncio.sleep(600)
-
-    async def _cleanup_loop(self) -> None:
-        """每天清一次旧副本、归档 90 天前的旧对话记录（见 cleanup.py）；登记着的对话不动。"""
-        from . import cleanup
-        while True:
-            await asyncio.sleep(600)
-            try:
-                keep = {s.claude_id for s in self.registry.sessions.values() if s.claude_id}
-                await asyncio.to_thread(cleanup.run, self.data_dir, keep)
-                using = {s.cwd for s in self.registry.sessions.values() if s.pinned or (not s.hidden and time.time() - s.updated < 60 * 86400)}
-                await asyncio.to_thread(cleanup.tidy_scratch, folders._expand(self.cfg.scratch_root), using)
-                await self._monthly_checkup()
-            except Exception:  # noqa: BLE001
-                log.exception("定期清理失败")
-            await asyncio.sleep(86400 - 600)
-
-    async def _monthly_checkup(self) -> None:
-        """每月 1 号起派一次 AI 体检：新开一个对话，列出建议清理的东西，最后用“要你定”问你，你点头才挪进废纸篓。"""
-        from .cleanup import CHECKUP
-        mark = self.data_dir / "checkup.json"
-        month = time.strftime("%Y-%m")
-        try:
-            done = json.loads(mark.read_text()).get("month")
-        except (OSError, ValueError):
-            done = None
-        if done is None:   # 头一次：从下个月 1 号开始
-            mark.write_text(json.dumps({"month": month}))
-            return
-        if done == month:
-            return
-        mark.write_text(json.dumps({"month": month}))
-        num = self.registry.reserve_num()
-        inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=CHECKUP)
-        await self.start_session(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
-                          model=MODELS["sonnet"], effort="low")
-        if s := self.registry.get(num):
-            s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
-            self.registry.save()
-
-    def _dingtalk_client(self):
-        """钉钉 Stream 长连接（只在开了钉钉时才导入 dingtalk_stream）。"""
-        import dingtalk_stream
-        bridge = self
-
-        class Handler(dingtalk_stream.CallbackHandler):
-            async def process(self, callback: dingtalk_stream.CallbackMessage):
-                asyncio.create_task(bridge.on_raw(callback.data))
-                return dingtalk_stream.AckMessage.STATUS_OK, "OK"
-
-        class CardHandler(dingtalk_stream.CallbackHandler):
-            async def process(self, callback: dingtalk_stream.CallbackMessage):
-                asyncio.create_task(bridge.on_card(callback.data))
-                return dingtalk_stream.AckMessage.STATUS_OK, {}
-
-        client = dingtalk_stream.DingTalkStreamClient(dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret))
-        client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
-        client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
-        return client
-
     async def run(self) -> None:
-        client = self._dingtalk_client() if self.cfg.dingtalk_enabled else None
+        client = self.ding.client() if self.cfg.dingtalk_enabled else None
         if self.web.enabled:
             await self.web.start()
         # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡。Windows / Linux 没有 caffeinate，跳过
@@ -1102,10 +430,10 @@ class Bridge:
         except FileNotFoundError:
             pass
         if self.cfg.auto_cleanup:   # 每天清理、每月体检（配置 auto_cleanup）
-            asyncio.create_task(self._cleanup_loop())
-        asyncio.create_task(self._gpt_usage_loop())
-        asyncio.create_task(self._spend_loop())
-        asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
+            asyncio.create_task(housekeeping.cleanup_loop(self))
+        asyncio.create_task(self.quota.loop())
+        asyncio.create_task(housekeeping.spend_loop(self))
+        asyncio.create_task(self.jobs.loop())
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         from .codex import codex_bin, probe_models
         if codex_bin():   # 记下 Codex 能用哪些型号（Sol / Terra / Luna …），网页、总管选型号用
@@ -1115,9 +443,7 @@ class Bridge:
             asyncio.create_task(probe_all(str(self.data_dir / "router")))
         if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
             asyncio.create_task(superagent.recover(self, self.interrupted))
-        for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
-            if s.limit_until and s.auto_resume:
-                asyncio.create_task(self.auto_resume(s.num, s.limit_until))
+        self.quota.resume_waiting()   # 重启前撞了额度在等恢复的，接着等
         log.info("小E 启动，已登记 %d 个对话%s", len(self.registry.sessions), "" if client else "（钉钉已停用，只用网页）")
         if client:
             await client.start()
