@@ -220,3 +220,46 @@ def test_unknown_command_asks(tmp_path, fake, monkeypatch):
         assert asked and "看不出" in asked[0] and t.final_text == "没跑"
 
     asyncio.run(go())
+
+
+def test_acp_danger_delete_and_move():
+    """删文件、挪文件按 `rm -- 路径` 的规则判：临时目录放行，别处要问你；挪文件源和目标都判，看不出路径的也问你。"""
+    from remote_claude.sessions import acp_danger
+    home = str(Path.home())
+    assert acp_danger("delete", {"locations": [{"path": "/tmp/x.txt"}]}, "")[0] == ""
+    what, shown = acp_danger("delete", {"rawInput": {"path": f"{home}/Documents/a.md"}}, "")
+    assert what and "rm -- " in shown
+    assert acp_danger("delete", {}, "")[0]                                  # 看不出删哪个
+    assert acp_danger("move", {"rawInput": {"source": "/tmp/a"}}, "")[0]    # 只有一个路径：看不出挪到哪
+    assert acp_danger("move", {"rawInput": {"source": "/tmp/a", "destination": "/tmp/b"}}, "")[0] == ""
+    what, shown = acp_danger("move", {"rawInput": {"source": "/tmp/a", "destination": f"{home}/Documents/b"}}, "")
+    assert what.startswith("挪动：") and shown.startswith("mv -- ")
+    assert acp_danger("execute", {}, "ls")[0] == "" and acp_danger("execute", {}, "git push")[0]
+    assert acp_danger("execute", {}, "")[0]                                 # 看不出跑什么命令
+
+
+def test_acp_close_cancels_tasks(fake):
+    """关连接时读输出的后台任务一起收掉，不挂在事件循环里。"""
+    async def go():
+        conn = acp.AcpConn("fake", str(Path.cwd()), lambda u: None)
+        await conn.start()
+        tasks = list(conn._tasks)
+        assert tasks
+        await conn.close()
+        await asyncio.sleep(0)         # 做完的回调下一拍才跑
+        assert all(t.done() for t in tasks) and not conn._tasks
+
+    asyncio.run(go())
+
+
+def test_codex_close_cancels_tasks():
+    from remote_claude.codex import CodexConn
+
+    async def go():
+        conn = CodexConn("/tmp", lambda *a: None)
+        t = conn._spawn(asyncio.sleep(60))
+        await conn.close()
+        await asyncio.sleep(0)
+        assert t.cancelled() and not conn._tasks
+
+    asyncio.run(go())

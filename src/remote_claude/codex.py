@@ -87,6 +87,7 @@ class CodexConn:
         self._id = 0
         self._wait: dict[int, asyncio.Future] = {}
         self._reader: asyncio.Task | None = None
+        self._tasks: set[asyncio.Task] = set()   # 读输出、读错误输出、回答它反过来问的：留着引用，关连接时一起收掉
         self._stderr = bytearray()
         self.thread_id = ""
         self.turn_id = ""
@@ -101,8 +102,8 @@ class CodexConn:
         self.proc = await asyncio.create_subprocess_exec(
             str(exe), "app-server", cwd=self.cwd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=64 * 1024 * 1024)
-        self._reader = asyncio.create_task(self._read())
-        asyncio.create_task(self._drain())
+        self._reader = self._spawn(self._read())
+        self._spawn(self._drain())
         init = {"clientInfo": {"name": "xiaoe", "version": "1"}}
         if self.tools:   # 自定义工具是实验接口，要先声明
             init["capabilities"] = {"experimentalApi": True}
@@ -141,7 +142,7 @@ class CodexConn:
                     continue
                 method, params = msg.get("method", ""), msg.get("params") or {}
                 if "id" in msg and method:   # Codex 反过来问：另开一路处理（可能要等你点头），不挡住后面的消息
-                    asyncio.create_task(self._answer(msg["id"], method, params))
+                    self._spawn(self._answer(msg["id"], method, params))
                     continue
                 if method == "turn/completed":
                     turn = params.get("turn") or {}
@@ -226,6 +227,13 @@ class CodexConn:
         if self.thread_id and self.turn_id and not self.done.is_set():
             await self.request("turn/interrupt", {"threadId": self.thread_id, "turnId": self.turn_id}, timeout=20)
 
+    def _spawn(self, coro) -> asyncio.Task:
+        """开一个后台任务并留住引用（只靠事件循环的弱引用，任务可能半路被回收）；做完自己从集合里拿掉。"""
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
     async def close(self) -> None:
         if self.proc and self.proc.returncode is None:
             self.proc.terminate()
@@ -233,3 +241,10 @@ class CodexConn:
                 await asyncio.wait_for(self.proc.wait(), 5)
             except asyncio.TimeoutError:
                 self.proc.kill()
+        # 进程没了，读输出的、还在等你点头的回答都收掉，免得挂在事件循环里
+        me = asyncio.current_task()
+        tasks = [t for t in self._tasks if t is not me and not t.done()]
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

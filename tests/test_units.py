@@ -452,3 +452,24 @@ def test_said_has_relay_first_message():
     assert _said_has(rec, "推不上的原因：钩子跑 doctor")
     assert _said_has("批准本会话编辑：a", "批准本会话编辑：a")
     assert not _said_has(rec, "别的话")
+
+
+def test_waiting_cleared_when_cancelled(tmp_path):
+    """排队等名额时被取消，要从 waiting 里拿掉，不然这个对话一直显示“忙”。"""
+    import asyncio
+    from remote_claude.sessions import Job, Registry, Runner, Session
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        r = Runner(registry=reg, on_done=None, max_parallel=1)
+        s = Session(num=1, name="t", cwd=str(tmp_path))
+        reg.add(s)
+        await r.sem.acquire()          # 名额被别的对话占满
+        r.submit(s, Job(text="做点事"))
+        await asyncio.sleep(0.05)
+        assert 1 in r.waiting and r.busy(1)
+        r.workers[1].cancel()
+        await asyncio.gather(r.workers[1], return_exceptions=True)
+        assert 1 not in r.waiting and not r.busy(1)
+
+    asyncio.run(go())

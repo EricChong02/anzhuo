@@ -9,6 +9,7 @@ import logging
 import mimetypes
 import os
 import re
+import shlex
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -237,7 +238,7 @@ class Runner:
         self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
         self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
         self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
-        self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
+        self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）
 
     @contextlib.asynccontextmanager
     async def _slot(self, own: bool, human: bool):
@@ -530,8 +531,15 @@ class Runner:
             # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
             human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
             self.waiting.add(num)
-            async with self._slot(own, human):
-                self.waiting.discard(num)
+            slot = contextlib.AsyncExitStack()
+            try:
+                await slot.enter_async_context(self._slot(own, human))
+            except BaseException:
+                self.dropped.discard(num)   # 等名额时被取消：别留下“拿到也不做”的记号，免得挡住下一件
+                raise
+            finally:
+                self.waiting.discard(num)   # 等名额时被取消也要拿掉，不然 busy() 一直是真的
+            async with slot:
                 if num in self.dropped:
                     self.dropped.discard(num)
                     s.status = "idle"
@@ -1229,6 +1237,41 @@ def _acp_step(call: dict) -> tuple[str, str, str]:
     return (ACP_KIND.get(kind, "") + brief(title, 18)) if title else (kind or "工具"), (json.dumps(raw, ensure_ascii=False)[:500] if raw else title), ""
 
 
+_PATH_KEYS = ("path", "file_path", "paths", "source", "src", "from", "old_path", "destination", "dest", "to", "new_path", "target")
+
+
+def _acp_paths(call: dict) -> list[str]:
+    """这次调用碰到的所有文件路径：locations 里的，加上参数里像路径的那几项（挪文件时有源和目标）。"""
+    out = [str(x.get("path")) for x in call.get("locations") or [] if isinstance(x, dict) and x.get("path")]
+    raw = _acp_input(call) or (call.get("rawInput") if isinstance(call.get("rawInput"), dict) else {})
+    for k in _PATH_KEYS:
+        v = raw.get(k)
+        for x in (v if isinstance(v, list) else [v]):
+            if isinstance(x, str) and x.strip() and x.strip() not in out:
+                out.append(x.strip())
+    return out
+
+
+def acp_danger(kind: str, call: dict, target: str) -> tuple[str, str]:
+    """ACP 要批准的这一步危不危险 → (危险说明, 给你看的命令)；不危险返回 ("", "")。
+    跑命令照 guard 判；删文件、挪文件按和 `rm -- 路径` 一样的规则判（临时目录照旧放行），挪文件源和目标都判；
+    看不出命令或路径的，一律当危险，问你。"""
+    if kind == "execute":
+        return (guard.danger(target) or "", target) if target else ("要跑命令，但看不出具体是什么", "")
+    if kind in ("delete", "move"):
+        paths = _acp_paths(call) or ([target] if target else [])
+        if kind == "move" and len(paths) < 2:
+            return "要挪文件，但看不出从哪挪到哪", " ".join(paths)
+        if not paths:
+            return "要删文件，但看不出是哪个", ""
+        shown = ("mv -- " if kind == "move" else "rm -- ") + " ".join(shlex.quote(x) for x in paths)
+        for x in paths:   # 挪走源文件等于从原处删掉；挪到目标会盖掉那里原有的文件
+            if what := guard.danger(f"rm -- {shlex.quote(x)}"):
+                return (("挪动：" + what) if kind == "move" else what), shown
+        return "", shown
+    return (guard.danger(target) or "", target) if target else ("", "")
+
+
 def thinking_value(effort: str, option: dict | None) -> str:
     """远窗的思考深度（low…max）→ 这个助手“思考”配置项里最接近的取值（各家不一样：off/on、low/high/max……）。"""
     have = [str(x.get("value")) for x in (option or {}).get("options") or []]
@@ -1314,8 +1357,8 @@ async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
         if not target:
             _, _, target = _acp_step({**known, **{x: v for x, v in call.items() if v is not None}})
         kind = str(known.get("kind") or call.get("kind") or "")
-        what = guard.danger(target) if target else ("要跑命令，但看不出具体是什么" if kind == "execute" else "")
-        if what and not await self.decide(s, turn, what, target or str(call.get("title") or "")):
+        what, shown = acp_danger(kind, {**known, **{x: v for x, v in call.items() if v is not None}}, target)
+        if what and not await self.decide(s, turn, what, shown or target or str(call.get("title") or "")):
             return pick("reject_once", "reject_always")
         return pick("allow_once", "allow_always")
 
