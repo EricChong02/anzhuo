@@ -591,3 +591,8 @@ button.opt.rec{background:var(--panel);box-shadow:inset 0 0 0 1.5px var(--acc)}
 button.opt.rec .k{background:var(--acc);color:var(--on-acc,#fff)}
 @media (hover:hover){button.opt:hover{background:var(--panel);box-shadow:inset 0 0 0 1.5px var(--acc)}}
 button.opt:active{background:var(--accsoft)}
+
+/* 顶部状态栏那一条：纯色底取渐变最上面的颜色，和渐变接上，不留色差分界 */
+:root{--sky-top:#e2e9ee}
+@media (prefers-color-scheme:dark){:root{--sky-top:#2e3a45}}
+html,body{background:var(--sky) var(--sky-top);background-attachment:fixed}
