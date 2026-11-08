@@ -76,7 +76,7 @@ function wireComposer(sendFn, onSent, onOpening) {
     if (e.key === 'ArrowUp' && !ta.value && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && lastYou[num0]) {   // 输入框空着按 ↑：调出上一句，改一下重发
       e.preventDefault(); ta.value = lastYou[num0]; sync(); ta.setSelectionRange(ta.value.length, ta.value.length); return;
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !phone) { e.preventDefault(); go(); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229 && !phone && (!document.documentElement.classList.contains('command-send') || e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }
   };
   async function go() {
     const originalText = state.text, text = originalText.trim();
