@@ -14,11 +14,13 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, qu
 from .commands import HELP
 from .folders import display
 from .sessions import Session
+from . import split
+from .engines import HELPER_MODEL
 
 log = logging.getLogger(__name__)
 
-ROUTER_MODEL = "claude-haiku-5-5"
-KINDS = ("design", "dev", "simple")  # 新事的三档：拿主意定方案 / 照要求开发 / 其余；各用哪个模型见配置 design_model、dev_model、simple_model
+ROUTER_MODEL = HELPER_MODEL
+KINDS = tuple(split.KINDS)  # 新事的三档：拿主意定方案 / 照要求开发 / 其余；各交给谁见分工表（split.py，配置 [split]）
 ROUTER_EFFORT = "low"  # 小E 自己的判断只用低档思考；干活的对话另按配置（默认中）
 
 SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工作对话发消息，你判断这条消息该交给谁。

@@ -14,24 +14,17 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, engines, folders, report, router, superagent, translate, usage
+from . import cards, engines, folders, report, router, split, superagent, translate, usage
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
-from .web import Web, relay_hint
-from .engines import EFFORTS, MODELS  # noqa: F401 - 型号表、深度表在 engines/catalog.py；别处还从这里拿
+from .relay import RELAY, relay_hint
+from .web import Web
+from .engines import EFFORTS, MODELS
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
-
-# 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
-RELAY = """这个对话太长了，要换到一个新对话接着做。请写一份交接说明，新对话只靠它接手，所以要具体：
-1. 目标：用户要做成什么、明确提过的要求和偏好；
-2. 已定下的决定和理由（含否掉的做法，免得重走）；
-3. 已经做完的：改了哪些文件、提交 / 推送 / 上线情况；
-4. 正在做的和接下来几步；
-5. 关键路径、命令、账号位置、踩过的坑；
-6. 还等用户决定的问题。
-只回复交接说明本身，用 Markdown，2000 字以内；不要调用任何工具，不要再做别的事。"""
+from .intent import (KIND_CN, _is_reply, _looks_like_project, asks_user, awaiting_kind, inline_overrides, limit_reset,
+                     said_engine_model)
 
 DINGTALK_FILE_MAX = 20 * 1024 * 1024  # 钉钉单个文件上限
 RECENT_KEEP = 100  # recent.jsonl 只留最近这么多行（你发的、小E 发的、分给了谁）
@@ -40,106 +33,18 @@ CHAT_MEMORY = 30 * 60  # 小E 直接回答的话记 30 分钟，你接着问它�
 log = logging.getLogger(__name__)
 
 
-_REPLY = re.compile(r"(好的?|好吧|行|可以|对|是的?|嗯+|ok|OK|继续|接着|就这样|选?[A-Da-d1-9]|再.{0,6}一点|为什么|然后呢|还有呢)[。！!？?…，,]*")
-_CHOICE = re.compile(r"(就|那就)?(按|选|用|要)?\s*(方案)?\s*[A-Da-d]\s*(方案)?\s*(来做|来|吧|就行|好了|可以)?[。！!…，,]*")
-_OPTIONS = re.compile(r"^\s*(?:\|\s*)?(?:[-*]\s*)?(?:\*\*)?(?:方案|选项)?\s*[A-D]\s*(?:\*\*)?\s*[.．、:：)）]", re.M)
-
-
-def asks_user(text: str) -> str:
-    """这一轮最后是不是在等你回答（要你定、列了 A/B/C、或以问句收尾）；是就返回那句问话，给分派用。"""
-    body = text.strip()
-    if not body:
-        return ""
-    last = [ln.strip(" *#") for ln in body.splitlines() if ln.strip()][-1]
-    if report.needs_decision(body) or len(_OPTIONS.findall(body)) >= 2 or last.endswith(("？", "?")):
-        return report.brief(last if last.endswith(("？", "?")) else body, 40)
-    return ""
-
-
-_OFFER = re.compile(r"(要不要|需不需要|是否需要|要我|需要我|我可以|我也可以|可以帮你|我再|顺便|还要我|想让我|如果你愿意|如果需要)")
-_APPROVE = "批准本会话编辑："
-
-
-def awaiting_kind(text: str) -> str:
-    """等你的轻重：decide = 真要你拍板（要你定、列了方案、要你批准编辑、直接问你）；
-    suggest = 活做完了，最后顺口问一句“要不要我再…？”——不算卡住，列表里不标琥珀色。"""
-    body = text.strip()
-    if not body:
-        return ""
-    if report.needs_decision(body) or len(_OPTIONS.findall(body)) >= 2 or _APPROVE in body:
-        return "decide"
-    lines = [ln.strip(" *#") for ln in body.splitlines() if ln.strip()]
-    if not lines[-1].endswith(("？", "?")):
-        return ""
-    return "suggest" if _OFFER.search(lines[-1]) else "decide"
-
-
-def limit_reset(text: str, now: float | None = None) -> float | None:
-    """“You've hit your session limit · resets 5:40pm (Asia/Taipei)” → 几点恢复（本机时间戳）；不是撞额度返回 None。"""
-    if not re.search(r"hit your .{0,20}limit|usage limit|limit reached", text or "", re.I):
-        return None
-    m = re.search(r"resets\s+(?:(\w{3})\w*\s+(\d{1,2}),?\s+(?:at\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", text, re.I)
-    now = now or time.time()
-    if not m:
-        return now + 5 * 3600
-    mon, day, hh, mm, ap = m.groups()
-    h = int(hh) % 12 + (12 if ap.lower() == "pm" else 0)
-    base = datetime.fromtimestamp(now)
-    months = {x: i for i, x in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
-    if mon and mon.lower()[:3] in months:
-        at = base.replace(month=months[mon.lower()[:3]], day=int(day), hour=h, minute=int(mm or 0), second=0, microsecond=0)
-        if at.timestamp() < now - 86400:
-            at = at.replace(year=at.year + 1)
-        return at.timestamp()
-    at = base.replace(hour=h, minute=int(mm or 0), second=0, microsecond=0)
-    return at.timestamp() + (86400 if at.timestamp() <= now else 0)
-
-
-def inline_overrides(text: str) -> tuple[str | None, str | None]:
-    """话里明说了模型或深度（“用 opus”“深度调到高”），就以你说的为准。"""
-    model = effort = None
-    if m := re.search(r"(?:用|换成|改用|切到|模型)\s*(opus|sonnet|haiku|fable)", text, re.I):
-        model = MODELS[m.group(1).lower()]
-    elif re.search(r"(?:用|交给|让)\s*(codex|gpt|chatgpt)", text, re.I):
-        model = "gpt"
-    elif re.search(r"(?:用|交给|让)\s*deepseek", text, re.I):
-        model = "deepseek"
-    elif re.search(r"(?:用|交给|让)\s*kimi", text, re.I):   # ACP 引擎：模型那一栏就写引擎名
-        model = "kimi"
-    if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
-        effort = EFFORTS[m.group(1)]
-    return model, effort
-
-
-KIND_CN = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
-
-
-def said_engine_model(engine: str, text: str) -> str | None:
-    """话里点了别家的型号：“用 gpt luna”“codex 用 terra”→ Codex 能用的同名型号里最新的那个；“用 deepseek pro”→ deepseek-v4-pro。"""
-    models, _ = engines.get(engine).models()
-    if engine == engines.CODEX.name:
-        m = re.search(r"(?:gpt|codex)\S{0,3}\s*(?:用\s*)?(sol|terra|luna|astra)", text, re.I)
-        return next((x for x in models if m and m.group(1).lower() in x.lower()), None)
-    if engine == engines.DEEPSEEK.name and re.search(r"deepseek\S{0,3}\s*(?:用\s*)?(?:v4[- ]?)?pro", text, re.I):
-        return next((x for x in models if "pro" in x), None)
-    return None
-
-
-def _looks_like_project(cwd: Path) -> bool:
-    """手动新开时按文件夹猜：在代码仓库或项目里（有 .git、pyproject.toml、package.json）算开发。"""
-    for d in [cwd, *list(cwd.parents)[:3]]:
-        if any((d / m).exists() for m in (".git", "pyproject.toml", "package.json")):
-            return True
-    return False
-
-
-def _is_reply(text: str) -> bool:
-    """一看就是对上一条的回复，不必请小E判断，直接交给当前对话（省一次调用）。"""
-    t = text.strip()
-    return bool(_REPLY.fullmatch(t) or _CHOICE.fullmatch(t)) or len(t) <= 3
-
-
 class Bridge:
+    @property
+    def cfg(self) -> Config:
+        return self._cfg
+
+    @cfg.setter
+    def cfg(self, cfg: Config) -> None:
+        """配置只有这一份：换配置（设置页保存）时，干活的 Runner 也跟着换，不再一项项拷过去。"""
+        self._cfg = cfg
+        if runner := getattr(self, "runner", None):
+            runner.cfg = cfg
+
     def __init__(self, cfg: Config, dt: DingTalk | NoDingTalk, data_dir: Path = DATA_DIR):
         self.cfg = cfg
         self.dt = dt
@@ -147,14 +52,8 @@ class Bridge:
         from .schedules import Schedules
         self.schedules = Schedules(data_dir / "schedules.json")
         self.registry = Registry(data_dir / "sessions.json")
-        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
-                             self._confirm_asked)
-        self.runner.auto_review = cfg.auto_review
-        self.runner.review_policy = cfg.review_policy
-        self.runner.language = cfg.reply_language
-        self.runner.extra_instructions = cfg.extra_instructions
-        self.runner.subagent_model = MODELS.get(cfg.subagent_model, "")
-        self.runner.deepseek_block = list(cfg.deepseek_block)
+        self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, on_start=self._turn_started,
+                             on_confirm=self._confirm_asked, cfg=cfg)
         translate.enabled = cfg.translate_english
         from . import schedules as _sch
         _sch.set_timezone(cfg.timezone)
@@ -237,10 +136,14 @@ class Bridge:
             if not cwd.is_dir(): raise ValueError("工作文件夹不存在")
             if why := await asyncio.to_thread(folders.blocked, [cwd]):
                 raise ValueError("工作文件夹不可访问")
-            pick = model if model != "auto" else (self.cfg.dev_model if _looks_like_project(cwd) else self.cfg.simple_model)
+            if model == "auto":   # 没点名：按分工表（代码仓里按开发，别处按简单任务）
+                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd])
+                pick, full = c.pick, c.full_model
+            else:
+                pick, full = model, MODELS.get(model)
             alt = engines.engine_of(pick)
             s = Session(num=num, name=task['title'], cwd=str(cwd), engine=alt or engines.CLAUDE.name,
-                        model=None if alt else MODELS[pick], effort=task['effort'], renamed=True, titled=True)
+                        model=full, effort=task['effort'], renamed=True, titled=True)
             current = self.registry.current
             self.registry.add(s)
             self.registry.current = current
@@ -933,26 +836,26 @@ class Bridge:
                 f"（{folders.display(Path(y.cwd))}）" for i, y in others))
         await self.say("接着桌面", "\n\n".join(lines))
 
-    def _kind_model(self, kind: str | None) -> str:
-        """任务档位 → 配置里给它定的模型短名（opus / sonnet …）。"""
-        name = {"design": self.cfg.design_model, "dev": self.cfg.dev_model}.get(kind or "", self.cfg.simple_model)
-        return name if name in MODELS else "sonnet"
-
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None, model: str | None = None, effort: str | None = None,
-                     owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None) -> None:
-        """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
+                     owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None,
+                     engine: str | None = None) -> None:
+        """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的；
+        engine = 点名了哪家但没点型号（总管写 engine=claude），分工表只在这家里挑。"""
         name = report.brief(text, 16) or "新对话"
         project = _looks_like_project(cwd)
         if kind is None:
             kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
             if text and not model and not inline_overrides(text)[0]:
                 from . import router
-                kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活用 design_model
-        auto = MODELS[self._kind_model(kind)]   # 没指定时按任务类型挑
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
-                    boss=boss)
+                kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活照分工表的 design 档
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root, boss=boss)
         said_model, said_effort = inline_overrides(text)
+        chosen = None
+        if not (model or said_model):   # 没指定时照分工表挑（首选用不了换备选）
+            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine)
+            model, engine_model = MODELS.get(chosen.pick, chosen.pick), engine_model or chosen.model or None
+            effort = effort or chosen.effort or None
         alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号
         if root and alt and not engines.get(alt).fenced_ok:   # 受限账号只用 Claude
             model = said_model = alt = None
@@ -963,7 +866,8 @@ class Bridge:
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = engines.get(s.engine).brand if alt else "你指定的" if model or said_model else KIND_CN.get(kind, "简单任务")
+        why = (f"分工表 · {KIND_CN.get(kind, '简单任务')}" + (f" · {chosen.note}" if chosen.note else "") if chosen
+               else engines.get(s.engine).brand if alt else "你指定的")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:

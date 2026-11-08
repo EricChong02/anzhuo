@@ -8,7 +8,8 @@ import pytest
 
 from remote_claude.engines import policy
 from remote_claude import acp
-from remote_claude.app import Bridge, inline_overrides
+from remote_claude.app import Bridge
+from remote_claude.intent import inline_overrides
 from remote_claude.config import Config
 from remote_claude.dingtalk import Incoming
 from remote_claude.sessions import Job, Runner, Session

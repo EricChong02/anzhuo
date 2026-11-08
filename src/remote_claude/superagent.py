@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from claude_agent_sdk import tool
 
-from . import engines, folders
+from . import engines, folders, split
 from .engines import MODELS
 from .dingtalk import Incoming
 from .sessions import Session
@@ -153,7 +153,8 @@ def ensure(bridge: "Bridge") -> Session:
     num = bridge.registry.reserve_num()
     cwd = bridge.data_dir / "router"
     cwd.mkdir(parents=True, exist_ok=True)
-    s = Session(num=num, name=want or NAME, cwd=str(cwd), model=MODELS.get(bridge.cfg.simple_model, bridge.cfg.simple_model),
+    simple = bridge.cfg.split["simple"]["use"]   # 总管自己用简单任务那档的 Claude 型号（那档交给别家时用 Sonnet）
+    s = Session(num=num, name=want or NAME, cwd=str(cwd), model=MODELS.get(simple, MODELS["sonnet"]),
                 role=ROUTER, pinned=True, renamed=True, titled=True, worked=True)
     bridge.registry.add(s)
     if not bridge.registry.get(bridge.registry.current):   # 钉钉里不带编号的话默认交给“当前对话”：先让它是总管
@@ -196,7 +197,7 @@ def catalog(bridge: "Bridge") -> dict[str, dict]:
         if not e.available():
             continue
         if e.pick_model == "menu":
-            models, default = list(MODELS), f"按任务档位：定方案用 {bridge.cfg.design_model}，开发用 {bridge.cfg.dev_model}，其余用 {bridge.cfg.simple_model}"
+            models, default = list(MODELS), f"照分工表：{split.describe(bridge.cfg)}"
         else:
             models, default = e.models()
         out[e.key] = {"name": e.full, "models": models, "default": default}
@@ -313,7 +314,7 @@ def tools(bridge: "Bridge", router: Session) -> list:
         if cwd is None:
             cwd = folders.scratch_dir(bridge.cfg, num)
         await bridge._start(num, cwd, [], task, _incoming(task, VIA), model=model, owner=router.owner, boss=router.num,
-                            engine_model=extra)
+                            engine_model=extra, engine=key if args.get("engine") else None)
         s = reg.get(num)
         if not s:
             return _error("没开成")

@@ -27,10 +27,18 @@
 # ───────── 干活的方式（都有默认值，按需取消注释）─────────
 # max_parallel = 3             # 最多同时几个对话在干活，多的排队
 # default_effort = "medium"    # 默认思考深度：low / medium / high / xhigh / max
-# 新开对话没指定模型时，分派员（Haiku）先判断这件事是哪一档，再用对应的模型：
-# simple_model = "sonnet"      # 简单任务（查资料、整理文件、问答、小改动）
-# dev_model = "sonnet"         # 照清楚的要求动手开发（写代码、做功能、改 bug）
-# design_model = "opus"        # 拿主意定方案（设计、梳理想法、写方案、架构设计、验收）
+# 分工表：新开对话没指定模型时，分派员（Haiku）先判断这件事是哪一档，再照下表交给谁（网页 管理 · 设置 里也能改）。
+#   use    首选：Claude 的型号 opus / sonnet / haiku / fable，或别家 gpt（Codex）/ deepseek / kimi
+#   model  别家自己的型号（如 gpt-5.5-terra、deepseek-v4-pro）；不写 = 它自己默认的。Claude 不用写
+#   effort 思考深度 low / medium / high / xhigh / max；不写 = 默认
+#   backup 备选：首选没装、没密钥、受限账号不能用、文件夹在 deepseek_block 里时换它；不写就退回 Claude Sonnet
+# 老写法 design_model / dev_model / simple_model 仍然认（没写对应的 [split.xxx] 时）。
+# [split.design]               # 拿主意定方案（设计、梳理想法、写方案、架构设计、验收）
+# use = "opus"
+# [split.dev]                  # 照清楚的要求动手开发（写代码、做功能、改 bug）
+# use = "sonnet"
+# [split.simple]               # 简单任务（查资料、整理文件、问答、小改动）
+# use = "sonnet"
 # subagent_model = "sonnet"    # 对话里派出的子代理默认用的模型；写 "" = 跟主对话一样
 # relay_long = 120000          # 上下文（token）到这么长就提示接力：越长每句话越贵
 # relay_cold = 80000           # 隔一个多小时回来（缓存过期）、上下文又有这么长，也提示接力

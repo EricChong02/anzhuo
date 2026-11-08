@@ -69,6 +69,9 @@ class DeepSeekEngine(ClaudeEngine):
     def available(self) -> bool:
         return bool(api_key())
 
+    def refuses(self, cfg, paths: list) -> str:
+        return blocked_by([str(p) for p in paths], list(getattr(cfg, "deepseek_block", []) or []))
+
     def models(self) -> tuple[list[str], str]:
         return [FLASH, PRO], FLASH
 

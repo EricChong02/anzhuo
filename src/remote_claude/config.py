@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 HOME = Path.home()
@@ -40,9 +40,9 @@ class Config:
     max_parallel: int = 3
     auto_route: bool = True  # 直接说话时让分派员判断接着哪个对话、还是新开（router.py）
     default_effort: str | None = None  # 默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
-    simple_model: str = "sonnet"  # 简单任务（查资料、整理文件、问答）用的模型
-    dev_model: str = "sonnet"  # 照要求动手开发（写代码、做功能、改 bug）用的模型
-    design_model: str = "opus"  # 拿主意定方案（设计课、梳理想法、写方案、架构、验收）用的模型
+    # 分工表：新事三档（design 定方案 / dev 开发 / simple 其余）各交给谁 → {use 首选, model 别家型号, effort 深度, backup 备选}，
+    # 见 split.py；老写法 design_model / dev_model / simple_model 也认
+    split: dict[str, dict] = field(default_factory=lambda: _split_table(None))
     subagent_model: str = "sonnet"  # Claude 对话里派出的子代理默认用的模型；空 = 跟 Claude Code 默认（和主对话一样）
     relay_long: int = 120_000  # 上下文到这么长就提示接力：每说一句都要把整段重读一遍
     relay_cold: int = 80_000  # 隔了一个多小时（缓存过期）再回来、上下文又有这么长，先提示接力
@@ -71,58 +71,47 @@ class Config:
         return bool(self.client_id) and self.dingtalk
 
 
+def _split_table(raw, legacy=None) -> dict[str, dict]:
+    from .split import normalize   # split 要用 engines，engines 又用到 config：用时再拿
+    return normalize(raw, legacy)
+
+
+_DERIVED = {"web_base", "web_prefix", "preview_upstream", "accounts", "split"}   # 要另外换算的，下面单独处理
+
+
+def _coerce(kind: str, v):
+    """按 Config 里写的类型把 toml 的值转一下；默认值只写在 Config 里这一处。"""
+    if kind == "bool":
+        return bool(v)
+    if kind == "int":
+        return int(v)
+    if kind == "str":
+        return str(v)
+    if kind.startswith("list["):
+        return [str(x) for x in v]
+    if kind.startswith("dict["):
+        return dict(v)
+    return v   # str | None 这类照原样
+
+
 def load_config(path: Path = CONFIG_PATH) -> Config:
     with open(path, "rb") as f:
         raw = tomllib.load(f)
-    port = int(raw.get("web_port", 8765))
+    kw = {f.name: _coerce(str(f.type), raw[f.name]) for f in fields(Config) if f.name in raw and f.name not in _DERIVED}
+    port = kw.get("web_port", Config.web_port)
     # 网页默认开在本机：地址不写就用 http://127.0.0.1:端口；写 web = false 才关（那就必须用钉钉）
-    web_base = str(raw.get("web_base", "")).rstrip("/") or (f"http://127.0.0.1:{port}" if raw.get("web", True) else "")
+    kw["web_base"] = str(raw.get("web_base", "")).rstrip("/") or (f"http://127.0.0.1:{port}" if raw.get("web", True) else "")
     # 子路径挂载：写成 "yuanchuang" 也当 "/yuanchuang"，结尾的 / 去掉
     web_prefix = str(raw.get("web_prefix", "")).strip()
     if web_prefix and not web_prefix.startswith("/"):
         web_prefix = "/" + web_prefix
-    web_prefix = web_prefix.rstrip("/")
-    return Config(
-        client_id=str(raw.get("client_id", "")),
-        allowed_user_ids=[str(x) for x in raw.get("allowed_user_ids", [])],
-        web_base=web_base,
-        web_port=port,
-        web_prefix=web_prefix,
-        web_user=str(raw.get("web_user", "")),
-        watch_host=str(raw.get("watch_host", "")),
-        dingtalk_quiet=bool(raw.get("dingtalk_quiet", True)),
-        dingtalk=bool(raw.get("dingtalk", True)),
-        folders=dict(raw.get("folders", {})),
-        search_roots=list(raw.get("search_roots", DEFAULT_SEARCH_ROOTS)),
-        skip_names=list(raw.get("skip_names", [])),
-        deepseek_block=[str(x) for x in raw.get("deepseek_block", ["_原始私密"])],
-        scratch_root=str(raw.get("scratch_root", "~/remote-claude-scratch")),
-        max_parallel=int(raw.get("max_parallel", 3)),
-        auto_route=bool(raw.get("auto_route", True)),
-        default_effort=raw.get("default_effort"),
-        simple_model=raw.get("simple_model", "sonnet"),
-        dev_model=raw.get("dev_model", "sonnet"),
-        design_model=raw.get("design_model", "opus"),
-        subagent_model=str(raw.get("subagent_model", "sonnet")),
-        relay_long=int(raw.get("relay_long", 120_000)),
-        relay_cold=int(raw.get("relay_cold", 80_000)),
-        reply_language=str(raw.get("reply_language", "简体中文")),
-        extra_instructions=str(raw.get("extra_instructions", "")),
-        translate_english=bool(raw.get("translate_english", False)),
-        auto_review=bool(raw.get("auto_review", False)),
-        review_policy=str(raw.get("review_policy", "")),
-        auto_cleanup=bool(raw.get("auto_cleanup", False)),
-        task_grouping=bool(raw.get("task_grouping", False)),
-        timezone=str(raw.get("timezone", "")),
-        preview_upstream=str(raw.get("preview_upstream", "http://127.0.0.1:8000")).rstrip("/"),
-        preview_root=str(raw.get("preview_root", "")),
-        # 周额度比例新写法 share，老写法 week_share，两种都认
-        accounts={str(k): {**v, **({"share": v["week_share"]} if "week_share" in v and "share" not in v else {})}
-                  for k, v in (raw.get("accounts") or {}).items()},
-        super_agent=bool(raw.get("super_agent", False)),
-        super_agent_name=str(raw.get("super_agent_name", "")),
-        super_agent_routing=str(raw.get("super_agent_routing", "")),
-    )
+    kw["web_prefix"] = web_prefix.rstrip("/")
+    kw["preview_upstream"] = str(raw.get("preview_upstream", Config.preview_upstream)).rstrip("/")
+    # 周额度比例新写法 share，老写法 week_share，两种都认
+    kw["accounts"] = {str(k): {**v, **({"share": v["week_share"]} if "week_share" in v and "share" not in v else {})}
+                      for k, v in (raw.get("accounts") or {}).items()}
+    kw["split"] = _split_table(raw.get("split"), raw)
+    return Config(**kw)
 
 
 def read_secret(client_id: str) -> str:

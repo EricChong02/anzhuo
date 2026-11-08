@@ -60,6 +60,10 @@ class Engine:
     def available(self) -> bool:
         return True
 
+    def refuses(self, cfg, paths: list) -> str:
+        """这些文件夹能不能交给它（按配置）；不能就返回拦下它的那个文件夹名。"""
+        return ""
+
     def models(self) -> tuple[list[str], str]:
         """pick_model = own 时能选的型号和不选时用哪个（给你、总管看的说明）。"""
         return [], f"{self.tool or self.label} 自己配置的模型"

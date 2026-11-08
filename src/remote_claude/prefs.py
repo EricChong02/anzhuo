@@ -8,13 +8,14 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import tomlkit
 
 from .config import CONFIG_PATH, Config, load_config
+from . import split
 from .engines import MODELS
 
 if TYPE_CHECKING:
@@ -66,6 +67,11 @@ def _tz(v):
             raise Invalid("不认得这个时区，写成 Asia/Shanghai 这样，或留空用电脑当前时区") from e
 
 
+def _split_check(v: dict):
+    if why := split.check(v):
+        raise Invalid(why)
+
+
 def _folders(v: dict):
     for name, path in v.items():
         if not Path(path).expanduser().is_dir():
@@ -77,9 +83,9 @@ FIELDS: list[Field] = [
     Field("super_agent_name", "总管的名字", "总管", "text", "留空叫“总管”", check=_short(30)),
     Field("super_agent_routing", "分派规则", "总管", "textarea",
           "你没点名用哪个引擎 / 模型时，总管照这个选。一行一条，比如“写代码：claude，模型 sonnet”", check=_short(LONG)),
-    Field("simple_model", "简单任务用的模型", "干活", "select", "查资料、整理文件、问答、小改动", options=()),
-    Field("dev_model", "开发任务用的模型", "干活", "select", "照清楚的要求写代码、做功能、改 bug", options=()),
-    Field("design_model", "定方案用的模型", "干活", "select", "设计课、梳理想法、写方案、架构设计、验收", options=()),
+    Field("split", "分工表", "干活", "split",
+          "新事分三档，没点名模型时照这里选：首选这家没装、没密钥、受限账号不能用或文件夹不许发给它时换备选，再不行用 Claude Sonnet。"
+          "型号只给 GPT、DeepSeek 这类别家填（空 = 它自己默认的）", check=_split_check),
     Field("subagent_model", "子代理默认模型", "干活", "select", "对话里派出去的子代理；“跟主对话”= 不另指定", options=()),
     Field("relay_long", "上下文多长提示接力", "干活", "int", "单位 token，比如 120000；越长每句话越贵", rng=(30_000, 1_000_000)),
     Field("relay_cold", "隔一小时回来、多长提示接力", "干活", "int", "缓存过期后整段要重写，单位 token", rng=(10_000, 1_000_000)),
@@ -104,8 +110,6 @@ BY_KEY = {f.key: f for f in FIELDS}
 
 
 def _options(f: Field) -> tuple:
-    if f.key in ("simple_model", "dev_model", "design_model"):
-        return _models()
     if f.key == "subagent_model":
         return (("", "跟主对话"),) + _models()
     if f.key == "default_effort":
@@ -122,8 +126,19 @@ def values(cfg: Config) -> dict:
 
 
 def schema() -> list[dict]:
-    return [{"key": f.key, "label": f.label, "group": f.group, "kind": f.kind, "help": f.help, "live": f.live,
-             "options": [list(o) for o in _options(f)]} for f in FIELDS]
+    out = []
+    for f in FIELDS:
+        d = {"key": f.key, "label": f.label, "group": f.group, "kind": f.kind, "help": f.help, "live": f.live,
+             "options": [list(o) for o in _options(f)]}
+        if f.kind == "int":
+            d["range"] = list(f.rng)
+        if f.kind == "split":   # 分工表：三档 × 首选 / 型号 / 深度 / 备选
+            d["rows"] = [[k, name, split.HELP[k]] for k, name in split.KINDS.items()]
+            d["picks"] = [list(o) for o in split.picks()]
+            d["efforts"] = [list(o) for o in split.efforts()]
+            d["engine_models"] = split.engine_models()
+        out.append(d)
+    return out
 
 
 def parse(data: dict, current: Config) -> dict:
@@ -163,6 +178,13 @@ def _coerce(f: Field, raw):
     if f.kind == "lines":
         items = raw if isinstance(raw, list) else str(raw or "").splitlines()
         return [str(x).strip() for x in items if str(x).strip()]
+    if f.kind == "split":
+        if not isinstance(raw, dict):
+            raise Invalid("格式不对")
+        bad = [k for k in raw if k not in split.KINDS]
+        if bad:
+            raise Invalid(f"不认得的档位：{bad[0]}")
+        return split.normalize({k: v for k, v in raw.items() if isinstance(v, dict)})
     if f.kind == "folders":
         if isinstance(raw, dict):
             pairs = raw.items()
@@ -187,6 +209,10 @@ def save(path: Path, changes: dict) -> None:
     """改动写回 config.toml：保留注释和别的项；值变回默认（空）就删掉那一行，让默认值接管。先写临时文件再换，写一半不会坏。"""
     doc = tomlkit.parse(path.read_text(encoding="utf-8")) if path.exists() else tomlkit.document()
     defaults = Config()
+    if "split" in changes:
+        for old in split.LEGACY.values():
+            if old in doc:
+                del doc[old]
     for key, v in changes.items():
         default = getattr(defaults, key)
         if v == (default if default is not None else "") and key in doc:
@@ -196,6 +222,15 @@ def save(path: Path, changes: dict) -> None:
             t = tomlkit.table()
             for k, p in v.items():
                 t[k] = p
+            doc[key] = t
+        elif key == "split":   # [split.dev] use = "gpt" …；空的项不写。老写法 dev_model 这些一并删掉，免得两处打架
+            t = tomlkit.table(is_super_table=True)
+            for kind, r in v.items():
+                sub = tomlkit.table()
+                for k, x in r.items():
+                    if x:
+                        sub[k] = x
+                t[kind] = sub
             doc[key] = t
         elif isinstance(v, str) and "\n" in v:
             doc[key] = tomlkit.string(v if v.endswith("\n") else v + "\n", multiline=True)
@@ -211,17 +246,7 @@ def apply(bridge: "Bridge", new: Config) -> None:
     """能马上生效的就让它生效：换上新配置，同步运行中各处拷过去的值。要重启的那几项只存不动。"""
     old = bridge.cfg
     keep = {f.key: getattr(old, f.key) for f in FIELDS if not f.live}   # 要重启的：运行中保持旧值，免得一半生效
-    bridge.cfg = dataclasses.replace(new, **keep)
-    r = bridge.runner
-    r.language = new.reply_language
-    r.extra_instructions = new.extra_instructions
-    from .app import MODELS
-    r.subagent_model = MODELS.get(new.subagent_model, "")
-    r.deepseek_block = list(new.deepseek_block)
-    r.auto_review = new.auto_review
-    r.review_policy = new.review_policy
-    from .sessions import user_setting
-    r.default_effort = new.default_effort or user_setting("effortLevel") or ""
+    bridge.cfg = dataclasses.replace(new, **keep)   # Runner 跟着换（Bridge.cfg），回复语言、审核员这些下一轮就用新的
     from . import translate, schedules
     translate.enabled = new.translate_english
     schedules.set_timezone(new.timezone)

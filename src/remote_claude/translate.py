@@ -11,7 +11,7 @@ from pathlib import Path
 import requests
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
 
-from .router import ROUTER_MODEL
+from .engines import HELPER_MODEL
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-flash"  # DeepSeek-V4.1-Flash
@@ -66,7 +66,7 @@ def _deepseek(text: str, key: str, timeout: float) -> str:
 
 
 async def _haiku(text: str, timeout: float) -> str:
-    options = ClaudeAgentOptions(model=ROUTER_MODEL, effort=HAIKU_EFFORT, system_prompt=SYSTEM,
+    options = ClaudeAgentOptions(model=HELPER_MODEL, effort=HAIKU_EFFORT, system_prompt=SYSTEM,
                                  tools=[], max_turns=2, setting_sources=[], cwd=str(Path.home()),
                                  extra_args={"no-session-persistence": None})
     out: list[str] = []

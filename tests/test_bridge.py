@@ -531,7 +531,7 @@ def test_inject_while_running(tmp_path, monkeypatch):
 
 def test_choice_goes_to_waiting_session(tmp_path, monkeypatch):
     """#6 列了 A/B/C 在等你回答，当前对话却是 #4：你说“按C来做”应该交给 #6。"""
-    from remote_claude.app import asks_user
+    from remote_claude.intent import asks_user
     from remote_claude.sessions import Session
     six = ("有空间。下面是几个方案。\n\n| 方案 | 改动 |\n|---|---|\n| A. 收窄面板 | 320 → 260 |\n"
            "| B. 收起面板 | 点一下隐藏 |\n| C. 全屏试课 | 铺满 |\n\n我推荐 **C**。\n\n要我按 C 来做吗？")
@@ -753,7 +753,7 @@ def test_limit_auto_resume(tmp_path, monkeypatch):
 @__import__("pytest").mark.parametrize("engine", ["claude", "codex"])
 def test_relay(tmp_path, monkeypatch, engine):
     """接力：长对话先写交接说明，写完开一个同文件夹、同模型的新对话；交接说明随你第一句话交给新对话。"""
-    from remote_claude.app import RELAY
+    from remote_claude.relay import RELAY
     from remote_claude.sessions import Session
     cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), auto_route=False)
     seen = []
@@ -812,7 +812,7 @@ def test_relay_hint():
     """什么时候提示接力：上下文 12 万以上；或隔了一个多小时回来、上下文 8 万以上（缓存过期要整段重写）。门槛可配置。"""
     from remote_claude.config import Config
     from remote_claude.sessions import Session
-    from remote_claude.web import relay_hint
+    from remote_claude.relay import relay_hint
     now = 1_000_000.0
     s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=130_000, updated=now - 60)
     assert relay_hint(s, False, False, now)["kind"] == "long"
@@ -830,13 +830,14 @@ def test_relay_hint():
 
 
 def test_new_session_model_by_kind(tmp_path, monkeypatch):
-    """新开对话没指定模型：按分派员判断的档位挑模型；定方案用 design_model，判断不出来时代码仓按开发算。"""
-    from remote_claude import router
-    from remote_claude.app import MODELS
+    """新开对话没指定模型：按分派员判断的档位照分工表挑；定方案用 design 档，判断不出来时代码仓按开发算。"""
+    from remote_claude import router, split
+    from remote_claude.engines import MODELS
     from remote_claude.dingtalk import Incoming
     (tmp_path / "proj" / ".git").mkdir(parents=True)
     (tmp_path / "notes").mkdir()
-    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), dev_model="haiku")
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"),
+                 split=split.normalize({"dev": {"use": "haiku"}}))
     said = {}
 
     async def classify(text, timeout=15):

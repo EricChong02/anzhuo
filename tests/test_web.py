@@ -573,7 +573,7 @@ def test_manage_and_search(tmp_path):
 
 def test_model_names_follow_configuration(tmp_path, monkeypatch):
     from remote_claude.web import display_model, model_options
-    from remote_claude.app import MODELS
+    from remote_claude.engines import MODELS
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
     (tmp_path / "config.toml").write_text('model = "gpt-6.1-sol"\n')
     monkeypatch.setitem(MODELS, "opus", "claude-opus-7-2")

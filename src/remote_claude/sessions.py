@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from . import engines
+from .config import Config
 from .engines.base import COMPACT, CONFIRM_WAIT, FolderBlocked  # noqa: F401 - 别处从这里拿
 from .engines.codex import COMMAND_APPROVALS, approve_command
 from .folders import display
@@ -163,8 +164,11 @@ Started = Callable[[Session, Turn, Job], Awaitable[None]]
 
 class Runner:
     def __init__(self, registry: Registry, on_done: Notify, max_parallel: int = 3, default_effort: str | None = None,
-                 on_start: Started | None = None, on_confirm: Notify | None = None):
+                 on_start: Started | None = None, on_confirm: Notify | None = None, cfg: Config | None = None):
         self.registry = registry
+        # 配置只有一份：回复语言、固定要求、子代理模型、DeepSeek 禁区、审核员这些都现读它（Bridge 换配置时跟着换）
+        self.cfg = cfg or Config(default_effort=default_effort)
+        self._cc_effort = user_setting("effortLevel") or ""   # Claude Code 自己设置里的默认深度
         self.on_confirm = on_confirm  # 有危险操作等你点头时（发通知、按钮卡）
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
@@ -183,19 +187,46 @@ class Runner:
         self.turns: dict[int, Turn] = {}
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
-        self.default_effort = default_effort or user_setting("effortLevel") or ""
-        self.language = "简体中文"   # 回复语言（配置 reply_language）
-        self.extra_instructions = ""   # 你自己追加给每个对话的要求（配置 extra_instructions）
-        self.subagent_model = ""   # 子代理默认用的模型全名（配置 subagent_model）；空 = 跟 Claude Code 默认
-        self.deepseek_block: list[str] = ["_原始私密"]   # DeepSeek 对话不许碰的文件夹名（配置 deepseek_block）
-        self.auto_review = False   # 危险命令交给审核员（reviewer.py）判断（配置 auto_review）；关着就等你点
-        self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
         self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot", "on_stop"} 或 None
         self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
         self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
         self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）
+
+    @property
+    def default_effort(self) -> str:
+        return self.cfg.default_effort or self._cc_effort
+
+    @property
+    def language(self) -> str:
+        return self.cfg.reply_language
+
+    @property
+    def extra_instructions(self) -> str:
+        return self.cfg.extra_instructions
+
+    @property
+    def subagent_model(self) -> str:
+        """子代理默认用的模型全名；空 = 跟 Claude Code 默认。"""
+        return engines.MODELS.get(self.cfg.subagent_model, "")
+
+    @property
+    def deepseek_block(self) -> list[str]:
+        return self.cfg.deepseek_block
+
+    @property
+    def auto_review(self) -> bool:
+        """危险命令交给审核员（reviewer.py）判断；关着就等你点。"""
+        return self.cfg.auto_review
+
+    @auto_review.setter
+    def auto_review(self, on: bool) -> None:
+        self.cfg.auto_review = on
+
+    @property
+    def review_policy(self) -> str:
+        return self.cfg.review_policy
 
     def _bg(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)

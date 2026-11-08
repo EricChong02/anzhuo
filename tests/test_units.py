@@ -101,7 +101,7 @@ Current week (Fable): 0% used · resets Oct 31 at 4am (Asia/Taipei)"""
 
 
 def test_is_reply():
-    from remote_claude.app import _is_reply
+    from remote_claude.intent import _is_reply
     for t in ["好的", "选B", "继续", "再大一点", "嗯嗯", "2", "为什么？"]:
         assert _is_reply(t), t
     for t in ["帮我查一下明天厦门天气", "把桌面上的文件按日期列一下", "好的，那顺便把第三课也改了"]:
@@ -109,7 +109,7 @@ def test_is_reply():
 
 
 def test_model_choice(tmp_path):
-    from remote_claude.app import _looks_like_project, inline_overrides
+    from remote_claude.intent import _looks_like_project, inline_overrides
     assert inline_overrides("这次用 Opus，深度调到高") == ("claude-opus-5-5", "high")
     assert inline_overrides("帮我查天气") == (None, None)
     assert inline_overrides("思考最高，改用sonnet") == ("claude-sonnet-5-5", "max")
@@ -393,7 +393,7 @@ def test_awaiting_kind_and_limit():
     """等你的轻重：要你定 / 列方案 / 批准编辑 / 直接问 = decide；做完顺口问“要不要我…” = suggest。撞额度能读出几点恢复。"""
     import time
     from datetime import datetime
-    from remote_claude.app import awaiting_kind, limit_reset
+    from remote_claude.intent import awaiting_kind, limit_reset
     assert awaiting_kind("要你定：用哪张？\nA. 红\nB. 蓝") == "decide"
     assert awaiting_kind("```\n批准本会话编辑：redzone-write｜path:a\n```") == "decide"
     assert awaiting_kind("封面用红色还是蓝色？") == "decide"

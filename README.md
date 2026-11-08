@@ -37,7 +37,7 @@
 
 图片：只发图时等 15 秒，你接着说的话会和图合成一件；文件存到 `~/.local/share/remote-claude/inbox/` 后把路径告诉 Claude；语音直接用钉钉转好的文字。几秒内答完的不发“收到”。
 
-默认（为省 token）：新开对话按任务类型选模型（`simple_model` 默认 sonnet、`dev_model` 默认 opus；手动 `新开` 时按文件夹是否是代码仓库判断），思考深度“中”（`default_effort`）。小E 自己的判断和闲聊回答用 Haiku、低档。
+默认（为省 token）：新开对话按任务类型照分工表选模型（配置 `[split]`：定方案默认 opus，开发和简单任务默认 sonnet；手动 `新开` 时按文件夹是否是代码仓库判断），思考深度“中”（`default_effort`）。小E 自己的判断和闲聊回答用 Haiku、低档。
 
 ## 安装与运行（Mac）
 

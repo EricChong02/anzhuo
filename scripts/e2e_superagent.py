@@ -16,7 +16,7 @@ import time
 import traceback
 from pathlib import Path
 
-from remote_claude import superagent
+from remote_claude import split, superagent
 from remote_claude.app import Bridge
 from remote_claude.config import Config
 from remote_claude.dingtalk import Incoming
@@ -51,7 +51,8 @@ class Harness:
         proj.mkdir()
         (proj / "a.txt").write_text("hello world\n", encoding="utf-8")
         self.proj = proj
-        cfg = Config(web_base="http://127.0.0.1:1", super_agent=True, simple_model="haiku", dev_model="haiku",
+        cfg = Config(web_base="http://127.0.0.1:1", super_agent=True,
+                     split=split.normalize({"simple": "haiku", "dev": "haiku", "design": "haiku"}),
                      scratch_root=str(ROOT / "scratch"), folders={"e2e": str(proj)}, max_parallel=3)
         self.dt = DT()
         self.b = Bridge(cfg, self.dt, data_dir=ROOT / "data")

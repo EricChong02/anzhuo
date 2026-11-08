@@ -33,10 +33,10 @@ from .cards import parse_decision
 from .engines import EFFORTS, MODELS
 from .engines.claude import NOISE
 from .commands import Cmd
-from .config import Config
 from .dingtalk import Incoming
 from .folders import display, readable
 from .report import EFFORT_CN, LIMIT_CN, model_name
+from .relay import relay_hint
 
 log = logging.getLogger(__name__)
 
@@ -123,26 +123,6 @@ LOCAL_ONLY = ("/workspace/", "/api/lesson-preview/", "/api/drafts")
 PROXY_SOURCE = {"x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"}
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
-
-
-CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
-
-
-def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None) -> dict | None:
-    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。
-    门槛见配置 relay_long（上下文太长）、relay_cold（缓存过期又不短）。"""
-    if relaying:
-        return {"kind": "running"}
-    long_at, cold_at = getattr(cfg, "relay_long", Config.relay_long), getattr(cfg, "relay_cold", Config.relay_cold)
-    tk = s.context_tokens or 0
-    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < cold_at:
-        return None
-    idle = (now or time.time()) - s.updated
-    if engines.get(s.engine).cache_hint and idle > CACHE_TTL:
-        return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
-    if tk >= long_at:
-        return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
-    return None
 
 
 def preview_allowed(method: str, path: str) -> bool:
@@ -1685,7 +1665,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if plan:
                 if data.get("images") or data.get("files") or streamed_files:
                     raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
-                from .app import inline_overrides
+                from .intent import inline_overrides
                 m, e = inline_overrides(text)
                 model = "gpt" if m == "gpt" else next((k for k, v in MODELS.items() if v == m), "auto")
                 plan.update(target=data.get("num"), model=data.get("model") or model, effort=data.get("effort") or e or "medium",
@@ -2056,7 +2036,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             note += " · " + (why or "文件已退回")
         s.rewind_at, s.rewind_note = to, note
         kept = items[k]["text"]
-        from .app import asks_user, awaiting_kind
+        from .intent import asks_user, awaiting_kind
         s.awaiting = asks_user(kept)
         s.awaiting_kind = awaiting_kind(kept) if s.awaiting else ""
         s.limit_until = 0.0

@@ -1643,7 +1643,7 @@ function composerHTML(ph) {
     <span class="gap"></span><span class="mpw" id="mpw"></span><button class="send" id="send" disabled title="发送">${ICON.up}</button></div></div></div>`;
 }
 
-// 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”（做课开发用 Opus、简单事用 Sonnet）
+// 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”：按管理 · 设置里的分工表挑（定方案、开发、简单任务各交给谁）
 let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['fable', 'Claude Fable'], ['gpt', 'GPT']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
@@ -1656,7 +1656,7 @@ function renderModel(st, onPick, isNew) {
   const label = k => k === 'auto' ? '自动' : (k === st.model && st.label ? st.label : opt(k) || k || '默认').replace(/^Claude /, '');
   const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
-  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(label(k))}</b></span>${ok}</button>`;
+  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(k === 'auto' ? '自动 · 按分工表' : label(k))}</b></span>${ok}</button>`;
   // 别家助手（走 ACP 的 Kimi 等）：每家一组、一行；开对话时选，对话里不换
   const alt = modelOpts.map(m => m[0]).filter(k => !['opus', 'sonnet', 'haiku', 'fable', 'gpt'].includes(k));
   const altRows = ks => ks.length ? `<div class="lb">其他助手</div>${ks.map(row).join('')}` : '';
@@ -1667,8 +1667,10 @@ function renderModel(st, onPick, isNew) {
     : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
     : altChat ? altRows([st.model])
     : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
-  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
-  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(label(st.model))} · ${esc(ename)}${ICON.chev}</button>`
+  const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, st.effort === '' ? '默认' : '中'])[1];
+  // 新对话“自动”又没动深度：模型和深度都照分工表，按钮上只写“自动”
+  const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;
+  el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(head)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu">${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
@@ -2985,9 +2987,9 @@ function openNew(fromPop, preset) {
   draw();
   $('.newv').onscroll = placeWhereMenu;
   $('#main').onclick = e => { if (menu && !e.target.closest('.wmenu')) { menu = false; draw(); } };
-  const ms = {model: 'auto', effort: 'medium'}; let touched = false;
-  renderModel(ms, () => { touched = true; }, true);
-  const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(touched ? {effort: ms.effort} : {})});
+  const ms = {model: 'auto', effort: ''};   // 深度空 = 没动过，照分工表或默认
+  renderModel(ms, () => {}, true);
+  const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(ms.effort ? {effort: ms.effort} : {})});
   wireComposer((text, onProg, attachments) => sendApi({...(pick.startsWith('c:') ? {course: pick.slice(2)} : {folder: pick}), ...extra(), text, ...attachments}, onProg),
     null, (text, imgs) => {
       // 一按发送就进“正在开”：你的话先摆出来，说清楚在等什么、能不能走开（开好了自动进去）

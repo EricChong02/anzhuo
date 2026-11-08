@@ -236,7 +236,7 @@ def test_deepseek_engine_env_block_and_cost(monkeypatch):
 def test_said_engine_model(monkeypatch):
     """话里点别家的型号：gpt luna → Codex 能用的最新 luna；deepseek pro → v4-pro。"""
     from remote_claude import codex
-    from remote_claude.app import inline_overrides, said_engine_model
+    from remote_claude.intent import inline_overrides, said_engine_model
     monkeypatch.setattr(codex, "MODELS_SEEN", {"gpt-6.1-sol": "", "gpt-6-luna": "", "gpt-5.6-luna": ""})
     assert said_engine_model("codex", "用 gpt luna 改个按钮") == "gpt-6-luna"
     assert said_engine_model("codex", "交给 codex 做") is None

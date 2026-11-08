@@ -37,7 +37,7 @@ def test_parse_validates(setup):
     cur = load_config(path)
     assert prefs.parse({"reply_language": "简体中文"}, cur) == {}                    # 没变的不算
     assert prefs.parse({"max_parallel": "4", "nope": 1}, cur) == {"max_parallel": 4}   # 不认得的忽略
-    for bad, word in [({"max_parallel": 99}, "1 到 10"), ({"simple_model": "gpt-9"}, "可选范围"),
+    for bad, word in [({"max_parallel": 99}, "1 到 10"), ({"split": {"dev": {"use": "gpt-9"}}}, "可选范围"),
                       ({"auto_review": "yes"}, "开要么关"), ({"timezone": "Mars/Base"}, "时区"),
                       ({"folders": "没有等号"}, "短名 = 路径"), ({"folders": "x = /no/such/dir"}, "不存在"),
                       ({"super_agent_name": "名" * 31}, "最多 30")]:
