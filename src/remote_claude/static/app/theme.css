@@ -568,3 +568,15 @@ html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-hei
 /* 给连接灯光晕留出空间，只让文字截断。 */
 .conn{overflow:visible;padding-left:3px}
 .conn .cs{min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+/* iPhone：搜索退为辅助入口，输入区只保留附件、模型和发送。 */
+@media (max-width:600px) and (pointer:coarse), (max-height:500px) and (pointer:coarse){
+  html:not(.ipad) .composer .phone-list,html:not(.ipad) .composer .phone-keyboard{display:none}
+  html:not(.ipad) .composer .mp{max-width:calc(100vw - 130px)}
+  html:not(.ipad) .side .find{border-radius:10px;background:rgba(255,255,255,.18);box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+  html:not(.ipad) .side .find:focus-within{background:rgba(255,255,255,.32);box-shadow:inset 0 0 0 1px var(--line)}
+}
+@media (prefers-color-scheme:dark) and (max-width:600px) and (pointer:coarse), (prefers-color-scheme:dark) and (max-height:500px) and (pointer:coarse){
+  html:not(.ipad) .side .find{background:rgba(255,255,255,.035)}
+  html:not(.ipad) .side .find:focus-within{background:rgba(255,255,255,.07)}
+}
