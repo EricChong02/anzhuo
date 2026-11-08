@@ -49,7 +49,7 @@ def test_parse_validates(setup):
 def test_save_keeps_comments_and_other_keys(setup):
     path, b = setup
     r = prefs.update(b, {"super_agent_routing": "写代码：claude\n查资料：kimi", "reply_language": "English"}, path)
-    assert r["ok"] and set(r["changed"]) == {"分派规则", "回复语言"}
+    assert r["ok"] and set(r["changed"]) == {"例外的分派规则", "回复语言"}
     text = path.read_text(encoding="utf-8")
     assert "# 我自己的要求" in text and "# 总管" in text and 'web_user = "u"' in text   # 注释、别的项都还在
     cfg = load_config(path)
@@ -64,7 +64,7 @@ def test_live_and_restart(setup):
     r = prefs.update(b, {"reply_language": "English", "auto_review": True, "max_parallel": 5, "super_agent": True}, path)
     assert b.runner.language == "English" and b.runner.auto_review and b.cfg.reply_language == "English"   # 马上生效
     assert b.cfg.max_parallel == 3 and b.cfg.super_agent is False                    # 要重启的：运行中不变
-    assert set(r["restart"]) == {"最多同时干活的对话数", "打开总管"}
+    assert set(r["restart"]) == {"最多同时干活的对话", "总管"}
     assert set(prefs.payload(b, path)["restart"]) == set(r["restart"])
     assert prefs.payload(b, path)["values"]["max_parallel"] == 5                     # 设置页显示文件里的新值
 

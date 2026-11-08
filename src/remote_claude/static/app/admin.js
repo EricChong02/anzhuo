@@ -51,7 +51,7 @@ function drawAdmin() {
 // ── 设置：界面在 settings.js（打开这一页时才加载），后端见 prefs.py ──
 let settingsShown = false;
 function openSettings(col) {
-  if (settingsShown && col.querySelector('.st-group')) return;   // 用量数据刷新时别把正在改的设置冲掉
+  if (settingsShown && col.querySelector('.st')) return;   // 用量数据刷新时别把正在改的设置冲掉
   settingsShown = true;
   if (window.drawSettings) return window.drawSettings(col);
   col.innerHTML = '<div class="ac-empty">读取中…</div>';
