@@ -362,10 +362,13 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 .newv .dock{isolation:auto} .newv .dock::before{content:none}   /* 新对话页没有底板：不隔离，免得往下弹的菜单被文件夹按钮盖住 */
 .composer:focus-within{background:rgba(255,255,255,.80)}
 @media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
-/* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边 */
+/* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边。
+   和底板一样放在 ::before 上：mask 放在 .head 本身会把往下弹的用量小窗整个裁掉 */
 :root{--headbg:rgba(231,236,240,.74)}
 @media (prefers-color-scheme:dark){:root{--headbg:rgba(38,48,58,.74)}}
-.head{background:var(--headbg);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+.head{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;isolation:isolate}
+.head::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--headbg);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
   -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 12px),transparent)}
 /* 模型菜单：背景几乎不透，后面的字不再透出来 */
 .mmenu{background:rgba(238,242,244,.97)}

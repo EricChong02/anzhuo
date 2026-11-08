@@ -70,7 +70,7 @@ function aqRow(name, pct, reset) {
 }
 function quotaPlate(title, ls) {
   const order = ['5 小时', '本周'], rows = order.map(n => ls.find(l => l.name === n)).filter(Boolean);
-  return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, quotaReset(l).relative)).join('')
+  return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, [quotaReset(l).relative, quotaPace(l)?.text].filter(Boolean).join(' · '))).join('')
     : `<div class="aq-row">${aqRow('本周', null, '')}</div>`}</div>`;
 }
 // 金额只在后台用来换算：× 每美元约合周额度的百分比 = 占主账号周额度的 %；还没校准出比例时返回 null

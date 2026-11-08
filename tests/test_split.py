@@ -150,3 +150,9 @@ def test_new_session_follows_split(both, tmp_path, monkeypatch):
         s = b.registry.get(n)
         assert (s.engine, s.model) == ("claude", MODELS["sonnet"])
     asyncio.run(go())
+
+
+def test_subagent_model_options_show_full_names():
+    from remote_claude import prefs
+    opts = dict(prefs._options(prefs.BY_KEY["subagent_model"]))
+    assert opts[""] == "跟主对话" and opts["sonnet"].startswith("Claude Sonnet ")

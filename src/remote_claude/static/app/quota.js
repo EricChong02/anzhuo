@@ -13,11 +13,20 @@ function quotaResetLabel(l, now = Date.now()) {
   const day = d.toDateString() === new Date(now).toDateString() ? '今天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
   return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+// 按这速度何时用完（后端 quota.window 算好的 eta / pace）：重置前用得完 → {text, warn: true}；够用 → 一句定心话；算不出 → null
+function quotaPace(l, now = Date.now()) {
+  if (l.eta != null) {
+    const d = new Date(Number(l.eta) * 1000), tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+    const day = d.toDateString() === new Date(now).toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+    return {text: `按这速度${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 用完`, warn: true};
+  }
+  return l.pace == null || l.pct == null || l.pct < 5 ? null : {text: `按这速度到重置约用到 ${Math.min(99, l.pace)}%，够用`, warn: false};
+}
 function qcell(l, hot = 80) {
-  const reset = quotaResetLabel(l);
-  const h = l.pct != null && l.pct >= hot;
+  const reset = quotaResetLabel(l), pace = quotaPace(l);
+  const h = l.pct != null && l.pct >= hot || pace?.warn;
   return `<div class="qm ${h ? 'hot' : ''}" title="${reset ? esc(reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
-    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)} 重置</div>` : ''}</div>`;
+    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)} 重置</div>` : ''}${pace?.warn ? `<div class="qr qp">${esc(pace.text)}</div>` : ''}</div>`;
 }
 function quotaGroups() {
   return [['Claude', limits], ...(limitsGpt.length && hasGpt ? [['Codex', limitsGpt]] : [])].filter(([, ls]) => ls.length);
@@ -40,10 +49,10 @@ function quotaReset(l, now = Date.now()) {
 function renderQuotaDetails() {
   const el = $('#quotaDetailBody'); if (!el) return;
   el.innerHTML = quotaGroups().map(([who, ls]) => `<section class="quota-detail-group"><h3>${who}</h3>${ls.map(l => {
-    const when = quotaReset(l);
-    return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
+    const when = quotaReset(l), pace = quotaPace(l);
+    return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 || pace?.warn ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
       <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
-      <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div></div>`;
+      <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div>${pace ? `<div class="quota-pace ${pace.warn ? 'warn' : ''}">${esc(pace.text)}</div>` : ''}</div>`;
   }).join('')}</section>`).join('');
 }
 function openQuotaDetails() {
@@ -61,7 +70,7 @@ function renderQuota() {
   const q = $('#quota'), groups = quotaGroups(); q.hidden = !groups.length;
   q.innerHTML = groups.length ? `<button class="quota-summary" aria-label="本周已用额度，点击查看详情"><span class="quota-caption">周已用</span>${groups.map(([who, ls]) => {
     const week = ls.find(l => l.name === '本周');
-    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
+    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 || week?.eta != null ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
   }).join('')}${ICON.chev}</button>` : '';
   const button = q.querySelector('button'); if (button) button.onclick = openQuotaDetails;
   renderQuotaDetails();

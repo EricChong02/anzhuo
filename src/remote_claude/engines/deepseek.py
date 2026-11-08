@@ -57,6 +57,7 @@ class DeepSeekEngine(ClaudeEngine):
     name, label, tool, key = "deepseek", "DeepSeek", "Claude Code", "deepseek"
     pick_model = "own"
     has_quota = fenced_ok = cache_hint = False   # 按量计费没有额度窗口；受限账号不用；它自动缓存、不按小时过期
+    context_window = 1_000_000   # V4 两档都是 1M 上下文；Claude Code 不认识这型号，报的百分比按 200K 算会虚高五倍
 
     def available(self) -> bool:
         return bool(api_key())

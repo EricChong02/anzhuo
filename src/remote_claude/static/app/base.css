@@ -447,6 +447,7 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .quota-detail-top b{font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}
 .quota-reset{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;margin-top:8px;font-size:13px;line-height:1.5;color:var(--ink)}
 .quota-reset span+span{color:var(--mute)}
+.quota-pace{margin-top:4px;font-size:13px;line-height:1.5;color:var(--mute)} .quota-pace.warn{color:var(--amber)} .qr.qp{color:var(--amber)}
 @media(min-width:601px){.quota-dialog{align-items:center}}
 
 .schedule-entry{min-height:44px;gap:10px;color:var(--mute)} .schedule-entry>svg{width:18px;height:18px}

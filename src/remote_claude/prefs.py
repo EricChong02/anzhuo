@@ -17,6 +17,7 @@ import tomlkit
 from .config import CONFIG_PATH, Config, load_config
 from . import split
 from .engines import MODELS
+from .report import model_name
 
 if TYPE_CHECKING:
     from .app import Bridge
@@ -44,7 +45,8 @@ class Field:
 
 
 def _models() -> tuple:
-    return tuple((k, k) for k in MODELS)
+    """存短名（opus），下拉里显示正式名（Claude Opus 5.5）。"""
+    return tuple((k, "Claude " + model_name(v)) for k, v in MODELS.items())
 
 
 def _efforts() -> tuple:
@@ -86,7 +88,7 @@ FIELDS: list[Field] = [
     Field("split", "分工表", "干活", "split",
           "新事分三档，没点名模型时照这里选：首选这家没装、没密钥、受限账号不能用或文件夹不许发给它时换备选，再不行用 Claude Sonnet。"
           "型号只给 GPT、DeepSeek 这类别家填（空 = 它自己默认的）", check=_split_check),
-    Field("subagent_model", "子代理默认模型", "干活", "select", "对话里派出去的子代理；“跟主对话”= 不另指定", options=()),
+    Field("subagent_model", "子代理默认模型", "干活", "select", "对话里派出去的子代理用哪个型号；“跟主对话”= 不另指定", options=()),
     Field("relay_long", "上下文多长提示接力", "干活", "int", "单位 token，比如 120000；越长每句话越贵", rng=(30_000, 1_000_000)),
     Field("relay_cold", "隔一小时回来、多长提示接力", "干活", "int", "缓存过期后整段要重写，单位 token", rng=(10_000, 1_000_000)),
     Field("default_effort", "默认思考深度", "干活", "select", options=()),

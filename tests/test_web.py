@@ -174,7 +174,7 @@ def test_chat_api(tmp_path, monkeypatch):
             d = await (await c.get("/_x/api/sessions")).json()
             assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
             assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
-            assert [{k: v for k, v in l.items() if k != "reset_at"} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
+            assert [{k: v for k, v in l.items() if k in ("name", "pct", "reset")} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
@@ -1022,3 +1022,15 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         assert w._turn("2-120")["request"] == wrapped
         assert w._turn("1-110")["request"] == RELAY
     asyncio.run(go())
+
+def test_quota_rows_carry_eta_and_pace(monkeypatch):
+    """额度格带上“按这速度何时用完”：本周过了一半已用 80% → 重置前会用完；5 小时用得慢 → 没有 eta、给到重置时的用量。"""
+    import datetime
+    import time
+    now = datetime.datetime(2026, 11, 8, 12, 0).timestamp()
+    monkeypatch.setattr(time, "time", lambda: now)
+    week_reset = datetime.datetime.fromtimestamp(now + 3.5 * 86400).strftime("%-m月%-d日 %H:%M")
+    five_reset = datetime.datetime.fromtimestamp(now + 4 * 3600).strftime("%-m月%-d日 %H:%M")
+    week, five = Web._limits({"seven_day": (.8, week_reset), "five_hour": (.1, five_reset)})
+    assert week["eta"] and now < week["eta"] < week["reset_at"] and week["level"] == "告急"
+    assert five["eta"] is None and five["pace"] == 50 and five["level"] == "充足"   # 已过 20%（下限）用了 10% → 到重置约 50%

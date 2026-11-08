@@ -10,7 +10,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .. import schedules, usage, task_groups
+from .. import quota, schedules, usage, task_groups
 from ..sessions import Session
 from ..folders import display, readable
 from ..report import LIMIT_CN
@@ -168,8 +168,13 @@ class ListingMixin:
 
     @staticmethod
     def _limits(d: dict) -> list[dict]:
-        epoch = usage.reset_epoch
-        return [{"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or "", "reset_at": epoch(r)} for k, (u, r) in d.items()]
+        """每个窗口一格；eta = 按这速度何时用完（重置前用不完是 None），pace = 按这速度到重置时会用到几成（算不出是 None）。"""
+        now, rows = time.time(), []
+        for k, (u, r) in d.items():
+            w = quota.window(k, (u, r), now) or {}
+            rows.append({"name": LIMIT_CN.get(k, k), "pct": round(u * 100), "reset": r or "", "reset_at": usage.reset_epoch(r, now),
+                         "eta": w.get("eta"), "pace": None if w.get("pace") is None else round(w["pace"] * 100), "level": w.get("level")})
+        return rows
 
     async def _api_manage(self, request: web.Request) -> web.Response:
         """列表里长按一条对话：置顶 / 取消置顶、改名、归类、删除（收起）、找回。"""

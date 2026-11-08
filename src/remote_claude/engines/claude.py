@@ -73,6 +73,7 @@ class ClaudeEngine(Engine):
     pick_model = "menu"
     history = "transcript"
     can_steer = can_rewind = can_fork = has_quota = has_tools = stop_hook = fenced_ok = cache_hint = cum_usage = True
+    context_window: int | None = None   # None = 上下文百分比照 Claude Code 报的；它不认识的后端（DeepSeek）要自己给窗口大小
 
     def limits(self, runner: "Runner") -> dict:
         return runner.limits
@@ -355,14 +356,20 @@ class ClaudeEngine(Engine):
                 last_text, results = await self._read(client, s, job, turn)
                 try:
                     usage = await client.get_context_usage()
-                    turn.context_pct = s.context_pct = float(usage["percentage"])
                     s.context_tokens = int(usage.get("totalTokens") or 0) or None
+                    turn.context_pct = s.context_pct = self.context_pct(usage)
                 except Exception:  # noqa: BLE001 - 拿不到上下文用量不影响报告
                     log.debug("取上下文用量失败", exc_info=True)
             finally:
                 runner.live.pop(s.num, None)
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or runner.default_effort
+
+    def context_pct(self, usage: dict) -> float:
+        """上下文用了百分之几：照 Claude Code 报的算；窗口另有大小的引擎（context_window）按 token 数自己折。"""
+        if self.context_window and (used := int(usage.get("totalTokens") or 0)):
+            return min(100.0, 100.0 * used / self.context_window)
+        return float(usage["percentage"])
 
     async def _read(self, client: ClaudeSDKClient, s: "Session", job: "Job", turn: "Turn") -> tuple[str, list[str]]:
         """把你的话送进去，逐条读事件翻成步骤、说明、回复，直到这一轮真正结束。返回 (最后一段话, 各次结果)。"""

@@ -243,3 +243,12 @@ def test_said_engine_model(monkeypatch):
     assert said_engine_model("deepseek", "用 deepseek pro 查查") == "deepseek-v4-pro"
     assert said_engine_model("deepseek", "用 deepseek 查查") is None
     assert inline_overrides("用 deepseek 查个资料")[0] == "deepseek"
+
+
+def test_deepseek_context_pct_uses_1m_window():
+    """Claude Code 不认识 DeepSeek 型号、按 200K 报百分比；DeepSeek 按 1M 自己折，Claude 照它报的。"""
+    from remote_claude.engines.catalog import CLAUDE, DEEPSEEK
+    usage = {"totalTokens": 100_000, "percentage": 50.0}
+    assert DEEPSEEK.context_pct(usage) == 10.0
+    assert CLAUDE.context_pct(usage) == 50.0
+    assert DEEPSEEK.context_pct({"totalTokens": 0, "percentage": 3.0}) == 3.0
