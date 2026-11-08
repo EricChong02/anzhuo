@@ -5,6 +5,10 @@
 # 本机用不用改；放到外网后改成你的地址（见 docs/外网访问.md），例如 web_base = "https://anzhuo.example.com"
 # web_base = "http://127.0.0.1:8765"
 # web_port = 8765
+# 子路径挂载（可选）：被别的自托管面板反向代理透传（不剥前缀）时，整站挂在它下面，
+# 例如面板把 /yuanchuang/* 原样转到 127.0.0.1:8765 就写 web_prefix = "/yuanchuang"。空 = 根路径，默认不变。
+# 此时 web_base 填面板的 origin（协议+域名+端口，不含路径）。详见 docs/外网访问.md 方案 D
+# web_prefix = ""
 # web_user 不用手写：运行 `anzhuo passwd` 会替你写进来
 
 # ───────── 入口二：钉钉（可选，想在钉钉里也能说话才填）─────────

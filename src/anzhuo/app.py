@@ -167,7 +167,8 @@ class Bridge:
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, watch_host=cfg.watch_host,
-                       accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash)
+                       accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash,
+                       web_prefix=cfg.web_prefix)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
