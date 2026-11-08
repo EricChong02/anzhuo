@@ -515,3 +515,14 @@ html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid 
 .find{background:rgba(255,255,255,.55);box-shadow:var(--glass-float)}
 .mmenu{background:rgba(246,249,251,.97)}
 }
+/* 悬停不改行高：⋯ 按钮缩到行内，悬停直接用选中那层玻璃色 */
+.side .item .more{width:26px;height:22px;margin:-4px -4px -4px 0}
+@media (hover:hover){.side .item:hover{background:var(--plate,var(--glass-lo))}}
+/* 阅读区更白：侧栏留灰蓝雾，对话区在雾上铺一层近白，顶端透一点蓝，保留玻璃层次 */
+@media not (prefers-color-scheme:dark){
+:root{--headbg:rgba(251,252,253,.84);--dock:rgba(253,254,254,.95)}
+.main{background:linear-gradient(180deg,rgba(255,255,255,.66) 0,rgba(255,255,255,.9) 220px,rgba(255,255,255,.94))}
+.main .you{background:rgba(228,236,243,.78)}
+.main .md code,.main .md pre{background:rgba(232,238,244,.8)}
+.main .md pre code{background:none}
+}

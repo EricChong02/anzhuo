@@ -34,6 +34,7 @@ function renderModel(st, onPick, isNew) {
   const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(head)}${ICON.chev}</button>`
     + (mpOpen ? `<div class="mmenu"><button class="phone-menu-close" id="modelDone">完成</button>${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+  fitModelMenu(el.querySelector('.mmenu'));
   if ($('#modelDone')) $('#modelDone').onclick = e => { e.stopPropagation(); mpOpen = false; renderModel(st, onPick, isNew); };
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };
   el.querySelectorAll('[data-m],[data-e]').forEach(b => b.onclick = e => {
@@ -43,6 +44,14 @@ function renderModel(st, onPick, isNew) {
     onPick(st); renderModel(st, onPick, isNew);
     if (!isNew && was !== st.model + st.effort) toast(`下一句起用 ${label(st.model)} · ${(EFFORT_OPTS.find(x => x[0] === st.effort) || [, ''])[1]}`);
   });
+}
+// 菜单跟着按钮弹出时，朝空间大的一侧展开，高度不超过那一侧的可见空间（窗口矮、新对话页按钮靠下都不再超框）
+function fitModelMenu(m) {
+  if (!m || getComputedStyle(m).position !== 'absolute') return;
+  const r = m.parentElement.getBoundingClientRect(), vh = window.visualViewport ? visualViewport.height : innerHeight;
+  const below = vh - r.bottom - 16, above = r.top - 16, need = m.scrollHeight, down = below >= need || below > above;
+  Object.assign(m.style, down ? {top: 'calc(100% + 10px)', bottom: 'auto'} : {top: 'auto', bottom: 'calc(100% + 12px)'});
+  m.style.maxHeight = Math.max(160, (down ? below : above) - 10) + 'px';
 }
 document.addEventListener('click', e => { if (mpOpen && !e.target.closest('.mpw')) { mpOpen = false; mpRedraw && mpRedraw(); } });
 
