@@ -380,13 +380,13 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .rwfile small{display:block;color:var(--mute);font-size:var(--t2)}
 .amenu button.on{background:var(--acc);color:var(--on-acc);justify-content:center;margin-top:4px} .amenu .box #rwno{justify-content:center}
 /* 新对话：发出去后马上进“正在开” */
-.newv{position:relative} .opening{position:absolute;inset:0;z-index:3;background:var(--bg);overflow:auto;padding:28px 20px} .opening .col{width:100%}
+.newv{position:relative} .opening{position:absolute;inset:0;z-index:3;background:var(--bg);overflow:auto;padding:24px 20px} .opening .col{width:100%}
 
 @media (min-width:821px){
   html,body{font-size:var(--t4)} .app{grid-template-columns:320px 1fr}
   .item .nm{font-size:var(--t4)} .item .st{font-size:var(--t2)} .item{padding:10px 12px}
   .head{min-height:64px;padding:10px 24px} .head .ti b{font-size:var(--t4)} .head .ti span{font-size:var(--t2)}
-  .col{max-width:740px;gap:28px} .feed{padding:32px 32px calc(160px + var(--kb,0px))}
+  .opening{padding:32px 32px} .col{max-width:740px;gap:28px} .feed{padding:32px 32px calc(160px + var(--kb,0px))}
   .you{font-size:var(--fs);line-height:1.7;padding:12px 18px} .composer{max-width:740px} .quick{max-width:740px}
   .composer textarea{font-size:var(--t4)}
 }
@@ -405,7 +405,7 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
   .head{padding-top:calc(10px + env(safe-area-inset-top))}
   .scroll{padding:0 8px 24px} .quota{padding-right:96px} .um{display:none} .usage{right:10px} .item{min-height:60px;padding:10px 12px} .item .nm{font-size:var(--t4)} .item .st{font-size:var(--t2)}
   .label{font-size:var(--t2);padding:18px 12px 6px}
-  .feed{padding:18px 16px calc(160px + var(--kb,0px))} .you{max-width:86%} .col{gap:20px}
+  .opening{padding:18px 16px} .feed{padding:18px 16px calc(160px + var(--kb,0px))} .you{max-width:86%} .col{gap:20px}
   .live ol li:nth-last-child(n+4){display:none}
   .dock{padding:24px 10px calc(10px + env(safe-area-inset-bottom))}
 }
