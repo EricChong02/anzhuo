@@ -35,7 +35,7 @@ from .commands import Cmd
 from .dingtalk import Incoming
 from .folders import display, readable
 from .report import EFFORT_CN, LIMIT_CN, model_name
-from .relay import relay_hint
+from .relay import RELAY, display_items, relay_hint
 from .ext import STATIC_FILE, Routes
 
 log = logging.getLogger(__name__)
@@ -1306,7 +1306,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
                     log.debug("读对话记录失败", exc_info=True)
             self._threads[num] = (key, items)
-        return [dict(it) for it in items]
+        return display_items(items)
 
     async def _api_thread(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -1338,7 +1338,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             history += [{**it, "source_num": previous.num, "historical": True}
                         for it in await self._saved_items(previous)]
             following = chain[index + 1]
-            history.append({"who": "note", "text": "已接力，后续使用新的上下文", "handoff": following.relay_note})
+            history.append({"who": "note", "text": "已接力 · 查看交接摘要", "handoff": following.relay_note})
         items = history + items
         for it in items:
             if it["who"] == "claude":
@@ -1348,11 +1348,14 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 it["process"] = [self._zh_proc(e) if e["k"] in ("think", "say") else e
                                  for e in it["process"]]
         turn = b.runner.turns.get(num)
+        previous_turn = getattr(b.runner, "last", {}).get(num)
+        if not turn and previous_turn and previous_turn.request == RELAY and (previous_turn.is_error or previous_turn.interrupted):
+            items.append({"who": "note", "text": "接力未完成，仍在原对话，可重试。"})
         if not turn and s.updated > s.seen:   # 打开了、看到最新一轮了，就不算没看
             s.seen = time.time()
             b.registry.save()
         live = None
-        if turn:
+        if turn and turn.request != RELAY:
             proc = [{"k": e["kind"], "text": str(e.get("text", "")), "detail": str(e.get("detail") or ""), "sub": e.get("sub", "")}
                     for e in turn.timeline if e["kind"] in ("think", "say", "do")]
             for e in proc:
@@ -1368,6 +1371,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                 "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
         # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not it.get("historical") and not NOISE.match(it["text"] or "")), "")
+        if not last and not any(it["who"] == "you" and not it.get("historical") for it in items):
+            last = s.relay_pending.get("text", "")
         d = parse_decision(last, loose=True) if s.awaiting and not turn else None
         decision = {"question": d.question, "options": d.options, "recommend": d.recommend} if d else None
         recs = self._records(num)

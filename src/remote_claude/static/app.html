@@ -1262,14 +1262,14 @@ function renderRelay(d) {
   const h = $('#relayHead');   // 建议过才出现，回答进行中禁用
   if (h) {
     const run = r && r.kind === 'running';
-    h.innerHTML = d.usage?.relay_suggested || run ? `<button class="pill" id="relayTop" title="写交接说明，开新对话接着做" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
+    h.innerHTML = d.usage?.relay_suggested || run ? `<button class="pill" id="relayTop" title="整理上下文后接着聊" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
     if ($('#relayTop')) $('#relayTop').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
   }
-  if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => openSession(d.relay_to)); }
+  if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => followRelay(d.relay_to)); }
   const off = !r || (r.key && localStorage.getItem('relayOff:' + d.num) === r.key);
   el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
   if (off) return;
-  if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在写交接说明，写完自动开新对话'; return; }
+  if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在整理上下文…'; return; }
   const t = wan(r.tokens);
   el.innerHTML = `<span class="rt">${r.kind === 'cold'
     ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省。`
@@ -1663,7 +1663,19 @@ function navTo(state, hash) {
   const st = history.state;
   if (st && (st.s || st.n || st.a)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
 }
-function openSession(num, fromPop) {
+function followRelay(num) {
+  const feed = $('#feed'), ta = $('#ta');
+  const view = feed ? {top: feed.scrollTop, stick, html: $('#col').innerHTML, draft: ta?.value || ''} : null;
+  flushComposerText();
+  const draft = composerDraft(String(sel));
+  if (draft.text || draft.images.length || draft.files.length) {
+    composerDrafts.set(String(num), draft);
+    saveComposerText(String(num), draft.text);
+  }
+  relayWait = 0;
+  openSession(num, false, view);
+}
+function openSession(num, fromPop, view) {
   partialText = ''; setTimeout(connectEvents);
   if (sel && sel !== num) presence(false);
   sel = num; lastKey = ''; presence(true);
@@ -1677,7 +1689,8 @@ function openSession(num, fromPop) {
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
   const feed = $('#feed');
   // 刚点进来：一直贴着最下面（图片、在做卡片后加载撑高也跟着到底），直到你自己往上翻
-  stick = true;
+  stick = view ? view.stick : true;
+  if (view) { $('#col').innerHTML = view.html; feed.scrollTop = view.top; }
   const toEnd = () => { if (stick) feed.scrollTop = feed.scrollHeight; };
   new ResizeObserver(toEnd).observe($('#col'));
   feed.addEventListener('load', toEnd, true);   // 图片加载完
@@ -1693,7 +1706,8 @@ function openSession(num, fromPop) {
   feed.onscroll = () => { const gap = feed.scrollHeight - feed.scrollTop - feed.clientHeight; $('#jump').classList.toggle('on', gap > 40); };
   $('#jump').onclick = () => { document.querySelectorAll('.live .plist').forEach(x => { delete x.dataset.reading; x.scrollTop = x.scrollHeight; }); stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
   wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now(), base: saidBase(num, text)}; (pending[num] ||= []).push(p); return p; });
-  renderSide(); headStatus(); showCached(num); loadThread();
+  if (view && view.draft && $('#ta')) { $('#ta').value = view.draft; $('#ta').oninput(); }
+  renderSide(); headStatus(); if (!view) showCached(num); loadThread();
 }
 
 // 告诉 Mac“我正开着这个对话看”：做完时不再弹通知、不发钉钉（切走、锁屏就不算在看）
@@ -2446,7 +2460,7 @@ async function loadThread() {
   try {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
-    if (d.redirect) { await loadSessions(); if (sel === d.num) openSession(d.redirect); return; }
+    if (d.redirect) { await loadSessions(); if (sel === d.num) followRelay(d.redirect); return; }
     cacheThread(d);
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);

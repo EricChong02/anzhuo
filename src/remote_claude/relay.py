@@ -34,3 +34,20 @@ def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None
     if tk >= long_at:
         return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
     return None
+
+
+def display_items(items):
+    """隐藏内部接力轮次；第一句话只展示用户原话，兼容既有记录。"""
+    out, internal = [], False
+    for original in items:
+        it = dict(original)
+        if it.get("who") == "you":
+            internal = it.get("text", "").strip() == RELAY
+            if internal:
+                continue
+            text = it.get("text", "")
+            if text.startswith("（这是接力的新对话") and "用户这次说：\n\n" in text:
+                it["text"] = text.split("用户这次说：\n\n", 1)[1]
+        if not internal:
+            out.append(it)
+    return out

@@ -954,3 +954,40 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         result = json.loads((await w._api_thread(request)).text)
         assert result['can_relay'] and result['usage']['relay_suggested']
     asyncio.run(go())
+
+
+def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
+    import json
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    from remote_claude.relay import RELAY, display_items
+    question = "要你定：选哪一个？\nA. 红色\nB. 蓝色\n推荐：A，醒目"
+    assert display_items([{"who": "you", "text": RELAY}, {"who": "claude", "text": "内部摘要"},
+                          {"who": "you", "text": "（这是接力的新对话：摘要\n用户这次说：\n\nA"}]) == [{"who": "you", "text": "A"}]
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        parent = reg.add(Session(num=1, name="设计", cwd=str(tmp_path), engine="codex", codex_id="old", relay_to=2))
+        child = reg.add(Session(num=2, name="设计", cwd=str(tmp_path), engine="codex", relay_from=1,
+                               relay_note="内部摘要", awaiting="选哪一个", awaiting_kind="decide", relay_pending={"text": question}))
+        runner = NS(turns={}, last={}, limits={}, default_effort="medium", compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        w.save_turn(parent.label, Turn(started=100, ended=101, request="设计", final_text=question), str(tmp_path), "设计")
+        w.save_turn(parent.label, Turn(started=110, ended=111, request=RELAY, final_text="内部摘要"), str(tmp_path), "接力")
+        req = NS(match_info={"num": "2"})
+        result = json.loads((await w._api_thread(req)).text)
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计"]
+        assert [i["text"] for i in result["items"] if i["who"] == "claude"] == [question]
+        assert result["decision"]["options"] == [["A", "红色"], ["B", "蓝色"]]
+        assert result["decision"]["recommend"] == "A" and result["awaiting_kind"] == "decide"
+        assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["内部摘要"]
+        # 下一棒拿到摘要，聊天只呈现用户的选择；原始存档不修改。
+        wrapped = "（这是接力的新对话：内部摘要\n用户这次说：\n\nA"
+        w.save_turn(child.label, Turn(started=120, ended=121, request=wrapped, final_text="按红色继续"), str(tmp_path), "继续")
+        child.awaiting = ""
+        result = json.loads((await w._api_thread(req)).text)
+        assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计", "A"]
+        assert result["decision"] is None
+        assert w._turn("2-120")["request"] == wrapped
+        assert w._turn("1-110")["request"] == RELAY
+    asyncio.run(go())

@@ -78,6 +78,7 @@ class Session:
     relay_suggested: bool = False  # 已在空闲时建议过接力，之后进行中只显示禁用按钮
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
+    relay_pending: dict = field(default_factory=dict)  # 接力前尚待回答的问题及原文
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
     role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
     boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管

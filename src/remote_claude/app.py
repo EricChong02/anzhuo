@@ -328,6 +328,15 @@ class Bridge:
             return "正在回答或还有排队消息，请等回答结束后再接力。"
         if not s.relay_suggested and not relay_hint(s, False, False, cfg=self.cfg):
             return "这个对话暂时没有接力建议。"
+        question = (s.relay_pending or {}).get("text", "")
+        last = self.runner.last.get(num)
+        if last and last.request != RELAY:
+            question = last.final_text
+        if not question and self.web.enabled:
+            question = next((raw.get("final_text", "") for rec in reversed(self.web._records(num))
+                             if (raw := self.web._turn(rec["id"])) and raw.get("request") != RELAY), "")
+        s.relay_pending = {"awaiting": s.awaiting, "kind": s.awaiting_kind, "text": question}
+        self.registry.save()
         self._relaying.add(num)
         ahead = self.runner.submit(s, Job(text=RELAY, via=via))
         return "正在写交接说明" + (f"，等手上 {ahead} 件做完再写" if ahead else "") + "，写完自动开新对话。"
@@ -340,6 +349,12 @@ class Bridge:
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
                            f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
+        s.relay_pending = copy.deepcopy(p.relay_pending)
+        s.awaiting = p.relay_pending.get("awaiting", p.awaiting)
+        s.awaiting_kind = p.relay_pending.get("kind", p.awaiting_kind)
+        if question := p.relay_pending.get("text"):
+            s.unsent = s.unsent.replace("\n\n---\n用户这次说：", f"\n\n接力前最后一条答复（用户可能直接选择其中的选项）：\n{question}\n\n---\n用户这次说：")
+        s.unsent = s.unsent.replace("不清楚的细节先看现场文件，或问用户。", "不清楚的细节先看现场文件，或问用户。直接回应用户的新消息，不复述交接说明，不宣告接手；用户的选择对应接力前的问题，原有等待确认的要求仍有效。")
         s.boss = p.boss   # 总管派的活接力后照旧回报给总管
         if p.role == superagent.ROUTER:   # 总管自己接力：角色、置顶、没看的“期间的情况”、手下的对话都交给新的
             s.role, s.notes, p.role, p.pinned, p.notes = p.role, list(p.notes), "", False, []
@@ -394,6 +409,11 @@ class Bridge:
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         await self.events.emit("turn_done", s, turn)   # 接力、定时任务、扩展各自订阅（见 events.py）
+        if turn.request == RELAY:
+            if self.web.enabled:
+                self.web.save_turn(s.label, turn, s.cwd, "接力摘要")
+            self.registry.save()
+            return  # 内部维护不覆盖原问题、不推送成普通答复；原始记录仍可追溯
         if turn.request == "压缩上下文" and not turn.is_error:
             before = self._compact_from.pop(s.num, None)
             after = s.context_pct
