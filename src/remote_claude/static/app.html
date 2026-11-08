@@ -2456,7 +2456,8 @@ function showCached(num) {
 }
 
 async function loadThread() {
-  if (!sel) return;
+  // 后台通知仍更新列表；只有实际打开对话时才读取，避免请求顺带清掉未读。
+  if (!sel || document.hidden || (matchMedia('(max-width:820px)').matches && !$('#app').classList.contains('in'))) return;
   try {
     const d = await api('thread/' + sel);
     if (d.num !== sel) return;
@@ -2464,7 +2465,11 @@ async function loadThread() {
     cacheThread(d);
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
-    if (key !== lastKey && !reading) { lastKey = key; renderThread(d); }
+    if (key !== lastKey && !reading) {
+      lastKey = key; renderThread(d);
+      // 服务端已在读取完成回复时标记已读，让新完成及时归回原任务分类。
+      if (!d.live && sessions.some(s => s.num === d.num && s.unread)) loadSessions();
+    }
   } catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
