@@ -564,3 +564,7 @@ html .side .find input:focus-visible{outline:none;box-shadow:none}
 
 /* 菜单收起入口不再铺一条白色按钮底，触屏仍保留 44px 点按区。 */
 html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-height:44px;padding:0 10px;background:transparent;border-radius:8px;box-shadow:none;font-size:14px}
+
+/* 给连接灯光晕留出空间，只让文字截断。 */
+.conn{overflow:visible;padding-left:3px}
+.conn .cs{min-width:0;overflow:hidden;text-overflow:ellipsis}

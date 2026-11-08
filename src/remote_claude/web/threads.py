@@ -53,6 +53,12 @@ class ThreadsMixin:
             except (OSError, json.JSONDecodeError):
                 continue
             tl = r.get("timeline") or []
+            # 旧服务曾把接力首句截到 3000 字，原话另存于 said；恢复显示和待发比对。
+            tl = [dict(e) for e in tl]
+            first_you = next((e for e in tl if e.get("kind") == "you"), None)
+            if (first_you and first_you.get("text", "").startswith("（这是接力的新对话")
+                    and "用户这次说：\n\n" not in first_you["text"] and r.get("said")):
+                first_you["text"] = r["said"]
             said = [e["text"] for e in tl if e.get("kind") == "you"] or [r.get("request") or ""]
             if any(e.get("imgs") for e in tl if e.get("kind") == "you"):   # 带图的话：图按“这一轮/第几张”从 uimg 取
                 k = 0

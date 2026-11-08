@@ -1061,3 +1061,23 @@ def test_codex_history_shows_sent_images(tmp_path):
     assert w._record_image(1, "1-100/0") == (b"\xff\xd8jpg", "image/jpeg")
     assert w._record_image(1, "1-100/1") is None        # 收件目录以外的文件不给
     assert w._record_image(2, "1-100/0") is None        # 别的对话的编号不认
+
+
+def test_codex_legacy_truncated_relay_recovers_said(tmp_path):
+    """旧接力首句截断时，用独立保存的原话认领待发消息，保留图片和后续插话。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    from remote_claude.web.common import _said_has
+    reg = Registry(tmp_path / "sessions.json")
+    session = reg.add(Session(num=reg.reserve_num(), name="接力", cwd=str(tmp_path), engine="codex"))
+    w = Web("http://x", 0, tmp_path)
+    w.bridge = NS(registry=reg, runner=NS(last={}), outgoing={})
+    said = "这些细节看不清楚，调整一下"
+    turn = Turn(started=100, ended=110, request="这些细节…", said=said, final_text="已调整")
+    turn.timeline = [{"kind": "you", "text": "（这是接力的新对话" + "摘要" * 1500, "imgs": ["a.jpg"]},
+                     {"kind": "you", "text": "再看一下状态灯"}]
+    w.save_turn(session.label, turn, str(tmp_path), "测试")
+    you = [x for x in w._codex_history(1) if x["who"] == "you"]
+    assert you[0]["text"] == said and you[0]["imgs"] == ["1-100/0"]
+    assert _said_has(you[0]["text"], said)
+    assert you[1]["text"] == "再看一下状态灯"
