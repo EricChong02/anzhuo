@@ -19,6 +19,7 @@ class Turn:
     schedule_run_id: str = ""
     codex_turn_id: str = ""
     request: str = ""  # 这一轮你说的话的开头，做标题
+    said: str = ""  # 这一轮你说的完整的话（存进每轮记录；额度用完接力时小E 拼交接材料用）
     ended: float = 0.0
     changed_files: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)

@@ -2,7 +2,7 @@
 首选（Claude 的型号 opus / sonnet …，或别家引擎 gpt / deepseek / kimi）、别家的具体型号、深度，和首选用不了时的备选。
 
 新开对话、定时任务没点名模型时照它选；首选这家没装、没密钥、受限账号不能用、文件夹不许发给它（DeepSeek 禁区）时换备选，
-备选也不行就退回 Claude Sonnet。质量优先（2026-11-08 庄毅定：不为省额度降质量）：首选这家额度只是偏紧照用首选；
+备选也不行就退回 Claude Sonnet。质量优先（2026-11-08 定：不为省额度降质量）：首选这家额度只是偏紧照用首选；
 告急或撞线（quota.py 按用量和速度分档，快干不了活了）才换备选，且备选那家要更宽裕（或同是 Claude、换成更省的型号）。配置写法见 config.example.toml 的 [split]；老写法 design_model / dev_model / simple_model 也认。"""
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def choose(cfg, kind: str | None, paths: list[Path | str] = (), fenced: bool = F
            levels: dict | None = None) -> Choice:
     """按分工表给这一档挑：首选能用就首选，不行换备选，再不行 Claude Sonnet。
     engine = 已经点名了哪家（总管写了 engine=claude 却没写型号）：只在这家里挑，不看额度。
-    levels = 各家额度现在在哪一档（Bridge._quota）：首选这家告急 / 撞线时，备选更宽裕就换备选（偏紧不换，质量优先）。"""
+    levels = 各家额度现在在哪一档（Bridge.quota_levels）：首选这家告急 / 撞线时，备选更宽裕就换备选（偏紧不换，质量优先）。"""
     table = getattr(cfg, "split", None) or normalize(None)
     r = table.get(kind or "simple") or table["simple"]
     if engine == engines.CLAUDE.key:

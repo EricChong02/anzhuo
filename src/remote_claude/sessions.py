@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，小E 分派时也不考虑
 CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收起（问个天气、查个词，不必在列表里挂一周）
+SAID_MAX = 4000  # 每轮记录里存你说的完整的话最多多少字（额度用完接力时拼交接材料用）
 
 
 @dataclass
@@ -387,7 +388,7 @@ class Runner:
                     s.status = "idle"
                     self.registry.save()
                     continue
-                turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
+                turn = Turn(started=time.time(), request=_request_title(job), said=job.text[:SAID_MAX], via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
                 turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"

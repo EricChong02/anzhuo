@@ -262,5 +262,5 @@ def test_old_feedback_moves_into_ext(tmp_path):
     (data / "sessions.json").write_text(json.dumps({"next_num": 2, "sessions": {"1": {"num": 1, "name": "做课", "cwd": "/x", "feedback": spot}}}))
     b, _ = _bridge(tmp_path)
     assert b.registry.get(1).ext == {"course": {"feedback": spot}}
-    s2 = b._relay_open(b.registry.get(1), "交接")
+    s2 = asyncio.run(b.relays.open(b.registry.get(1), "交接"))
     assert s2.ext == {"course": {"feedback": spot}} and s2.ext is not b.registry.get(1).ext

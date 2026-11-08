@@ -80,7 +80,7 @@ def test_router_created_once(tmp_path):
     role = superagent.role(b, r)
     assert {"Bash", "Edit", "Write", "WebSearch"} <= set(role["disallowed"]) and role["own_slot"] and "总管" in role["append"]
     assert "项目" in role["append"]   # 文件夹短名告诉了总管
-    assert {t.name for t in role["tools"]} == {"list_sessions", "new_session", "send_to_session", "session_status", "stop_session"}
+    assert {t.name for t in role["tools"]} == {"list_sessions", "new_session", "send_to_session", "session_status", "stop_session", "relay_session"}
     b2 = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "data")   # 重启：不再开第二个
     assert [s.num for s in b2.registry.sessions.values() if s.role == "router"] == [r.num]
     assert b.runner.use_spare

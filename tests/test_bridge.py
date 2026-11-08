@@ -782,19 +782,19 @@ def test_relay(tmp_path, monkeypatch, engine):
         from remote_claude.report import Turn
         old = b.registry.get(6)
         old.context_tokens = 1000
-        assert "没有接力建议" in b.relay(6)
+        assert "没有接力建议" in await b.relays.start(6)
         old.context_tokens = 300_000
         b.runner.turns[6] = Turn(started=1)
-        assert "等回答结束" in b.relay(6) and 6 not in b._relaying
+        assert "等回答结束" in await b.relays.start(6) and 6 not in b.relays.writing
         b.runner.turns.pop(6)
         b.runner.queues[6] = asyncio.Queue()
         b.runner.queues[6].put_nowait(Job(text="排队消息"))
-        assert "等回答结束" in b.relay(6) and 6 not in b._relaying
+        assert "等回答结束" in await b.relays.start(6) and 6 not in b.relays.writing
         b.runner.queues[6].get_nowait()
         old.awaiting, old.awaiting_kind = "选哪一个", "decide"
         b.runner.last[6] = Turn(started=1, request="设计", final_text="要你定：选哪一个？\nA. 红色\nB. 蓝色\n推荐：A，醒目")
-        assert "交接说明" in b.relay(6)
-        assert "正在写" in b.relay(6)              # 点两次只写一份
+        assert "交接说明" in await b.relays.start(6)
+        assert "正在写" in await b.relays.start(6)              # 点两次只写一份
         await asyncio.sleep(0.2)
         old = b.registry.get(6)
         new = b.registry.get(old.relay_to)
@@ -802,7 +802,7 @@ def test_relay(tmp_path, monkeypatch, engine):
         assert new.relay_note == "## 目标\n做封面" and new.claude_id is None and new.codex_id is None and new.engine == engine
         assert new.awaiting == "选哪一个" and new.awaiting_kind == "decide"
         assert "A. 红色" in new.unsent and "不宣告接手" in new.unsent
-        assert "已经接力到" in b.relay(6)
+        assert "已经接力到" in await b.relays.start(6)
         b.runner.submit(new, __import__("remote_claude.sessions", fromlist=["Job"]).Job(text="接着做"))
         await asyncio.sleep(0.2)
         return new.num

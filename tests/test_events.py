@@ -89,8 +89,8 @@ def test_relay_keeps_boss(tmp_path):
     boss = superagent.find(b)
     boss.notes = ["10:00 用户直接对 #3 说了话"]
     w = b.registry.add(Session(num=b.registry.reserve_num(), name="活", cwd=str(tmp_path), boss=boss.num))
-    w2 = b._relay_open(w, "交接")
+    w2 = asyncio.run(b.relays.open(w, "交接"))
     assert w2.boss == boss.num and superagent.boss_of(b, w2) is boss
-    nb = b._relay_open(boss, "交接")
+    nb = asyncio.run(b.relays.open(boss, "交接"))
     assert nb.role == superagent.ROUTER and boss.role == "" and not boss.pinned and nb.notes and not boss.notes
     assert superagent.find(b) is nb and w.boss == w2.boss == nb.num and b.registry.current == nb.num

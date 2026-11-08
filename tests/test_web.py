@@ -7,6 +7,8 @@ from pathlib import Path
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
+from remote_claude.events import Bus
+from remote_claude.relay import Relays
 from remote_claude.report import Turn
 from remote_claude.web import Web, check_password, hash_password
 
@@ -139,6 +141,7 @@ def test_chat_api(tmp_path, monkeypatch):
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
             self.cfg = NS(folders={"课程根": "/x"}, scratch_root="/tmp/remote-claude-test-scratch", search_roots=[], skip_names=[])
             self.user_id, self.sent, self.new, self.outgoing, self.said = "me", [], [], {}, []
+            self.relays = NS(writing={}, targets=lambda s: [])
 
         async def say(self, title, text):
             self.said.append((title, text))
@@ -497,6 +500,7 @@ def test_codex_rewind_fork_cancel_and_persist(tmp_path):
         runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
         w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         for i in (100, 200, 300):
             w.save_turn(session.label, Turn(started=i, ended=i + 10, request=f"问{i}", final_text=f"答{i}",
                         codex_turn_id=f"native-{i}"), str(tmp_path), "测试")
@@ -597,6 +601,7 @@ def test_codex_file_rewind_and_cancel_through_api(tmp_path):
         runner = NS(unqueue_last=lambda n: None, busy=lambda n: False, last={})
         w = Web("http://x", 0, data)
         w.bridge = NS(registry=registry, runner=runner, outgoing={})
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         f = work / "课件.txt"; f.write_text("第一轮")
         store = Checkpoints(data / "checkpoints")
         before = store.capture([str(work)])
@@ -694,7 +699,7 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
         w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
                       runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
-                                busy=lambda n: False, queued=lambda n: []))
+                                busy=lambda n: False, queued=lambda n: []), relays=NS(writing={}, targets=lambda s: []))
         monkeypatch.setattr(thread, "full_messages", lambda *a: [])
         monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
         c = TestClient(TestServer(w.app()))
@@ -890,6 +895,7 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
                     compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
         w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         for session in sessions:
             w.save_turn(session.label, Turn(started=session.num * 100, ended=session.num * 100 + 1,
                         request=f"问题{session.num}", final_text=f"回复{session.num}",
@@ -931,8 +937,9 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
                   busy=lambda n:bool(turns or queued),queued=lambda n:queued)
         def rejected(*args,**kwargs): raise AssertionError('忙碌时不应提交接力')
         w=Web('http://x',0,tmp_path)
-        w.bridge=NS(registry=reg,runner=runner,outgoing={},_relaying=set(),relay=rejected)
-        request=NS(match_info={'num':'1'},headers={})
+        w.bridge=NS(registry=reg,runner=runner,outgoing={},cfg=None,quota_levels={},events=Bus())
+        w.bridge.relays=Relays(w.bridge); w.bridge.relays.start=rejected
+        request=NS(match_info={'num':'1'},headers={},can_read_body=False)
         result=json.loads((await w._api_thread(request)).text)
         assert not result['can_relay'] and not result['usage']['relay_suggested']
         turns.clear()
@@ -972,6 +979,7 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         runner = NS(turns={}, last={}, limits={}, default_effort="medium", compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
         w = Web("http://x", 0, tmp_path)
         w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
+        w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         w.save_turn(parent.label, Turn(started=100, ended=101, request="设计", final_text=question), str(tmp_path), "设计")
         w.save_turn(parent.label, Turn(started=110, ended=111, request=RELAY, final_text="内部摘要"), str(tmp_path), "接力")
         req = NS(match_info={"num": "2"})

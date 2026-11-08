@@ -366,6 +366,8 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .live .partial.open{white-space:normal;color:var(--ink);font-size:var(--t4)} .live .partial .pl{color:var(--faint)}
 .limit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:14px 16px}
 .limit .q{font-weight:500;margin-bottom:10px}
+.limit .lw{font-size:var(--t2);color:var(--mute);line-height:1.55;margin:-4px 0 10px}
+.limit .lb{display:flex;gap:8px;flex-wrap:wrap}
 /* 快捷回答 */
 .quick{align-items:center} .quick button{color:var(--acc)}
 @media (hover:hover){.quick button:hover{border-color:var(--acc)}}
@@ -1244,12 +1246,13 @@ function renderQuota() {
 const wan = n => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + ' 万' : String(n);
 let relayReady = 0;
 let relayWait = 0;   // 点了接力、还在这个对话里等：新对话开好就自动过去
-async function startRelay(num) {
-  if (relayReady !== num) return;
+// to = 换到哪（sonnet / gpt …，不填原样接力）；go = 开好新对话就接着做（额度用完时“换 GPT 接着做”）
+async function startRelay(num, to = '', go = false) {
+  if (!to && relayReady !== num) return;
   relayReady = 0;
-  ['relayTop', 'relayGo', 'relayBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+  document.querySelectorAll('#relayTop, #relayGo, #relayBtn, [data-relay]').forEach(b => { b.disabled = true; });
   relayWait = num;
-  const r = await api('relay/' + num, {}).catch(() => null);
+  const r = await api('relay/' + num, to ? {to, go} : {}).catch(() => null);
   if (!r) { relayWait = 0; toast('没交出去，再点一次'); }
   else { if (!r.ok) relayWait = 0; if (r.message) toast(r.message); }
   lastKey = ''; loadThread(); loadSessions();
@@ -1257,12 +1260,12 @@ async function startRelay(num) {
 // 对话长了、或隔了一个多小时回来：在输入框上方提示接力到新对话（点“不用”就记住，直到对话再长一截或又隔了一阵）
 function renderRelay(d) {
   const el = $('#relay'); if (!el) return;
-  const r = d.usage && d.usage.relay;
-  relayReady = d.can_relay && !d.live && !d.usage?.busy ? d.num : 0;
+  const r = d.limit ? null : d.usage && d.usage.relay;   // 额度用完了：同一家接力也接不上，只看额度卡片上的“换一家接着做”
+  relayReady = d.can_relay && !d.live && !d.usage?.busy && !d.limit ? d.num : 0;
   const h = $('#relayHead');   // 建议过才出现，回答进行中禁用
   if (h) {
     const run = r && r.kind === 'running';
-    h.innerHTML = d.usage?.relay_suggested || run ? `<button class="pill" id="relayTop" title="整理上下文后接着聊" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
+    h.innerHTML = (d.usage?.relay_suggested && !d.limit) || run ? `<button class="pill" id="relayTop" title="整理上下文后接着聊" ${!d.can_relay || run ? 'disabled' : ''}>${run ? '<i class="spin"></i>' : ''}接力</button>` : '';
     if ($('#relayTop')) $('#relayTop').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
   }
   if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => followRelay(d.relay_to)); }
@@ -1270,13 +1273,20 @@ function renderRelay(d) {
   el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
   if (off) return;
   if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在整理上下文…'; return; }
-  const t = wan(r.tokens);
+  const t = wan(r.tokens), alts = d.relay_targets || [];
   el.innerHTML = `<span class="rt">${r.kind === 'cold'
-    ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省。`
+    ? `距上次说话已 ${r.hours} 小时，缓存已过期：在这里接着说，要把约 ${t} token 整段重新写入。换件事的话，接力到新对话更省${alts.length ? '；这时换模型也不多花' : ''}。`
     : `这个对话已约 ${t} token，每说一句都要重读一遍。告一段落或换件事时，接力到新对话更省也更准。`}</span>
-    <span class="rb"><button class="on" id="relayGo">接力到新对话</button><button id="relayNo">不用</button></span>`;
+    <span class="rb"><button class="on" id="relayGo">接力到新对话</button>${alts.map(a => relayAlt(a, '换 ' + a.label)).join('')}<button id="relayNo">不用</button></span>`;
   $('#relayGo').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
+  bindRelayAlts(el, d.num);
   $('#relayNo').onclick = () => { localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true; };
+}
+
+// 换到别家 / 别的型号接力的按钮：那家额度偏紧、告急时悬停说一声
+const relayAlt = (a, text, cls = '') => `<button class="${cls}" data-relay="${esc(a.to)}" title="${a.level && a.level !== '充足' ? esc(a.label + ' 额度' + a.level) : '接力到新对话，换 ' + esc(a.label)}">${esc(text)}</button>`;
+function bindRelayAlts(root, num, go = false) {
+  root.querySelectorAll('[data-relay]').forEach(b => b.onclick = () => startRelay(num, b.dataset.relay, go));
 }
 
 function renderUsage(u) {
@@ -2091,7 +2101,8 @@ function renderThread(d) {
       <div class="cw"><button class="ib cpy" data-tip="复制" aria-label="复制"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></svg></button><pre>${esc(d.live.confirm.cmd)}</pre></div><div class="cb"><button class="ok" data-allow="1">允许</button><button data-allow="0">不允许</button></div>
 </div>`;
   if (d.limit) h += `<div class="limit"><div class="q">额度用完了 · ${esc(d.limit.at)} 恢复${d.limit.auto ? '后自动接着做' : ''}</div>
-      <button class="pill" id="autoRes">${d.limit.auto ? '别自动接' : '恢复后自动接着做'}</button></div>`;
+      ${(d.relay_targets || []).length ? `<div class="lw">不想等：换一家接着做，小E 把这边的记录整理成交接材料带过去。</div>` : ''}
+      <div class="lb">${(d.relay_targets || []).map(a => relayAlt(a, `换 ${a.label} 接着做`, 'pill on')).join('')}<button class="pill" id="autoRes">${d.limit.auto ? '别自动接' : '恢复后自动接着做'}</button></div></div>`;
   if (d.decision) h += `<div class="ask">${d.decision.options.map(([k, v]) =>
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   setTimeout(showPartial);
@@ -2145,6 +2156,7 @@ function renderThread(d) {
   });
   document.querySelectorAll('.relaygo').forEach(b => b.onclick = () => openSession(+b.dataset.n));
   document.querySelectorAll('.rwundo').forEach(b => b.onclick = async () => { b.disabled = true; const r = await api('rewind/' + d.num, {cancel: true}).catch(() => null); if (!r || !r.ok) toast(r?.error || '没能撤销，请重试'); lastKey = ''; loadThread(); loadSessions(); });
+  if ($('.limit')) bindRelayAlts($('.limit'), d.num, true);
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
   const me = sessions.find(x => x.num === d.num) || {};

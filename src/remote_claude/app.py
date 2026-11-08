@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import logging
 import os
@@ -21,7 +20,7 @@ from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
-from .relay import RELAY, relay_hint
+from .relay import RELAY, Relays
 from .web import Web
 from .engines import EFFORTS, MODELS
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
@@ -70,7 +69,6 @@ class Bridge:
             log.warning("消耗记录迁移失败", exc_info=True)
         self.outgoing: dict[int, list[dict]] = {}  # 你刚发给各对话、Claude 记录里还没有的话（网页对话框先显示出来）
         self._compact_from: dict[int, float | None] = {}  # 压缩前的上下文用量，压完报“59% → 12%”
-        self._relaying: set[int] = set()  # 正在写交接说明的对话；写完就开接力的新对话
         self.board: str | None = None  # 工作台卡：所有在做的对话一张卡，始终挪到聊天最下面
         self.board_task: asyncio.Task | None = None
         self.board_lock = asyncio.Lock()
@@ -82,11 +80,11 @@ class Bridge:
         self.web.bridge = self
         # 事件：一轮做完、额度变档……谁关心谁订阅（events.py）；扩展在这之后加载，也能订阅
         self.events = Bus()
-        self.events.on("turn_done", self._relay_written, order=10)
+        self.relays = Relays(self)   # 接力（含换家、额度用完时小E 拼交接材料）；订阅 turn_done
         self.events.on("turn_done", self._schedule_ran, order=20)
-        self.events.on("turn_report", lambda s, turn: superagent.on_turn_done(self, s, turn), order=10)
+        superagent.attach(self)   # 总管：回报（turn_report）、接力后交接派活关系（relayed）
         self.events.on("quota", self._quota_said, order=90)
-        self._quota: dict[str, str] = {}   # 各家额度现在在哪一档（充足 / 偏紧 / 告急 / 撞线）
+        self.quota_levels: dict[str, str] = {}   # 各家额度现在在哪一档（充足 / 偏紧 / 告急 / 撞线）
         self.web.exts = self.exts = ext.load(self)
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -147,7 +145,7 @@ class Bridge:
             if why := await asyncio.to_thread(folders.blocked, [cwd]):
                 raise ValueError("工作文件夹不可访问")
             if model == "auto":   # 没点名：按分工表（代码仓里按开发，别处按简单任务）
-                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd], levels=self._quota)
+                c = split.choose(self.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd], levels=self.quota_levels)
                 pick, full = c.pick, c.full_model
             else:
                 pick, full = model, MODELS.get(model)
@@ -315,68 +313,9 @@ class Bridge:
             await self.detail("压缩", msg)
         return msg
 
-    def relay(self, num: int, via: str = "web") -> str:
-        """接力：让这个对话写交接说明，写完开一个新对话（同一个文件夹、模型、深度），交接说明随你第一句话交给它。"""
-        s = self.registry.get(num)
-        if not s or not (s.claude_id or s.codex_id):
-            return "这个对话还没开始，不用接力。"
-        if s.relay_to and self.registry.get(s.relay_to):
-            return f"已经接力到 #{s.relay_to} 了。"
-        if num in self._relaying:
-            return "正在写交接说明，写完自动开新对话。"
-        if self.runner.busy(num):
-            return "正在回答或还有排队消息，请等回答结束后再接力。"
-        if not s.relay_suggested and not relay_hint(s, False, False, cfg=self.cfg):
-            return "这个对话暂时没有接力建议。"
-        question = (s.relay_pending or {}).get("text", "")
-        last = self.runner.last.get(num)
-        if last and last.request != RELAY:
-            question = last.final_text
-        if not question and self.web.enabled:
-            question = next((raw.get("final_text", "") for rec in reversed(self.web._records(num))
-                             if (raw := self.web._turn(rec["id"])) and raw.get("request") != RELAY), "")
-        s.relay_pending = {"awaiting": s.awaiting, "kind": s.awaiting_kind, "text": question}
-        self.registry.save()
-        self._relaying.add(num)
-        ahead = self.runner.submit(s, Job(text=RELAY, via=via))
-        return "正在写交接说明" + (f"，等手上 {ahead} 件做完再写" if ahead else "") + "，写完自动开新对话。"
-
-    def _relay_open(self, p: Session, note: str) -> Session:
-        now = time.time()
-        s = Session(num=self.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
-                    owner=p.owner, root=p.root, engine=p.engine, model=p.model, effort=p.effort, pinned=p.pinned, ext=copy.deepcopy(p.ext),
-                    task_group=p.task_group, task_group_manual=p.task_group_manual,
-                    renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
-                    unsent=f"（这是接力的新对话：之前在另一个对话里做，那边太长了换到这里。下面是那边写的交接说明，按它接着做；"
-                           f"不清楚的细节先看现场文件，或问用户。）\n\n{note}\n\n---\n用户这次说：")
-        s.relay_pending = copy.deepcopy(p.relay_pending)
-        s.awaiting = p.relay_pending.get("awaiting", p.awaiting)
-        s.awaiting_kind = p.relay_pending.get("kind", p.awaiting_kind)
-        if question := p.relay_pending.get("text"):
-            s.unsent = s.unsent.replace("\n\n---\n用户这次说：", f"\n\n接力前最后一条答复（用户可能直接选择其中的选项）：\n{question}\n\n---\n用户这次说：")
-        s.unsent = s.unsent.replace("不清楚的细节先看现场文件，或问用户。", "不清楚的细节先看现场文件，或问用户。直接回应用户的新消息，不复述交接说明，不宣告接手；用户的选择对应接力前的问题，原有等待确认的要求仍有效。")
-        s.boss = p.boss   # 总管派的活接力后照旧回报给总管
-        if p.role == superagent.ROUTER:   # 总管自己接力：角色、置顶、没看的“期间的情况”、手下的对话都交给新的
-            s.role, s.notes, p.role, p.pinned, p.notes = p.role, list(p.notes), "", False, []
-            for w in self.registry.sessions.values():
-                if w.boss == p.num:
-                    w.boss = s.num
-        self.registry.add(s)
-        p.relay_to = s.num
-        self.registry.save()
-        return s
-
     def _limits(self, s: Session) -> dict:
         """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
         return engines.get(s.engine).limits(self.runner)
-
-    def _relay_written(self, s: Session, turn: Turn) -> None:
-        """写交接说明的那一轮做完：开接力的新对话。"""
-        if s.num in self._relaying:
-            self._relaying.discard(s.num)
-            note = (turn.final_text or "").strip()
-            if not (turn.is_error or turn.interrupted) and note:
-                self._relay_open(s, note)
 
     def _schedule_ran(self, s: Session, turn: Turn) -> None:
         if turn.schedule_id:
@@ -385,10 +324,10 @@ class Bridge:
     # ---------- 额度变档（事件 quota）----------
     async def _quota_level(self, engine: str, level: str, num: int | None = None) -> None:
         """记下某家额度到了哪一档；变了才发事件。"""
-        prev = self._quota.get(engine, "充足")
+        prev = self.quota_levels.get(engine, "充足")
         if level == prev:
             return
-        self._quota[engine] = level
+        self.quota_levels[engine] = level
         await self.events.emit("quota", engine=engine, level=level, prev=prev,
                                limits=dict(engines.get(engine).limits(self.runner)), num=num)
 
@@ -398,7 +337,7 @@ class Bridge:
         for eng in engines.known():
             if not eng.has_quota:
                 continue
-            if self._quota.get(eng.key) == "撞线" and any(
+            if self.quota_levels.get(eng.key) == "撞线" and any(
                     s.limit_until > now and engines.get(s.engine) is eng for s in self.registry.visible()):
                 continue
             await self._quota_level(eng.key, quota.level(eng.limits(self.runner)))
@@ -502,7 +441,7 @@ class Bridge:
             except Exception:  # noqa: BLE001
                 log.debug("读额度失败", exc_info=True)
             await self._quota_check()   # 撞线的那家：到点了就按用量回到 充足 / 偏紧（发 quota 事件）
-        if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden:
+        if not s or s.limit_until != until or not s.auto_resume or self.runner.busy(num) or s.hidden or s.relay_to:
             return
         s.limit_until = 0.0
         self.record("小E", "额度恢复，自动接着做", num=num)
@@ -927,7 +866,7 @@ class Bridge:
         said_model, said_effort = inline_overrides(text)
         chosen = None
         if not (model or said_model):   # 没指定时照分工表挑（首选用不了换备选）
-            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine, levels=self._quota)
+            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine, levels=self.quota_levels)
             model, engine_model = MODELS.get(chosen.pick, chosen.pick), engine_model or chosen.model or None
             effort = effort or chosen.effort or None
         alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号

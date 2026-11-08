@@ -589,7 +589,7 @@ class Web:
             except OSError:
                 dest.append(src)
         rec = {
-            "id": tid, "label": label, "title": title, "request": turn.request, "cwd": cwd,
+            "id": tid, "label": label, "title": title, "request": turn.request, "said": turn.said, "cwd": cwd,
             "started": turn.started, "ended": turn.ended, "schedule_id": turn.schedule_id, "schedule_run_id": turn.schedule_run_id, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
@@ -885,6 +885,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             except (OSError, json.JSONDecodeError, KeyError):
                 continue
         return out
+
+    def turn_records(self, num: int) -> list[dict]:
+        """这个对话每轮的原始记录（旧的在前）：额度用完接力时，小E 按它拼交接材料。"""
+        return [r for p in self._turn_paths(num) if (r := self._turn(p.stem))]
 
     def _codex_history(self, num: int) -> list[dict]:
         """Codex 对话的一来一回：Codex 的记录格式不一样，直接用小E 自己记的每轮（你说的话 + 过程 + 最后的回复）。"""
@@ -1389,7 +1393,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 item["model_label"] = display_model(item["model"])
                 item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
         relay_busy = bool(turn) or b.runner.busy(num)
-        relaying = num in getattr(b, "_relaying", ())
+        relaying = num in b.relays.writing
         recommendation = relay_hint(s, relay_busy, relaying, cfg=getattr(b, "cfg", None))
         if recommendation and recommendation["kind"] in ("long", "cold") and not s.relay_suggested:
             s.relay_suggested = True
@@ -1404,11 +1408,13 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
             if s.limit_until > time.time() and not turn else None
         five = b.runner.limits.get("five_hour")
+        targets = b.relays.targets(s) if (s.claude_id or s.codex_id) and not s.relay_to and not relaying else []
         return web.json_response({"num": num, "name": chain[0].name, "cwd": display(Path(s.cwd)), "items": items,
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
                                   "limit": limit, "engine": s.engine, "ext": self._ext_data("thread_extra", s), "relay_to": s.relay_to or None,
                                   "can_relay": s.relay_suggested and bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
+                                  "relay_targets": targets,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 
     def _zh_or_later(self, text: str) -> str:
@@ -1985,18 +1991,21 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"ok": True, "message": msg})
 
     async def _api_relay(self, request: web.Request) -> web.Response:
+        """接力；可带 {to: 换到哪（sonnet / gpt …）, go: 开好就接着做}。"""
         if not self._same_origin(request):
             raise web.HTTPForbidden()
         num = int(request.match_info["num"])
         s = self.bridge.registry.get(num)
         if not s:
             raise web.HTTPNotFound()
-        if num not in self.bridge._relaying:
-            if self.bridge.runner.busy(num):
-                return web.json_response({"ok": False, "message": "正在回答或还有排队消息，请等回答结束后再接力。"}, status=409)
-            if not s.relay_suggested and not relay_hint(s, False, False, cfg=getattr(self.bridge, "cfg", None)):
-                return web.json_response({"ok": False, "message": "这个对话暂时没有接力建议。"}, status=409)
-        msg = self.bridge.relay(num, via="web")
+        try:
+            data = await request.json() if request.can_read_body else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            data = {}
+        to, go = str((data or {}).get("to") or ""), bool((data or {}).get("go"))
+        if why := self.bridge.relays.refuse(s, to):
+            return web.json_response({"ok": False, "message": why}, status=409)
+        msg = await self.bridge.relays.start(num, via="web", to=to, go=go)
         return web.json_response({"ok": True, "message": msg})
 
     async def _api_stop(self, request: web.Request) -> web.Response:
