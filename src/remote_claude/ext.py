@@ -154,13 +154,13 @@ class Api:
     async def send(self, num: int, text: str, images: list[str] = (), via: str = "") -> None:
         """替你在 #num 里说一句（正在做就插话，没在做就开一轮）。"""
         from .commands import Cmd
-        await self._b._message(Cmd("message", num=num, text=text), self._incoming(text, images, via), routed=True)
+        await self._b.message(Cmd("message", num=num, text=text), self._incoming(text, images, via), routed=True)
 
     async def new(self, folder: str, text: str, images: list[str] = (), kind: str | None = None, note: str = "",
                   via: str = "") -> "Session | None":
         """在 folder 里新开一个对话，开头就说 text；kind = design / dev / simple（照分工表选模型）。返回新对话。"""
         before = self._b.registry.next_num
-        await self._b._new([folder] if folder else [], text, self._incoming(text, images, via), note=note, kind=kind)
+        await self._b.new_session([folder] if folder else [], text, self._incoming(text, images, via), note=note, kind=kind)
         return self._b.registry.get(before)
 
     def on(self, event: str, fn: Callable, order: int = 50) -> None:

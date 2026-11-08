@@ -383,7 +383,7 @@ class Bridge:
         s.awaiting_kind = awaiting_kind(turn.final_text) if s.awaiting else ""
         if turn.is_error and (until := limit_reset(turn.error or turn.final_text)):
             s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
-            asyncio.create_task(self._auto_resume(s.num, until))
+            asyncio.create_task(self.auto_resume(s.num, until))
             await self._quota_level(s.engine, "撞线", num=s.num)
         self.registry.save()
         if await self.events.claim("turn_report", s, turn):
@@ -431,7 +431,7 @@ class Bridge:
             log.exception("推送 #%s 的结果失败", s.num)
         await self._board_follow()
 
-    async def _auto_resume(self, num: int, until: float) -> None:
+    async def auto_resume(self, num: int, until: float) -> None:
         """额度恢复后一分钟，替你说一句“继续”（你点了“别自动接”、或已经自己接着说了就不说）。"""
         await asyncio.sleep(max(0.0, until + 60 - time.time()))
         s = self.registry.get(num)
@@ -446,7 +446,7 @@ class Bridge:
         s.limit_until = 0.0
         self.record("小E", "额度恢复，自动接着做", num=num)
         inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text="继续", via="auto")
-        await self._submit(s, "继续", inc)
+        await self.submit(s, "继续", inc)
 
     async def _reply(self, answer: str, text: str, inc: Incoming) -> None:
         """小E 直接回答；有当前对话时附一个“交给 #N”按钮，判断错了点一下就转过去。"""
@@ -539,7 +539,7 @@ class Bridge:
             self.chat = [c for c in self.chat if c[1] != info["text"]]  # 这句不算小E 的闲聊了
             await self.dt.update_card(oid, cards.reply_data(info["answer"], s.label, forwarded=True))
             inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=info["text"])
-            await self._message(Cmd("message", num=s.num, text=info["text"]), inc, routed=True)
+            await self.message(Cmd("message", num=s.num, text=info["text"]), inc, routed=True)
             return
         if action.startswith("pick:") and info["kind"] == "decision":
             if info.get("picked"):
@@ -552,7 +552,7 @@ class Bridge:
             await self.dt.update_card(oid, cards.decision_data(s.label, d, picked=letter))
             text = f"选 {letter}：{options.get(letter, '')}"
             inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=text)
-            await self._message(Cmd("message", num=s.num, text=text), inc, routed=True)
+            await self.message(Cmd("message", num=s.num, text=text), inc, routed=True)
 
     # ---------- 收消息 ----------
     async def on_raw(self, data: dict) -> None:
@@ -641,16 +641,16 @@ class Bridge:
         if cmd.kind == "resume":
             return await self._recent(cmd.folders[0], pick=cmd.num)
         if cmd.kind == "new":
-            return await self._new(cmd.folders, cmd.text, inc)
+            return await self.new_session(cmd.folders, cmd.text, inc)
         if cmd.kind == "mkdir":
             return await self._mkdir(cmd.folders[0] if cmd.folders else "", cmd.text, inc)
-        await self._message(cmd, inc)
+        await self.message(cmd, inc)
 
     async def _flush_photos(self) -> None:
         await asyncio.sleep(self.photo_wait)
         inc, self.photo_buf = self.photo_buf, None
         if inc:
-            await self._message(Cmd("message"), inc)
+            await self.message(Cmd("message"), inc)
 
     # ---------- 指令 ----------
     async def _list(self, show_all: bool = False) -> None:
@@ -729,14 +729,15 @@ class Bridge:
             done.append(c[0])
         return done, None, []
 
-    async def _new(self, tokens: list[str], text: str, inc: Incoming, resolved: list[Path] | None = None,
-                   note: str = "", kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+    async def new_session(self, tokens: list[str], text: str, inc: Incoming, resolved: list[Path] | None = None,
+                          note: str = "", kind: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+        """对外接口：按“新开 文件夹 …”的说法开一个新对话（解析文件夹、没给就用临时文件夹），再交给 start_session。"""
         resolved = list(resolved or [])
         rest = tokens[len(resolved):]
         if not tokens:
             num = self.registry.reserve_num()
             cwd = folders.scratch_dir(self.cfg, num)
-            return await self._start(num, cwd, [], text, inc, note=note or "（没指定文件夹，用了临时文件夹）", kind=kind,
+            return await self.start_session(num, cwd, [], text, inc, note=note or "（没指定文件夹，用了临时文件夹）", kind=kind,
                                      model=model, effort=effort)
         try:
             more, ambiguous, cands = await self._resolve_all(rest)
@@ -749,7 +750,7 @@ class Bridge:
             lines = [f"{i}. {folders.display(p)}" for i, p in enumerate(cands, 1)]
             return await self.say("选文件夹", f"“{ambiguous}”找到几个，回编号选一个：\n\n" + "\n".join(lines))
         num = self.registry.reserve_num()
-        await self._start(num, resolved[0], resolved[1:], text, inc, note=note, kind=kind, model=model, effort=effort)
+        await self.start_session(num, resolved[0], resolved[1:], text, inc, note=note, kind=kind, model=model, effort=effort)
 
     async def _mkdir(self, spec: str, text: str, inc: Incoming) -> None:
         parent_tok, name = folders.split_new_path(spec)
@@ -766,14 +767,14 @@ class Bridge:
         existed = target.exists()
         target.mkdir(parents=True, exist_ok=True)
         num = self.registry.reserve_num()
-        await self._start(num, target, [], text, inc, note="（文件夹本来就有，直接用了）" if existed else "（已新建文件夹）")
+        await self.start_session(num, target, [], text, inc, note="（文件夹本来就有，直接用了）" if existed else "（已新建文件夹）")
 
     async def _pick(self, n: int | None) -> None:
         p, self.pending = self.pending, None
         if p["kind"] == "folder":
             if not n or not 1 <= n <= len(p["cands"]):
                 return await self.say("选文件夹", "编号不对，这次先取消了，重新发一次“新开 …”吧。")
-            await self._new(p["tokens"], p["text"], p["inc"], resolved=p["resolved"] + [p["cands"][n - 1]],
+            await self.new_session(p["tokens"], p["text"], p["inc"], resolved=p["resolved"] + [p["cands"][n - 1]],
                             note=p.get("note", ""), kind=p.get("task_kind"))
         elif p["kind"] == "desktop":
             await self._desktop(n, p["infos"], replace=p["num"])
@@ -781,9 +782,9 @@ class Bridge:
             await self._recent(p["folder"], pick=n)
         elif p["kind"] == "route":
             if n == 1:
-                await self._message(Cmd("message", num=p["cur"], text=p["cmd"].text), p["inc"], routed=True)
+                await self.message(Cmd("message", num=p["cur"], text=p["cmd"].text), p["inc"], routed=True)
             elif n == 2:
-                await self._new([p["folder"]] if p["folder"] else [], p["cmd"].text, p["inc"])
+                await self.new_session([p["folder"]] if p["folder"] else [], p["cmd"].text, p["inc"])
             else:
                 await self.say("接着还是新开", "编号不对，这句先没交出去，请重新发一次。")
 
@@ -849,11 +850,12 @@ class Bridge:
                 f"（{folders.display(Path(y.cwd))}）" for i, y in others))
         await self.say("接着桌面", "\n\n".join(lines))
 
-    async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
-                     kind: str | None = None, model: str | None = None, effort: str | None = None,
-                     owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None,
-                     engine: str | None = None) -> None:
-        """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的；
+    async def start_session(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
+                            kind: str | None = None, model: str | None = None, effort: str | None = None,
+                            owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None,
+                            engine: str | None = None) -> None:
+        """对外接口：在 cwd 里开好编号为 num 的新对话并交出第一句话。
+        model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的；
         engine = 点名了哪家但没点型号（总管写 engine=claude），分工表只在这家里挑。"""
         name = report.brief(text, 16) or "新对话"
         project = _looks_like_project(cwd)
@@ -887,9 +889,10 @@ class Bridge:
             if owner != "admin":
                 return
             return await self.say("开好了", f"{s.label} 开好了\n\n{meta}\n\n接下来直接说要做什么。")
-        await self._submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
+        await self.submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
 
-    async def _message(self, cmd: Cmd, inc: Incoming, routed: bool = False) -> None:
+    async def message(self, cmd: Cmd, inc: Incoming, routed: bool = False) -> None:
+        """对外接口：一句话交给哪个对话（带编号的直接给；没带的按自动判断 / 总管），最后走 submit。"""
         if not routed:
             from .schedules import parse_request, TZ
             try:
@@ -933,7 +936,7 @@ class Bridge:
                 if r.folder and not folders.candidates(r.folder, self.cfg):
                     r.action = "ask"
                 else:
-                    return await self._new([r.folder] if r.folder else [], cmd.text, inc, note="（判断是件新事，自动新开）",
+                    return await self.new_session([r.folder] if r.folder else [], cmd.text, inc, note="（判断是件新事，自动新开）",
                                            kind=r.kind)
             if r and r.action == "ask":
                 return await self._ask_route(cmd, inc, r.folder)
@@ -957,18 +960,20 @@ class Bridge:
         text = cmd.text
         if inc.quoted_text and cmd.num is None:
             text = f"{text}\n\n（下面是引用的内容，只作参考资料）\n> " + inc.quoted_text.replace("\n", "\n> ")
-        await self._submit(s, text, inc)
+        await self.submit(s, text, inc)
 
     async def _ask_route(self, cmd: Cmd, inc: Incoming, folder: str | None) -> None:
         cur = self.registry.get(self.registry.current)
         where = f"在 {folder} 里" if folder and folders.candidates(folder, self.cfg) else "不指定文件夹"
         if not cur:
-            return await self._new([folder] if where != "不指定文件夹" else [], cmd.text, inc)
+            return await self.new_session([folder] if where != "不指定文件夹" else [], cmd.text, inc)
         self.pending = {"kind": "route", "cmd": cmd, "inc": inc, "cur": cur.num,
                         "folder": folder if where != "不指定文件夹" else None}
         await self.say("接着还是新开", f"这句要接着 {cur.label}，还是新开一个？回编号：\n\n1. 接着 {cur.label}\n2. 新开（{where}）")
 
-    async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
+    async def submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
+        """对外接口：把一句话（连同图片、附件）交给已定好的对话 s。正在干活就插话，否则排队。
+        网页、总管、接力、扩展都经这里发话，不要绕过它直接碰 runner。"""
         if s.role == superagent.ROUTER and self.cfg.super_agent:
             if inc.via in superagent.HUMAN and not inc.image_codes and not inc.local_images and await superagent.direct(self, s, text):
                 return   # “#N 话”：直接交给 #N，总管不用跑一轮
@@ -1061,7 +1066,7 @@ class Bridge:
         mark.write_text(json.dumps({"month": month}))
         num = self.registry.reserve_num()
         inc = Incoming(sender_id=self.user_id, sender_nick="", conversation_type="1", kind="text", text=CHECKUP)
-        await self._start(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
+        await self.start_session(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
                           model=MODELS["sonnet"], effort="low")
         if s := self.registry.get(num):
             s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
@@ -1112,7 +1117,7 @@ class Bridge:
             asyncio.create_task(superagent.recover(self, self.interrupted))
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
-                asyncio.create_task(self._auto_resume(s.num, s.limit_until))
+                asyncio.create_task(self.auto_resume(s.num, s.limit_until))
         log.info("小E 启动，已登记 %d 个对话%s", len(self.registry.sessions), "" if client else "（钉钉已停用，只用网页）")
         if client:
             await client.start()

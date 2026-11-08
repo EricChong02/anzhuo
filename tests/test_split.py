@@ -127,7 +127,7 @@ def test_new_session_follows_split(both, tmp_path, monkeypatch):
 
     async def fake_submit(self, s, text, inc, opening=""):
         submitted.append(opening)
-    monkeypatch.setattr(Bridge, "_submit", fake_submit)
+    monkeypatch.setattr(Bridge, "submit", fake_submit)
     monkeypatch.setattr(Runner, "_run", lambda *a, **k: None)
     (tmp_path / "w").mkdir()
     c = Config(scratch_root=str(tmp_path / "s"),
@@ -137,16 +137,16 @@ def test_new_session_follows_split(both, tmp_path, monkeypatch):
     async def go():
         b = Bridge(c, FakeDT(), data_dir=tmp_path / "data")
         n = b.registry.reserve_num()
-        await b._start(n, tmp_path / "w", [], "修个 bug", inc("修个 bug"))
+        await b.start_session(n, tmp_path / "w", [], "修个 bug", inc("修个 bug"))
         s = b.registry.get(n)
         assert (s.engine, s.model, s.effort) == ("codex", "gpt-5.5-terra", "high")
         assert "分工表 · 开发" in submitted[-1]
         n = b.registry.reserve_num()
-        await b._start(n, tmp_path / "w", [], "修个 bug 用 opus", inc("修个 bug 用 opus"))
+        await b.start_session(n, tmp_path / "w", [], "修个 bug 用 opus", inc("修个 bug 用 opus"))
         s = b.registry.get(n)
         assert (s.engine, s.model) == ("claude", MODELS["opus"]) and "你指定的" in submitted[-1]
         n = b.registry.reserve_num()   # 受限账号：只用 Claude，换成备选
-        await b._start(n, tmp_path / "w", [], "修个 bug", inc("修个 bug"), owner="g", root=str(tmp_path / "w"))
+        await b.start_session(n, tmp_path / "w", [], "修个 bug", inc("修个 bug"), owner="g", root=str(tmp_path / "w"))
         s = b.registry.get(n)
         assert (s.engine, s.model) == ("claude", MODELS["sonnet"])
     asyncio.run(go())

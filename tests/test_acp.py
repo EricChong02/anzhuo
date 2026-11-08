@@ -166,14 +166,14 @@ def test_pick_kimi_when_opening(tmp_path, monkeypatch):
 
     async def go():
         b = _bridge(tmp_path)
-        await b._new([], "用 kimi 整理一下", web("用 kimi 整理一下"))
+        await b.new_session([], "用 kimi 整理一下", web("用 kimi 整理一下"))
         await asyncio.sleep(0.2)
         s = b.registry.get(1)
         assert s.engine == "kimi" and s.model is None and seen == ["kimi"]
-        await b._submit(s, "用 opus 接着做", web("用 opus 接着做"))   # 对话中途不换家
+        await b.submit(s, "用 opus 接着做", web("用 opus 接着做"))   # 对话中途不换家
         await asyncio.sleep(0.2)
         assert s.engine == "kimi" and s.model is None
-        await b._start(b.registry.reserve_num(), tmp_path, [], "x", web("x"), model="kimi", owner="u", root=str(tmp_path))
+        await b.start_session(b.registry.reserve_num(), tmp_path, [], "x", web("x"), model="kimi", owner="u", root=str(tmp_path))
         await asyncio.sleep(0.1)
         assert b.registry.get(2).engine == "claude"   # 受限账号只用 Claude
 

@@ -1,5 +1,5 @@
 // 做课扩展的界面：侧栏顶上的“课”、课程库、搜索里的课、回复和标题栏的“试课”、新对话“接着做《某课》”。
-// 只通过 window.XE 挂到核心界面上（见 app.html 里 XE 的说明），核心的小工具从 XE.lib 拿。
+// 只通过 window.XE 挂到核心界面上（见 static/app/core.js 里 XE 的说明），核心的小工具从 XE.lib 拿。
 (() => {
   const {$, esc, ICON, sheet, openSession, openNew, agoDays, WHERE_ICON, FOLDER_SAY} = XE.lib;
   let drafts = [], courses = [];

@@ -270,7 +270,7 @@ def test_admin_week_range_and_unknown_reset(tmp_path,monkeypatch):
     from remote_claude.sessions import Registry, Session
     now=time.mktime((2026,11,7,17,0,0,0,0,-1))
     start=time.mktime((2026,11,5,10,30,0,0,0,-1))
-    monkeypatch.setattr('remote_claude.web.time.time',lambda:now)
+    monkeypatch.setattr('time.time',lambda:now)
     async def go():
         reg=Registry(tmp_path/'sessions.json')
         reg.add(Session(num=reg.reserve_num(),name='任务',cwd=str(tmp_path)))

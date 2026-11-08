@@ -261,7 +261,7 @@ class Relays:
     async def _go(self, new, via: str) -> None:
         from .dingtalk import Incoming
         inc = Incoming(sender_id=self.b.user_id, sender_nick="", conversation_type="1", kind="text", text=GO, via=via)
-        await self.b._submit(new, GO, inc)
+        await self.b.submit(new, GO, inc)
 
     # ---------- 开新对话 ----------
     async def open(self, p, note: str, to: str = "", why: str = "long", mechanical: bool = False):

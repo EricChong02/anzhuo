@@ -149,11 +149,11 @@ def test_chat_api(tmp_path, monkeypatch):
         def record(self, *a, **k):
             pass
 
-        async def _message(self, cmd, inc, routed=False):
+        async def message(self, cmd, inc, routed=False):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
             self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
 
-        async def _new(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
+        async def new_session(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
             self.new.append((tokens, text))
             self.new_model = (model, effort)
             self.registry.sessions[8] = Session(num=8, name="新", cwd="/x")
@@ -270,7 +270,7 @@ def test_files_delivered_and_uploaded(tmp_path):
             sent.append(cmd.text)
         async def say(*a):
             pass
-        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, _message=_message,
+        w.bridge = NS(runner=NS(turns={}), user_id="me", record=lambda *a, **k: None, message=_message,
                       outgoing={}, say=say, registry=NS(get=lambda n: None))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
@@ -656,9 +656,9 @@ def test_codex_file_rewind_and_cancel_through_api(tmp_path):
 
 def test_quota_reset_epoch_is_absolute(monkeypatch):
     import datetime
-    import remote_claude.web as webmod
+    import time
     now = datetime.datetime(2026, 12, 31, 23, 0).timestamp()
-    monkeypatch.setattr(webmod.time, "time", lambda: now)
+    monkeypatch.setattr(time, "time", lambda: now)
     rows = Web._limits({"seven_day": (.99, "1月1日 04:00"), "five_hour": (.3, "12月31日 22:00"), "unknown": (.1, None)})
     assert rows[0]["reset_at"] == datetime.datetime(2027, 1, 1, 4).timestamp()
     assert rows[1]["reset_at"] < now  # 已过期的时间不能被误认成明年
@@ -763,7 +763,7 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
             received.append(list(inc.local_images))
 
         runner = NS(turns={})
-        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, _message=message)
+        w.bridge = NS(runner=runner, user_id='me', record=lambda *a, **k: None, message=message)
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:

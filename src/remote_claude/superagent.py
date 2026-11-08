@@ -237,7 +237,7 @@ def take_notes(router: Session, text: str) -> str:
 
 async def tell(bridge: "Bridge", router: Session, text: str) -> None:
     """让总管跑一轮看这条消息（回报、退回、提问）。"""
-    await bridge._submit(router, text, _incoming("", REPORT))
+    await bridge.submit(router, text, _incoming("", REPORT))
 
 
 async def direct(bridge: "Bridge", router: Session, text: str) -> bool:
@@ -252,7 +252,7 @@ async def direct(bridge: "Bridge", router: Session, text: str) -> bool:
     s.boss, s.hidden = router.num, False
     note(router, f"用户直接对 #{s.num} {s.name} 说：{said[:200]}")
     bridge.registry.save()
-    await bridge._submit(s, said + follow(router), _incoming(said, VIA))
+    await bridge.submit(s, said + follow(router), _incoming(said, VIA))
     return True
 
 
@@ -316,7 +316,7 @@ def tools(bridge: "Bridge", router: Session) -> list:
         num = reg.reserve_num()
         if cwd is None:
             cwd = folders.scratch_dir(bridge.cfg, num)
-        await bridge._start(num, cwd, [], task, _incoming(task, VIA), model=model, owner=router.owner, boss=router.num,
+        await bridge.start_session(num, cwd, [], task, _incoming(task, VIA), model=model, owner=router.owner, boss=router.num,
                             engine_model=extra, engine=key if args.get("engine") else None)
         s = reg.get(num)
         if not s:
@@ -337,7 +337,7 @@ def tools(bridge: "Bridge", router: Session) -> list:
         if s.num in getattr(router, "_handed", {}).get(text[:80], set()):
             return _error(f"#{s.num} 刚把这句话退回来了，说它不属于那件事。换个对话或新开一个。")
         s.boss, s.hidden = router.num, False   # 之后它做完这件也告诉总管
-        await bridge._submit(s, text + follow(router), _incoming(text, VIA))
+        await bridge.submit(s, text + follow(router), _incoming(text, VIA))
         return _text(f"已交给 #{s.num} {s.name}。")
 
     @tool("session_status", "看某个对话的现状和它最后一次的完整回复。只在用户问起、或回报里信息不够时用。",
@@ -540,7 +540,7 @@ async def recover(bridge: "Bridge", interrupted: list[int]) -> None:
             routers.add(s.num)
         elif boss_of(bridge, s):
             log.info("重启后接着做 #%s", s.num)
-            await bridge._submit(s, RECOVER, _incoming(RECOVER, VIA))
+            await bridge.submit(s, RECOVER, _incoming(RECOVER, VIA))
     for num in routers:
         if router := bridge.registry.get(num):
             await tell(bridge, router, "【重启】远窗重启了，打断了你上一轮。用 list_sessions 看看现状；被打断的对话已经在接着做了，"

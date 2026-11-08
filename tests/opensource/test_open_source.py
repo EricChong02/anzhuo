@@ -94,8 +94,8 @@ def test_web_only_bridge(tmp_path, monkeypatch):
         assert b.user_id == "local" and not cfg.dingtalk_enabled
         await b.say("标题", "正文")                    # 没钉钉：只记下，不发
         inc = Incoming(sender_id="local", sender_nick="", conversation_type="1", kind="text", text="你好", via="web")
-        await b._message(Cmd("message", text="你好"), inc)       # 还没有对话：提示先开一个，不崩
-        await b._new([], "查一下天气", inc)
+        await b.message(Cmd("message", text="你好"), inc)       # 还没有对话：提示先开一个，不崩
+        await b.new_session([], "查一下天气", inc)
         await asyncio.sleep(0.1)
         with pytest.raises(RuntimeError):
             await b.dt.download("code", tmp_path / "x")
@@ -104,12 +104,12 @@ def test_web_only_bridge(tmp_path, monkeypatch):
 
 
 def test_no_course_or_router_leftovers():
-    html = (ROOT / "src/remote_claude/static/app.html").read_text(encoding="utf-8")
+    html = "\n".join(p.read_text(encoding="utf-8") for p in [ROOT / "src/remote_claude/static/app.html", *(ROOT / "src/remote_claude/static/app").iterdir()])
     for word in ("试课", "课程根", "studio-preview", "feedback.js", "drafts"):
         assert word not in html, word
     assert not (ROOT / "src/remote_claude/router.py").exists() and not (ROOT / "src/remote_claude/extensions/course").exists()
     assert not (ROOT / "tests/test_ext_course.py").exists()
-    web = (ROOT / "src/remote_claude/web.py").read_text(encoding="utf-8")
+    web = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "src/remote_claude/web").glob("*.py"))
     assert "_proxy" not in web and "preview" not in web      # 兜底路由只给扩展；导出包没有扩展，没登记的地址一律 404
 
 

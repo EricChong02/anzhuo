@@ -147,11 +147,11 @@ def test_human_direct_turn_notes_router(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)
         w = next(s for s in b.registry.sessions.values() if s.role != "router")
         runs.clear(), pushes.clear()
-        await b._submit(w, "顺便改下颜色", web("顺便改下颜色"))     # 你直接在 worker 里说
+        await b.submit(w, "顺便改下颜色", web("顺便改下颜色"))     # 你直接在 worker 里说
         await asyncio.sleep(0.2)
         assert [r[0] for r in runs] == [w.num] and pushes == [w.num]   # 总管不跑，直接通知你
         assert any("用户直接说的" in n and "又改了一处" in n for n in router.notes)
-        await b._submit(router, "现在怎么样", web("现在怎么样"))  # 总管开口前带上“期间的情况”，然后清空
+        await b.submit(router, "现在怎么样", web("现在怎么样"))  # 总管开口前带上“期间的情况”，然后清空
         await asyncio.sleep(0.2)
         said = [r[2] for r in runs if r[0] == router.num][-1]
         assert said.startswith("【期间的情况】") and said.endswith("现在怎么样") and router.notes == []
@@ -170,13 +170,13 @@ def test_direct_hash_goes_to_worker(tmp_path, monkeypatch):
         await asyncio.sleep(0.2)
         w = next(s for s in b.registry.sessions.values() if s.role != "router")
         runs.clear()
-        await b._submit(router, f"#{w.num} 选 B", web(f"#{w.num} 选 B"))
+        await b.submit(router, f"#{w.num} 选 B", web(f"#{w.num} 选 B"))
         await asyncio.sleep(0.2)
         assert runs[0][:2] == (w.num, "router") and runs[0][2].startswith("选 B") and superagent.follow(router) in runs[0][2]   # 直接交给 worker，总管没跑
         assert runs[1][0] == router.num and runs[1][2].startswith("【期间的情况】")   # 它的回报到总管时带着“用户直接说的”
         assert "用户直接对" in runs[1][2] and "【回报】" in runs[1][2]
         runs.clear()
-        await b._submit(router, "#999 你好", web("#999 你好"))   # 没这个对话：照常交给总管
+        await b.submit(router, "#999 你好", web("#999 你好"))   # 没这个对话：照常交给总管
         await asyncio.sleep(0.2)
         assert runs and runs[0][0] == router.num
 

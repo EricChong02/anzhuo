@@ -66,7 +66,7 @@ def _bridge(tmp_path, upstream="http://127.0.0.1:9", **ext):
         s = b.registry.add(Session(num=b.registry.reserve_num(), name="新", cwd=tokens[0] if tokens else ""))
         return s
 
-    b._message, b._new = message, new
+    b.message, b.new_session = message, new
     return b, root
 
 

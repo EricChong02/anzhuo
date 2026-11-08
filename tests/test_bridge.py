@@ -660,9 +660,9 @@ def test_start_keeps_picked_model(tmp_path):
         b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
         b.runner.submit = lambda s, job: 0          # 不真跑
         inc = Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text="x")
-        await b._new([], "写首诗", inc, model="claude-sonnet-5-5", effort="high")
-        await b._new([], "聊聊天", inc, model="gpt")
-        await b._new([], "随便问问", inc)
+        await b.new_session([], "写首诗", inc, model="claude-sonnet-5-5", effort="high")
+        await b.new_session([], "聊聊天", inc, model="gpt")
+        await b.new_session([], "随便问问", inc)
         ss = sorted(b.registry.sessions.values(), key=lambda s: s.num)
         assert (ss[0].engine, ss[0].model, ss[0].effort) == ("claude", "claude-sonnet-5-5", "high")
         assert (ss[1].engine, ss[1].model) == ("codex", None)
@@ -698,17 +698,17 @@ def test_notify_routing(tmp_path, monkeypatch):
             return ok["n"]
         b.web.push.send = fake_push
         web = lambda t: Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text=t, via="web")
-        await b._new([], "查一下", web("查一下"))
+        await b.new_session([], "查一下", web("查一下"))
         await asyncio.sleep(0.2)
         assert len(pushes) == 1 and dt.sent == []                       # 推送到了：钉钉安静
         s = b.registry.get(1)
         b.web.watch[1] = __import__("time").time()                     # 正开着看
-        await b._submit(s, "再查", web("再查"))
+        await b.submit(s, "再查", web("再查"))
         await asyncio.sleep(0.2)
         assert len(pushes) == 1 and dt.sent == []
         b.web.watch.clear()
         ok["n"] = 0                                                     # 推送没发到
-        await b._submit(s, "又查", web("又查"))
+        await b.submit(s, "又查", web("又查"))
         await asyncio.sleep(0.2)
         assert len(dt.sent) == 1 and "在远窗看" in dt.sent[0][1] and "/_x/#s1" in dt.sent[0][1]
         dt.sent.clear()
@@ -861,7 +861,7 @@ def test_new_session_model_by_kind(tmp_path, monkeypatch):
         for cwd, text in [(tmp_path / "notes", "设计一节课"), (tmp_path / "proj", "修个 bug"), (tmp_path / "notes", "查个资料"),
                           (tmp_path / "notes", "设计一节课 用 sonnet")]:
             n = b.registry.reserve_num()
-            await b._start(n, cwd, [], text, inc(text))
+            await b.start_session(n, cwd, [], text, inc(text))
             out.append(b.registry.get(n).model)
         return out
 

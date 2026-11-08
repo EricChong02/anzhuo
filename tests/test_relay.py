@@ -158,7 +158,7 @@ def test_router_worker_hits_limit_switches(tmp_path, monkeypatch, codex_ok):
         b = Bridge(_cfg(tmp_path, super_agent=True), FakeDT(), data_dir=tmp_path / "data")
         boss = superagent.find(b)
         w = b.registry.add(Session(num=b.registry.reserve_num(), name="活", cwd=str(tmp_path), boss=boss.num, model=MODELS["sonnet"]))
-        await b._submit(w, "做件事", superagent._incoming("做件事", superagent.VIA))
+        await b.submit(w, "做件事", superagent._incoming("做件事", superagent.VIA))
         for _ in range(40):
             await asyncio.sleep(0.1)
             if any(r[0] == boss.num for r in runs):

@@ -10,10 +10,10 @@
 
 ## 改小E 本身
 
-只改网页界面（`src/remote_claude/static/app.html`）不用重启：每次打开都重新读这个文件，刷新就生效。改 Python 才要按下面的办法重启。
+只改网页界面（骨架 `src/remote_claude/static/app.html`，样式和脚本在 `static/app/`，拼装顺序见 `webui.py`）不用重启：每次打开都重新读，刷新就生效。改 Python 才要按下面的办法重启。
 
 在钉钉里改本仓库时，跑着的对话就在小E 里面：不要直接跑 `scripts/install_launchd.sh` 或重启小E，会把自己打断。改完用 `scripts/restart_when_idle.py` 在后台等所有对话空闲再重启（用 `start_new_session` 脱离当前进程）。
 
 ## 网页（第二期）
 
-外网只经阿里云 nginx + SSH 反向隧道进来，登录在 `web.py`（一次性链接换 30 天 Cookie）。改试课放行名单（`preview_allowed`）前想清楚：本机 8000 连着真名开发库，教师台、学生、班级相关的接口和 WebSocket 不能放出去。
+外网只经阿里云 nginx + SSH 反向隧道进来，登录在 `web/auth.py`（一次性链接换 30 天 Cookie）。改试课放行名单（`preview_allowed`）前想清楚：本机 8000 连着真名开发库，教师台、学生、班级相关的接口和 WebSocket 不能放出去。
