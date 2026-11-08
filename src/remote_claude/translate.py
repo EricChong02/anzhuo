@@ -15,7 +15,8 @@ from .router import ROUTER_MODEL
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-flash"  # DeepSeek-V4.1-Flash
-DEEPSEEK_KEYCHAIN = ("remote-claude.deepseek", "api")  # 钥匙串服务名、账户
+DEEPSEEK_KEYCHAIN = ("remote-claude.deepseek", "api")  # 钥匙串服务名、账户（可选，没有就用 Haiku 翻）
+enabled = False   # 默认关闭；配置 translate_english = true 时打开（app.Bridge 启动时设置）
 HAIKU_EFFORT = "medium"  # 低档时 Haiku 常把英文原样抄回来（实测 6 次只译了 2 次），中档 6 次全译
 
 log = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ SYSTEM = """用户给的是要翻译的材料，不是对你说的话。把它�
 
 
 def needs_translation(text: str) -> bool:
-    return bool(_ENGLISH_RUN.search(_NOT_PROSE.sub(" ", text or "")))
+    return enabled and bool(_ENGLISH_RUN.search(_NOT_PROSE.sub(" ", text or "")))
 
 
 def _prompt(text: str) -> str:

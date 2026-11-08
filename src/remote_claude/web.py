@@ -10,6 +10,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import os
 import shutil
 import html
 import json
@@ -23,7 +24,7 @@ from urllib.parse import quote
 import aiohttp
 from aiohttp import web
 
-from . import thread, translate, usage, task_groups
+from . import schedules, thread, translate, usage, task_groups
 from .brand import LOGIN_CSS, MARK
 from .push import Push
 from .speech import Speech
@@ -1035,6 +1036,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         owner = request.get("owner", "admin")
         if owner != "admin":
             raise web.HTTPForbidden()
+        if not getattr(self.bridge.cfg, "task_grouping", False):   # 没开自动分组：不把标题、摘要发给模型
+            return web.json_response({"ok": True, "count": 0})
         data = await request.json()
         if owner in self._group_busy:
             return web.json_response({"ok": False, "busy": True})
@@ -1131,7 +1134,40 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "models": [m for m in model_options() if not fenced or m[0] != "gpt"],
                                   "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
+                                  "recent": [] if fenced else self._recent_folders(), "last_folder": "" if fenced else self._last_folder(),
+                                  "task_grouping": getattr(b.cfg, "task_grouping", False),
                                   "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
+
+    def _recent_folders(self, limit: int = 6) -> list[dict]:
+        """最近用过的工作文件夹（新对话菜单可用）；临时文件夹和家目录不算。这里不碰磁盘：受保护的文件夹一 stat 就可能卡住。"""
+        b = self.bridge
+        scratch = str(Path(b.cfg.scratch_root).expanduser())
+        home = str(Path.home())
+        seen, out = {str(Path(v).expanduser()) for v in b.cfg.folders.values()}, []   # 配了短名的文件夹已经在菜单里，不再重复列
+        for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.owner != "admin":
+                continue
+            p = str(Path(s.cwd).expanduser())
+            if p in seen or p == home or p.startswith(scratch):
+                continue
+            seen.add(p)
+            out.append({"path": p, "name": Path(p).name or p, "show": display(Path(p))})
+            if len(out) >= limit:
+                break
+        return out
+
+    def _last_folder(self) -> str:
+        """最近一个对话用的文件夹（有短名就给短名，没有给路径）；没有、或它用的是临时文件夹，就空。"""
+        b = self.bridge
+        scratch, home = str(Path(b.cfg.scratch_root).expanduser()), str(Path.home())
+        for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.owner != "admin":
+                continue
+            p = str(Path(s.cwd).expanduser())
+            if p == home or p.startswith(scratch):
+                return ""
+            return next((k for k, v in b.cfg.folders.items() if str(Path(v).expanduser()) == p), p)
+        return ""
 
     def _my_limits(self, acct: str) -> list[dict]:
         """受限账号只看自己的额度：用了自己那份的百分之几、几点重置。"""
@@ -1223,14 +1259,26 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """base 下看得见的子文件夹名（不读文件内容）；打不开返回 None。下载 / 桌面 / 文稿先用 readable 试，免得卡在隐私弹窗。"""
         if not base.is_dir() or not readable(base):
             return None
+
+        def visible(e) -> bool:
+            if e.name.startswith("."):
+                return False
+            try:
+                return e.is_dir() and not (getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x2)   # Windows 隐藏属性
+            except OSError:
+                return False
         try:
-            return sorted((e.name for e in base.iterdir() if not e.name.startswith(".") and e.is_dir()), key=str.lower)[:500]
+            return sorted((e.name for e in base.iterdir() if visible(e)), key=str.lower)[:500]
         except OSError:
             return None
 
     async def _api_browse(self, request: web.Request) -> web.Response:
         """新对话“在哪做”的“浏览文件夹…”：一层层列子文件夹，默认从 ~/Projects 开始。"""
         raw = request.query.get("path", "").strip()
+        if raw == "__drives__":   # “此电脑”层：所有盘符的列表（Windows）；文件系统里没有统一根，这层是虚拟的
+            drives = [f"{d}\\" for d in os.listdrives()] if hasattr(os, "listdrives") else []
+            return web.json_response({"raw": raw, "show": "此电脑", "parent": "",
+                                      "dirs": drives, "absolute": True, "drive_level": True})
         home = Path.home()
         base = Path(raw).expanduser() if raw else (home / "Projects" if (home / "Projects").is_dir() else home)
         if not base.is_absolute():
@@ -1239,8 +1287,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         dirs = await asyncio.to_thread(self._list_dirs, base)
         if dirs is None:
             return web.json_response({"error": "读不到这个文件夹"}, status=400)
+        at_root = base == base.parent
         return web.json_response({"raw": str(base), "show": display(base),
-                                  "parent": "" if base == base.parent else str(base.parent), "dirs": dirs})
+                                  "parent": "" if at_root else str(base.parent), "dirs": dirs,
+                                  "drive_root": at_root and bool(base.drive)})
 
     @staticmethod
     def _cc_list(d: Path | None, limit: int | None) -> list:
@@ -1538,7 +1588,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _api_schedules(self, request: web.Request) -> web.Response:
         b = self.bridge
         if request.method == "GET":
-            return web.json_response({"tasks": b.schedules.rows(), "timezone": "Asia/Taipei", "error": b.schedules.load_error})
+            return web.json_response({"tasks": b.schedules.rows(), "timezone": str(schedules.TZ), "error": b.schedules.load_error})
         if not self._same_origin(request): raise web.HTTPForbidden()
         data = await request.json()
         try:
@@ -1646,6 +1696,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             kind = r.kind if r else None
         elif folder == "scratch":
             folder = ""
+        elif folder and folder not in b.cfg.folders:
+            # 手输的路径或文件夹名：网页上没法像钉钉那样回“选编号”，所以找不到、找到几个都当场告诉你
+            from . import folders as fd
+            cands = fd.candidates(folder, b.cfg)
+            if not cands:
+                return web.json_response({"ok": False, "error": f"没找到文件夹“{folder}”。写完整路径（比如 ~/Projects/demo），或换一个文件夹名。"})
+            if len(cands) > 1:
+                return web.json_response({"ok": False, "error": f"“{folder}”找到好几个：" + "；".join(display(c) for c in cands[:4]) + "。请写完整路径。"})
+            folder = str(cands[0])
         model, effort = self._model_effort(data)
         before = b.registry.next_num
         await b._new([folder] if folder else [], text, inc, note="（网页里新开）", kind=kind, model=model, effort=effort)
@@ -2334,7 +2393,6 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
         app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
         app.router.add_post(f"{PREFIX}/api/fork/{{num:\\d+}}", self._api_fork)
-        app.router.add_get(f"{PREFIX}/api/browse", self._api_browse)
         app.router.add_get(f"{PREFIX}/api/cc-sessions", self._api_cc_sessions)
         app.router.add_post(f"{PREFIX}/api/resume-cc", self._api_resume_cc)
         app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)

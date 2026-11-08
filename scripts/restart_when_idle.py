@@ -71,8 +71,9 @@ def main() -> None:
     subprocess.run([str(Path(__file__).parent / "install_launchd.sh")], capture_output=True)
     time.sleep(15)
     cfg = load_config()
-    asyncio.run(DingTalk(cfg.client_id, read_secret(cfg.client_id)).send_markdown(
-        cfg.allowed_user_ids[0], "小E 已更新", "小E 已换上新版本。"))
+    if cfg.dingtalk_enabled and cfg.allowed_user_ids:   # 没开钉钉就不发
+        asyncio.run(DingTalk(cfg.client_id, read_secret(cfg.client_id)).send_markdown(
+            cfg.allowed_user_ids[0], "小E 已更新", "小E 已换上新版本。"))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""钉钉桥本体：收到你的消息 → 认人 → 解析指令或找对话 → 交给 Claude → 把结果推回钉钉。"""
+"""小E 本体：收到你的话（网页或钉钉）→ 认人 → 解析指令或找对话 → 交给 Claude / Codex → 把结果推回网页、手机通知和钉钉。"""
 from __future__ import annotations
 
 import asyncio
@@ -11,14 +11,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import dingtalk_stream
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
 from . import cards, folders, report, router, translate, usage
 from .commands import HELP, Cmd, parse
-from .config import DATA_DIR, Config, save_web_hash, web_accounts
-from .dingtalk import DingTalk, Incoming, parse_incoming
+from .config import DATA_DIR, Config, web_accounts, write_web_hash
+from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
 from .web import Web, relay_hint
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
@@ -125,7 +124,7 @@ def _is_reply(text: str) -> bool:
 
 
 class Bridge:
-    def __init__(self, cfg: Config, dt: DingTalk, data_dir: Path = DATA_DIR):
+    def __init__(self, cfg: Config, dt: DingTalk | NoDingTalk, data_dir: Path = DATA_DIR):
         self.cfg = cfg
         self.dt = dt
         self.data_dir = data_dir
@@ -135,6 +134,12 @@ class Bridge:
         self.runner = Runner(self.registry, self._turn_done, cfg.max_parallel, cfg.default_effort, self._turn_started,
                              self._confirm_asked)
         self.runner.auto_review = cfg.auto_review
+        self.runner.review_policy = cfg.review_policy
+        self.runner.language = cfg.reply_language
+        self.runner.extra_instructions = cfg.extra_instructions
+        translate.enabled = cfg.translate_english
+        from . import schedules as _sch
+        _sch.set_timezone(cfg.timezone)
         self.runner.auto_title = True
         self.runner.on_usage = self._usage
         self.spend = LocalSpend(data_dir / "localspend.json")   # 本机全部 Claude Code 的消耗：换算周额度 % 用
@@ -152,7 +157,7 @@ class Bridge:
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
-                       watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=save_web_hash)
+                       watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -164,7 +169,7 @@ class Bridge:
         self.chat: list[tuple[float, str, str]] = []  # 小E 自己直接回过的几轮（时间、你说的、它答的），接话时带上
         self.chat_at = 0.0  # 最近一次小E 直接回答的时间
         self.work_at = 0.0  # 最近一次把话交给对话的时间
-        self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else ""
+        self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else "local"
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
                 s.status = "error"
@@ -674,7 +679,7 @@ class Bridge:
             return await self._set_model(cmd)
         if cmd.kind == "web":
             if not self.web.enabled:
-                return await self.say("网页", "网页还没开通（配置里没有 web_base）。")
+                return await self.say("网页", "网页没有开启（配置里 web = false）。")
             return await self.say("网页", f"远窗网页：{self.web.base}\n\n用账号密码登录，一次登录 30 天免登录。"
                                           "里面有在做的课（一点就试课）和最近每一轮的完整过程。")
         if cmd.kind == "compact":
@@ -1093,7 +1098,9 @@ class Bridge:
             s.name, s.renamed, s.category = f"{time.strftime('%-m')} 月清理体检", True, "杂事"
             self.registry.save()
 
-    async def run(self) -> None:
+    def _dingtalk_client(self):
+        """钉钉 Stream 长连接（只在开了钉钉时才导入 dingtalk_stream）。"""
+        import dingtalk_stream
         bridge = self
 
         class Handler(dingtalk_stream.CallbackHandler):
@@ -1106,17 +1113,22 @@ class Bridge:
                 asyncio.create_task(bridge.on_card(callback.data))
                 return dingtalk_stream.AckMessage.STATUS_OK, {}
 
-        client = None
-        if self.cfg.dingtalk:
-            cred = dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret)
-            client = dingtalk_stream.DingTalkStreamClient(cred)
-            client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
-            client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
+        client = dingtalk_stream.DingTalkStreamClient(dingtalk_stream.Credential(self.cfg.client_id, self.dt.secret))
+        client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, Handler())
+        client.register_callback_handler(dingtalk_stream.Card_Callback_Router_Topic, CardHandler())
+        return client
+
+    async def run(self) -> None:
+        client = self._dingtalk_client() if self.cfg.dingtalk_enabled else None
         if self.web.enabled:
             await self.web.start()
-        # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡
-        subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
-        asyncio.create_task(self._cleanup_loop())
+        # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡。Windows / Linux 没有 caffeinate，跳过
+        try:
+            subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+        except FileNotFoundError:
+            pass
+        if self.cfg.auto_cleanup:   # 每天清理、每月体检（配置 auto_cleanup）
+            asyncio.create_task(self._cleanup_loop())
         asyncio.create_task(self._gpt_usage_loop())
         asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
@@ -1128,4 +1140,4 @@ class Bridge:
         if client:
             await client.start()
         else:
-            await asyncio.Event().wait()
+            await asyncio.Event().wait()   # 只用网页：没有钉钉长连接要等，常驻即可

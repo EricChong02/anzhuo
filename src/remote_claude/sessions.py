@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import mimetypes
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -29,22 +30,31 @@ log = logging.getLogger(__name__)
 STALE = 7 * 86400  # 7 天没动的对话自动收起：不进列表，小E 分派时也不考虑
 CHAT_STALE = 86400  # 只聊天、没动过文件的对话，一天没动就收起（问个天气、查个词，不必在列表里挂一周）
 
-APPEND = """回复一律用简体中文，思考和过程中的说明也用简体中文；专有名词、代码、命令、路径保持原样。
-需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
+# 给每个对话追加的固定要求。这几条是小E 与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
+# 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
+RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
 做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
-用户已授权：活做完并自查通过后，提交、推送、上线这类收尾直接做，不要停下来问“要不要提交 / 推送 / 上线”，在报告里写明做了就行；危险命令有审核员把关，被拦下就换安全的做法，或在报告里说明。只有方案、内容上的取舍才用“要你定”问用户。
 动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__xiaoe__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
 这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
-要翻很多文件、只要结论的查找（牵涉哪些文件、报错从哪来、读很长的日志）交给子代理（Agent 工具），只带回结论；几次命令就能查清的自己查。
-小E（remote-claude）改完要重启时，只能在它的仓库根后台跑 .venv/bin/python scripts/restart_when_idle.py（等所有对话都空闲才重启）；不要用 launchctl kickstart/bootout 直接重启，会打断别的正在干活的对话。
 """
 
-# 受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提小E 自己怎么重启
-APPEND_USER = "".join(ln + "\n" for ln in APPEND.splitlines() if "generate_images" not in ln and "remote-claude" not in ln) + (
-    "只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
+
+def build_instructions(language: str = "简体中文", extra: str = "") -> str:
+    """内置约定 + 回复语言 + 你自己的追加要求（配置里的 reply_language、extra_instructions）。"""
+    lang = f"回复一律用{language}，思考和过程中的说明也用{language}；专有名词、代码、命令、路径保持原样。\n" if language else ""
+    return lang + RULES + (extra.strip() + "\n" if extra.strip() else "")
+
+
+def build_user_instructions(root: str, language: str = "简体中文", extra: str = "") -> str:
+    """受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提小E 自己怎么重启。"""
+    text = build_instructions(language, extra)
+    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "remote-claude" not in ln) + (
+        f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
+
+
 # 受限对话能用的工具；别的（定时、远程触发、工作树、Monitor 等）一律拦下
 USER_TOOLS = {"Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "LS", "Bash", "BashOutput", "KillShell",
               "KillBash", "TaskOutput", "TaskStop", "WebFetch", "WebSearch", "TodoWrite", "Task", "Agent", "ExitPlanMode",
@@ -209,7 +219,10 @@ class Runner:
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
         self.default_effort = default_effort or user_setting("effortLevel") or ""
-        self.auto_review = True
+        self.language = "简体中文"   # 回复语言（配置 reply_language）
+        self.extra_instructions = ""   # 你自己追加给每个对话的要求（配置 extra_instructions）
+        self.auto_review = False   # 危险命令交给审核员（reviewer.py）判断（配置 auto_review）；关着就等你点
+        self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
@@ -353,7 +366,7 @@ class Runner:
         if self.auto_review:
             from .reviewer import review
             recent = [t["text"] for t in turn.timeline if t.get("kind") in ("do", "say")]
-            r = await review(what, cmd, s.cwd, turn.request, recent)
+            r = await review(what, cmd, s.cwd, turn.request, recent, policy=self.review_policy)
             if r is not None:
                 ok, why = r
                 turn.reviews.append({"allow": ok, "what": what, "why": why, "cmd": cmd[:300]})
@@ -678,7 +691,8 @@ class Runner:
                     result = {"state": "failed", "images": [], "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
-        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan, generate_images])
+        # 受限账号的对话不给生图委派（Codex 在沙箱外跑）
+        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]))
 
     async def _prompt(self, job: Job):
         content: list[dict] = []
@@ -693,6 +707,8 @@ class Runner:
         yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
 
     async def _run(self, s: Session, job: Job, turn: Turn) -> None:
+        if s.root and s.engine == "codex":
+            raise RuntimeError("受限账号不能使用 Codex")
         if s.engine == "codex":
             return await _codex_run(self, s, job, turn)
         if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
@@ -717,7 +733,8 @@ class Runner:
             setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code",
-                           "append": APPEND_USER.format(root=display(Path(s.root).expanduser())) if fenced else APPEND},
+                           "append": build_user_instructions(display(Path(s.root).expanduser()), self.language, self.extra_instructions)
+                           if fenced else build_instructions(self.language, self.extra_instructions)},
             mcp_servers={"xiaoe": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
@@ -868,7 +885,7 @@ NOISE = re.compile(r"^\s*(No response requested\.?)?\s*$", re.I)   # 空结果�
 IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 # 回复里写成下载链接的本机文件，这几类当作要交给你的（源码、说明文档之类的链接只是出处，不发）
 GIVE_EXT = IMG_EXT + (".zip", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt", ".mp4", ".mov", ".mp3", ".7z", ".tar", ".gz")
-LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+)\)")
+LINK = re.compile(r"\[([^\]]+)\]\((/[^)\s]+|~/[^)\s]+|[A-Za-z]:[\\/][^)\s]+)\)")
 
 
 def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
@@ -899,9 +916,15 @@ def handoff(text: str, cwd: str) -> tuple[str, list[str], list[str]]:
     return "\n".join(keep).strip(), imgs, files
 
 
-CODEX_FIRST = ("回复一律用简体中文；专有名词、代码、命令、路径保持原样。需要用户在几个方案里选时，第一行写“要你定：”加一句问题，"
-               "选项写成“A. …”，推荐写成“推荐：A，理由”。要把截图或文件（PDF、表格等）交给用户看，在回复最后单独一行写“交给你：”"
-               "加文件的绝对路径（多个用顿号隔开）；活做完并自查通过后，提交、推送、上线直接做，不要停下来问要不要，危险命令有审核员把关；用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。\n\n")
+CODEX_RULES = ("需要用户在几个方案里选时，第一行写“要你定：”加一句问题，选项写成“A. …”，推荐写成“推荐：A，理由”。"
+               "要把截图或文件（PDF、表格等）交给用户看，在回复最后单独一行写“交给你：”加文件的绝对路径（多个用顿号隔开）；"
+               "用户在手机上看，点不开本机路径，不要只写成 Markdown 下载链接。")
+
+
+def codex_instructions(language: str = "简体中文", extra: str = "") -> str:
+    """Codex 对话的固定要求：回复语言 + 内置约定 + 你自己的追加要求（同 Claude 对话的 extra_instructions）。"""
+    lang = f"回复一律用{language}；专有名词、代码、命令、路径保持原样。" if language else ""
+    return (lang + CODEX_RULES + (" " + extra.strip() if extra.strip() else "")).strip()
 
 
 async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
@@ -1015,7 +1038,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             s.context_pct = s.context_tokens = None
             self.registry.save()
         else:
-            s.codex_id = await conn.open_thread(s.codex_id, CODEX_FIRST.strip())
+            s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(self.language, self.extra_instructions))
         turn.model = f"GPT（{conn.model}）" if conn.model else turn.model
         if job.text == COMPACT:   # 压缩上下文
             before = s.context_pct
@@ -1070,7 +1093,7 @@ _MONTHS = {m: i for i, m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct N
 
 def _cli_path() -> Path:
     import claude_agent_sdk
-    return Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    return Path(claude_agent_sdk.__file__).parent / "_bundled" / ("claude.exe" if os.name == "nt" else "claude")
 
 
 def _reset_cn(text: str) -> str | None:

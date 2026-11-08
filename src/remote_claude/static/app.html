@@ -1612,7 +1612,7 @@ function renderSum() {
 }
 
 async function loadSessions() {
-  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); if (me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
+  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; drafts = d.drafts; courses = d.courses || []; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 
@@ -2649,8 +2649,9 @@ if (window.visualViewport) {
 }
 
 // 文件夹浏览：从 ~/Projects 开始一层层点进去，选定的文件夹加进“在哪做”（来自开源版 GitHub #1）
+// 盘的再上一层是“此电脑”（Windows 所有盘符，没有共同的文件系统父级）
 function browseSheet(start, done) {
-  let at = /^(\/|~)/.test(start || '') ? start : '', up = '', show = '';
+  let at = /^([A-Za-z]:[\\/]|\/|~)/.test(start || '') ? start : '', up = '', show = '';
   const el = sheet(`<div class="bhead"><b>选择文件夹</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="bpath" id="bpath"></div><div class="blist" id="blist"><div class="bempty">读取中…</div></div>
     <div class="bbtns"><button class="pill" id="bup">← 上级</button><button class="pill on" id="bok">用这个文件夹</button></div>`);
@@ -2659,12 +2660,16 @@ function browseSheet(start, done) {
     try {
       const d = await api('browse' + (at ? '?path=' + encodeURIComponent(at) : ''));
       if (!d.dirs) throw new Error(d.error);
-      at = d.raw; up = d.parent; show = d.show;
+      at = d.raw; up = d.parent || (d.drive_root ? '__drives__' : ''); show = d.show;
       $('#bpath').textContent = d.show;
       $('#bup').style.visibility = up ? 'visible' : 'hidden';
-      $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}">${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
+      $('#bok').style.display = d.drive_level ? 'none' : '';
+      $('#blist').innerHTML = d.dirs.map(n => `<button class="bo" data-n="${esc(n)}" ${d.absolute ? 'data-abs="1"' : ''}>${WHERE_ICON.folder}<span class="tx"><b>${esc(n)}</b></span></button>`).join('')
         || '<div class="bempty">这里没有子文件夹了</div>';
-      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => { at = at.replace(/\/$/, '') + '/' + b.dataset.n; draw(); });
+      document.querySelectorAll('#blist .bo').forEach(b => b.onclick = () => {
+        at = b.dataset.abs ? b.dataset.n : /[\\/]$/.test(at) ? at + b.dataset.n : at + (at.includes('\\') ? '\\' : '/') + b.dataset.n;
+        draw();
+      });
     } catch (e) { $('#blist').innerHTML = '<div class="bempty">读不到这个文件夹，换个地方试试</div>'; }
   };
   $('#bx').onclick = () => el.remove();
@@ -2675,7 +2680,7 @@ function browseSheet(start, done) {
 
 // 电脑端对话：你在电脑上（终端 / IDE / 桌面端）开的 Claude Code 对话，不分文件夹按时间列，点一下接进来接着聊；接过的回到原来那个
 // 只写文件夹名；Claude 桌面端自己的临时工作区（一长串编号）写成“Claude 桌面端”
-const deskDir = p => /\/Claude\/scratch-workspaces\//.test(p || '') ? 'Claude 桌面端' : (p || '').replace(/\/+$/, '').split('/').pop() || p;
+const deskDir = p => /[\\/]Claude[\\/]scratch-workspaces[\\/]/.test(p || '') ? 'Claude 桌面端' : (p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
 function deskSheet() {
   const el = sheet(`<div class="bhead"><b>电脑端对话</b><button class="bx" id="bx" aria-label="关闭">✕</button></div>
     <div class="blist" id="blist"><div class="bempty">读取中…</div></div>`);
@@ -2924,7 +2929,7 @@ function openNew(fromPop, preset) {
     if ($('#wbrowse')) $('#wbrowse').onclick = e => {
       e.stopPropagation(); menu = false; draw();
       browseSheet(pick, path => {
-        if (!opts.some(o => o.v === path)) choose({v: path, ic: 'folder', t: path.split('/').pop() || path});
+        if (!opts.some(o => o.v === path)) choose({v: path, ic: 'folder', t: path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path});
         pick = path; draw(); $('#ta').focus();
       });
     };

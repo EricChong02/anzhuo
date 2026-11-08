@@ -1,15 +1,19 @@
-"""阿里云上每分钟跑一次：看家里 Mac 上的小E 还连不连得上，连续 3 分钟连不上就给手机发通知，恢复了再发一条。
-部署在 /opt/xiaoe-watch/（venv 里装了 pywebpush）；push.json（设备订阅）由小E 在订阅变化时同步过来，vapid.txt 是签名私钥。
-cron：* * * * * /opt/xiaoe-watch/venv/bin/python /opt/xiaoe-watch/server_watch.py"""
+"""（可选）放在你的外网服务器上每分钟跑一次：看家里电脑上的小E还连不连得上，连续 3 分钟连不上就给手机发通知，恢复了再发一条。
+部署在 /opt/xiaoe-watch/（venv 里装了 pywebpush）；push.json（设备订阅）由小E在订阅变化时同步过来（配置 watch_host），
+vapid.txt 是网页推送的签名私钥。环境变量 REMOTE_CLAUDE_WATCH_SUB 填你的联系方式（mailto:you@example.com 或网址），VAPID 协议要求有；
+REMOTE_CLAUDE_WATCH_PORT 是隧道在服务器上的端口，默认 18765。
+已部署的那份照旧写死也能用；重新部署时在 cron 里带上这两个环境变量。
+cron：* * * * * REMOTE_CLAUDE_WATCH_SUB=mailto:you@example.com /opt/xiaoe-watch/venv/bin/python /opt/xiaoe-watch/server_watch.py"""
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).parent
 STATE = HERE / "state.json"
-HEALTH = "http://127.0.0.1:18765/_x/health"
-DOWN_AFTER = 3  # 连续几分钟连不上才报，免得小E 正常重启时误报
+HEALTH = f"http://127.0.0.1:{os.environ.get('REMOTE_CLAUDE_WATCH_PORT', '18765')}/_x/health"
+DOWN_AFTER = 3  # 连续几分钟连不上才报，免得小E正常重启时误报
 
 
 def alive() -> bool:
@@ -27,7 +31,7 @@ def push(title: str, body: str) -> None:
     data = json.dumps({"title": title, "body": body, "num": None, "tag": "watch"}, ensure_ascii=False)
     for sub in json.loads((HERE / "push.json").read_text()):
         try:
-            webpush(sub, data, vapid_private_key=key, vapid_claims={"sub": "https://xiaoe.ericlab.cn"}, ttl=3600)
+            webpush(sub, data, vapid_private_key=key, vapid_claims={"sub": os.environ.get("REMOTE_CLAUDE_WATCH_SUB", "mailto:admin@example.com")}, ttl=3600)
         except WebPushException as e:
             print(time.strftime("%F %T"), "发不出去", e)
 
@@ -40,14 +44,14 @@ def main() -> None:
     if alive():
         if st.get("alerted"):
             mins = int((time.time() - st.get("since", time.time())) / 60)
-            push("案头恢复了", f"Mac 又连上了（断了约 {mins} 分钟）")
+            push("小E恢复了", f"Mac 又连上了（断了约 {mins} 分钟）")
         st = {"fails": 0, "alerted": False, "since": 0}
     else:
         st["fails"] = st.get("fails", 0) + 1
         if st["fails"] == 1:
             st["since"] = time.time()
         if st["fails"] >= DOWN_AFTER and not st.get("alerted"):
-            push("案头连不上了", "Mac 可能睡着、断网或关机了，派的活暂时收不到")
+            push("小E连不上了", "Mac 可能睡着、断网或关机了，派的活暂时收不到")
             st["alerted"] = True
     STATE.write_text(json.dumps(st))
 

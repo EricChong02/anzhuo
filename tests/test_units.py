@@ -38,10 +38,10 @@ def test_parse_commands():
 def test_folder_candidates(tmp_path):
     (tmp_path / "a" / "菜谱整理").mkdir(parents=True)
     (tmp_path / "b" / "旧菜谱").mkdir(parents=True)
-    (tmp_path / "_原始私密" / "菜谱秘密").mkdir(parents=True)
+    (tmp_path / "_private" / "菜谱秘密").mkdir(parents=True)
     (tmp_path / "c" / "node_modules" / "菜谱包").mkdir(parents=True)
     cfg = Config(client_id="x", allowed_user_ids=[], folders={"根": str(tmp_path / "a")},
-                 search_roots=[str(tmp_path)], scratch_root=str(tmp_path / "s"))
+                 search_roots=[str(tmp_path)], scratch_root=str(tmp_path / "s"), skip_names=["_private"])
     assert folders.candidates("根", cfg) == [tmp_path / "a"]
     got = folders.candidates("菜谱", cfg)
     assert got[0].name == "菜谱整理" and {p.name for p in got} == {"菜谱整理", "旧菜谱"}
@@ -129,8 +129,10 @@ def test_router_parse():
     assert _parse("不是 JSON", {1}) is None
 
 
-def test_needs_translation():
+def test_needs_translation(monkeypatch):
+    from remote_claude import translate
     from remote_claude.translate import needs_translation
+    monkeypatch.setattr(translate, "enabled", True)   # 翻译默认关闭，这里测打开时的判断
     assert needs_translation("I updated the cover title and checked that it still fits on the lab screen.")
     assert not needs_translation("改好了第二课封面，用 Opus 5.5 跑了 course_gates.py G1，结果 PASS。")
     assert not needs_translation("跑了：\n```\nuv run pytest -q tests/test_units.py --maxfail one two three four\n```")
@@ -249,7 +251,7 @@ def test_reviewer_decides(monkeypatch):
     from remote_claude.sessions import Runner, Session
     answers = iter([(True, "任务要求推送"), (False, "删用户资料"), None])
 
-    async def fake(what, cmd, cwd, request, recent, timeout=90):
+    async def fake(what, cmd, cwd, request, recent, timeout=90, policy=""):
         return next(answers)
     monkeypatch.setattr(reviewer, "review", fake)
     asked = []
@@ -259,6 +261,7 @@ def test_reviewer_decides(monkeypatch):
 
     async def go():
         r = Runner(registry=None, on_done=None, on_confirm=on_confirm)
+        r.auto_review = True   # 审核员默认关，这里测开着的情形
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time(), request="改完推上去")
         r.turns[3] = turn
         hook = r._guard(s, turn)

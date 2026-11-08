@@ -43,7 +43,7 @@ def test_group_endpoint_cache_manual_race_and_account_isolation(tmp_path, monkey
         reg.get(1).relay_to=2; reg.get(2).relay_from=1
         reg.get(3).owner='guest'
         reg.get(4).task_group='手动分组'; reg.get(4).task_group_manual=True
-        w=Web('http://x',0,tmp_path); w.bridge=NS(registry=reg)
+        w=Web('http://x',0,tmp_path); w.bridge=NS(registry=reg, cfg=NS(task_grouping=True))
         calls=[]
         async def classify(items, existing, cache=None):
             calls.append(items)

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,10 @@ def readable(path: Path, timeout: float = 5) -> bool:
     key = str(path)
     if key in _READABLE and time.time() - _READABLE[key][0] < 600:
         return _READABLE[key][1]
+    if sys.platform != "darwin":  # 非 macOS：没有 TCC 隐私弹窗，直接看目录在不在
+        ok = path.is_dir()
+        _READABLE[key] = (time.time(), ok)
+        return ok
     p = subprocess.Popen(["/bin/ls", key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         ok = p.wait(timeout=timeout) == 0
@@ -82,7 +88,7 @@ def candidates(token: str, cfg: Config) -> list[Path]:
     if token in cfg.folders:
         p = _expand(cfg.folders[token])
         return [p] if p.is_dir() else []
-    if token.startswith(("/", "~")):
+    if token.startswith(("/", "~")) or re.match(r"^[A-Za-z]:[\\/]", token):
         p = _expand(token)
         return [p] if p.is_dir() else []
     return search(token, cfg.search_roots, cfg.skip_names)

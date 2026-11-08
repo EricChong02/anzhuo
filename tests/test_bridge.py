@@ -750,7 +750,8 @@ def test_limit_auto_resume(tmp_path, monkeypatch):
     asyncio.run(go())
 
 
-def test_relay(tmp_path, monkeypatch):
+@__import__("pytest").mark.parametrize("engine", ["claude", "codex"])
+def test_relay(tmp_path, monkeypatch, engine):
     """接力：长对话先写交接说明，写完开一个同文件夹、同模型的新对话；交接说明随你第一句话交给新对话。"""
     from remote_claude.app import RELAY
     from remote_claude.sessions import Session
@@ -770,10 +771,12 @@ def test_relay(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Runner, "_run", fake_run)
     monkeypatch.setattr(Runner, "refresh_usage", no_usage)
+    monkeypatch.setattr(Runner, "refresh_gpt_usage", no_usage)   # Codex 的额度要真开 app-server 去读，测试里不读
 
     async def go():
         b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
-        b.registry.add(Session(num=6, name="做课封面和目录", cwd=str(tmp_path), claude_id="sid", model="claude-opus-5-5",
+        b.registry.add(Session(num=6, name="做课封面和目录", cwd=str(tmp_path), engine=engine, claude_id="sid" if engine == "claude" else None,
+                               codex_id="cid" if engine == "codex" else None, model="test-model",
                                effort="high", context_tokens=300_000))
         from remote_claude.sessions import Job
         from remote_claude.report import Turn
@@ -794,7 +797,7 @@ def test_relay(tmp_path, monkeypatch):
         old = b.registry.get(6)
         new = b.registry.get(old.relay_to)
         assert new and new.relay_from == 6 and new.cwd == old.cwd and new.model == old.model and new.effort == "high"
-        assert new.relay_note == "## 目标\n做封面" and new.claude_id is None
+        assert new.relay_note == "## 目标\n做封面" and new.claude_id is None and new.codex_id is None and new.engine == engine
         assert "已经接力到" in b.relay(6)
         b.runner.submit(new, __import__("remote_claude.sessions", fromlist=["Job"]).Job(text="接着做"))
         await asyncio.sleep(0.2)

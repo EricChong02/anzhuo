@@ -2,4 +2,11 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.DS_Store
+# 本机配置、数据和密钥永远不进仓库
+config.toml
+*.db
+.env
 .venv-tts/
+
+.ruff_cache/

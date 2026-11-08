@@ -197,7 +197,7 @@ def test_chat_api(tmp_path, monkeypatch):
                                current=6, next_num=8, save=lambda: None)
             self.runner = FakeRunner()
             self.runner.turns[7] = Turn(started=time.time() - 130, request="清理下载", steps=["看 a", "跑命令：du"])
-            self.cfg = NS(folders={"课程根": "/x"})
+            self.cfg = NS(folders={"课程根": "/x"}, scratch_root="/tmp/remote-claude-test-scratch", search_roots=[], skip_names=[])
             self.user_id, self.sent, self.new, self.outgoing, self.said = "me", [], [], {}, []
 
         async def say(self, title, text):
@@ -262,6 +262,18 @@ def test_chat_api(tmp_path, monkeypatch):
             assert b.new[-1] == (["课程根"], "新做一节课")
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch"})
             assert b.new[-1] == ([], "查天气")
+            # 手输的路径或文件夹名：找到一个就在那里开；找不到、找到好几个都当场说清楚
+            monkeypatch.undo()
+            proj = tmp_path / "proj"
+            proj.mkdir()
+            await c.post("/_x/api/send", json={"text": "改一下", "folder": str(proj)})
+            assert b.new[-1] == ([str(proj)], "改一下")
+            r = await (await c.post("/_x/api/send", json={"text": "改一下", "folder": str(tmp_path / "没有这个")})).json()
+            assert not r["ok"] and "没找到文件夹" in r["error"]
+            monkeypatch.setattr(folders, "search", lambda kw, roots, skip, **k: [tmp_path / "a" / "demo", tmp_path / "b" / "demo"])
+            r = await (await c.post("/_x/api/send", json={"text": "改一下", "folder": "demo"})).json()
+            assert not r["ok"] and "找到好几个" in r["error"]
+            monkeypatch.undo()
             # 选模型和思考深度：新开时带上；已有对话改了存下来，下一轮生效；不认得的不理
             await c.post("/_x/api/send", json={"text": "查天气", "folder": "scratch", "model": "sonnet", "effort": "high"})
             assert b.new_model == ("claude-sonnet-5-5", "high")
@@ -379,8 +391,10 @@ def test_files_delivered_and_uploaded(tmp_path):
     asyncio.run(go())
 
 
-def test_process_translation_no_flip(tmp_path):
+def test_process_translation_no_flip(tmp_path, monkeypatch):
     """工作过程里还在译的英文先不给（显示“翻译中…”），译好直接给中文；译不出的给原文、不再反复试。"""
+    from remote_claude import translate
+    monkeypatch.setattr(translate, "enabled", True)   # 翻译默认关闭，这里测打开时的行为
     import hashlib
     w = Web("http://x.example", 0, tmp_path)
     en = "Let me check the file first and then run the tests to see what fails here"
@@ -521,7 +535,7 @@ def test_manage_and_search(tmp_path):
         w = Web("http://x.example", 0, tmp_path, "", "", user="u", pw_hash=hash_password("p", iters=1000))
         t = Turn(started=time.time() - 60, ended=time.time(), request="明天要不要带伞", final_text="不用带伞，多云")
         w.save_turn("#2 天气", t, str(tmp_path), "做完了")
-        w.bridge = NS(registry=reg, cfg=NS(folders=folders),
+        w.bridge = NS(registry=reg, cfg=NS(folders=folders, scratch_root="/tmp/remote-claude-test-scratch"),
                       runner=NS(turns={3: Turn(started=time.time(), request="x")}, busy=lambda n: n == 3, compacting=lambda n: None, limits={}, limits_gpt={}, last={}))
         c = TestClient(TestServer(w.app()))
         await c.start_server()
@@ -883,6 +897,41 @@ def test_all_selected_images_reach_model_in_order(tmp_path):
     asyncio.run(go())
 
 
+def test_web_hash_env_first_and_file_private(tmp_path, monkeypatch):
+    """REMOTE_CLAUDE_WEB_HASH 优先（演示、测试靠它）；非 macOS 的 web_hash.json 只给自己读写。"""
+    import os
+    import sys
+    from remote_claude import config
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.toml")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("REMOTE_CLAUDE_WEB_HASH", "env-hash")
+    assert config.read_web_hash("u") == "env-hash"
+    monkeypatch.delenv("REMOTE_CLAUDE_WEB_HASH")
+    assert config.read_web_hash("u") == ""
+    config.write_web_hash("u", "h1")
+    config.write_web_hash("v", "h2")
+    assert config.read_web_hash("u") == "h1" and config.read_web_hash("v") == "h2"
+    if os.name != "nt":
+        assert (tmp_path / "web_hash.json").stat().st_mode & 0o777 == 0o600
+    (tmp_path / "web_hash.json").write_text("[]")
+    assert config.read_web_hash("u") == ""
+
+
+def test_browse_drive_level(tmp_path, monkeypatch):
+    """Windows 的“此电脑”层：列出所有盘符（这台机器没有 listdrives 就是空列表），不能选它当文件夹。"""
+    async def go():
+        w = Web("http://x.example", 0, tmp_path / "data", "", "", user="u", pw_hash=hash_password("p", iters=1000))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            d = await (await c.get("/_x/api/browse", params={"path": "__drives__"})).json()
+            assert d["drive_level"] and d["absolute"] and isinstance(d["dirs"], list)
+        finally:
+            await c.close()
+    asyncio.run(go())
+
+
 def test_browse_defaults_to_projects_and_lists_only_visible_dirs(tmp_path, monkeypatch):
     """新对话的“浏览文件夹…”：默认从 ~/Projects 开始，只列看得见的子文件夹，要登录。"""
     root = tmp_path / "Projects"
@@ -979,7 +1028,7 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
         runner = NS(turns={}, last={}, limits={}, default_effort="medium",
                     compacting=lambda n: "", busy=lambda n: False, queued=lambda n: [])
         w = Web("http://x", 0, tmp_path)
-        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}))
+        w.bridge = NS(registry=reg, runner=runner, outgoing={}, cfg=NS(folders={}, scratch_root=str(tmp_path / "scratch")))
         for session in sessions:
             w.save_turn(session.label, Turn(started=session.num * 100, ended=session.num * 100 + 1,
                         request=f"问题{session.num}", final_text=f"回复{session.num}",

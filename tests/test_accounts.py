@@ -20,8 +20,8 @@ def _bridge(tmp_path):
                tmp_path / "data")
     root = tmp_path / "remote-window"
     b.web.base = "http://x.example"
-    b.web.accounts = {"admin": {"role": "admin", "root": "", "hash": hash_password("020928abc", iters=1000)},
-                      "user": {"role": "user", "root": str(root), "share": 0.2, "hash": hash_password("20020928", iters=1000)}}
+    b.web.accounts = {"admin": {"role": "admin", "root": "", "hash": hash_password("demo-admin-test", iters=1000)},
+                      "user": {"role": "user", "root": str(root), "share": 0.2, "hash": hash_password("demo-guest-test", iters=1000)}}
     a = b.registry.add(Session(num=b.registry.reserve_num(), name="主账号的事", cwd=str(tmp_path)))
     u = b.registry.add(Session(num=b.registry.reserve_num(), name="user 的事", cwd=str(root), owner="user", root=str(root)))
     return b, a, u, root
@@ -38,12 +38,12 @@ async def _login(b, name, pw):
 def test_two_accounts_isolated(tmp_path):
     async def go():
         b, a, u, root = _bridge(tmp_path)
-        ca, cu = await _login(b, "admin", "020928abc"), await _login(b, "user", "20020928")
+        ca, cu = await _login(b, "admin", "demo-admin-test"), await _login(b, "user", "demo-guest-test")
         try:
             # 密码不对、账号不存在都进不来
             c = TestClient(TestServer(b.web.app()))
             await c.start_server()
-            assert (await c.post("/_x/login", data={"username": "user", "password": "020928abc"}, allow_redirects=False)).status == 401
+            assert (await c.post("/_x/login", data={"username": "user", "password": "demo-admin-test"}, allow_redirects=False)).status == 401
             await c.close()
             sa = await (await ca.get("/_x/api/sessions")).json()
             su = await (await cu.get("/_x/api/sessions")).json()
@@ -90,7 +90,7 @@ def test_user_starts_in_own_folder_and_quota(tmp_path):
         b, a, u, root = _bridge(tmp_path)
         got = []
         b.runner.submit = lambda s, job: got.append((s, job)) or 0
-        cu = await _login(b, "user", "20020928")
+        cu = await _login(b, "user", "demo-guest-test")
         try:
             r = await (await cu.post("/_x/api/send", json={"text": "整理一下", "folder": "Projects", "model": "gpt"})).json()
             s = b.registry.get(r["num"])
@@ -101,6 +101,7 @@ def test_user_starts_in_own_folder_and_quota(tmp_path):
             # 附件存进它自己的文件夹
             await (await cu.post("/_x/api/send", json={"num": s.num, "text": "看看",
                                                      "files": [{"name": "a.txt", "data": "data:text/plain;base64,aGk="}]})).json()
+            assert b.registry.current == a.num   # user 新开的对话不会变成 admin 的当前对话
             assert (root / "收到的附件").is_dir() and any((root / "收到的附件").iterdir())
             # 本周用了主账号周额度的 25%（比例：每 $1 = 1%）→ 超过 1/5，不能再开始
             now = time.time()

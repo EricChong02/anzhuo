@@ -3,13 +3,33 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
 import re
 import time
 import uuid
 from zoneinfo import ZoneInfo
 
-TZ = ZoneInfo('Asia/Taipei')
+
+
+def local_zone() -> ZoneInfo:
+    """这台电脑现在用的时区（读 /etc/localtime 指向的时区名）；读不到就用 UTC。"""
+    for name in (os.environ.get("TZ", ""), os.path.realpath("/etc/localtime").split("zoneinfo/")[-1]):
+        try:
+            return ZoneInfo(name)
+        except Exception:  # noqa: BLE001 - 名字空或不认识就试下一个
+            continue
+    return ZoneInfo("UTC")
+
+
+TZ = local_zone()   # 配置里写了 timezone 就由 app.Bridge 启动时换成那个
+
+
+def set_timezone(name: str) -> None:
+    global TZ
+    TZ = ZoneInfo(name) if name else local_zone()
+
+
 ACTIVE = {'dispatching', 'submitted', 'running'}
 MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt'}
 
@@ -78,7 +98,7 @@ class Schedules:
         except (ValueError, TypeError): raise ValueError('请选择有效的对话')
         task = dict(old or {}, id=key or uuid.uuid4().hex, title=str(data.get('title') or prompt[:24]).strip()[:80],
                     prompt=prompt, kind=kind, model=model, effort=effort, target=target,
-                    folder=str(data.get('folder') or ''), enabled=True, state='idle', error='', timezone='Asia/Taipei')
+                    folder=str(data.get('folder') or ''), enabled=True, state='idle', error='', timezone=str(TZ))
         if kind == 'once':
             try:
                 d = datetime.fromisoformat(str(data.get('run_at') or ''))

@@ -1,23 +1,62 @@
-# 小E（钉钉 ↔ Mac 上的 Claude Code）配置。钉钉密钥不写在这里，存在钥匙串（scripts/save_secret.sh）。
-client_id = "在钉钉开发者后台“凭证与基础信息”里的 Client ID"
-# 只认这些钉钉 ID 发来的单聊消息；用 remote-claude whoami 查自己的
-allowed_user_ids = []
-max_parallel = 3
-default_effort = "medium"  # 低 low · 中 medium · 高 high · 很高 xhigh · 最高 max
-# 新开对话时按任务类型选模型：简单任务（查资料、整理文件、问答）用 simple_model，开发类（写代码、做功能、做课件）用 dev_model。
-# 话里说了“用 opus”“深度调到高”就以说的为准；钉钉里也可按对话改：模型 opus / 深度 高
-simple_model = "sonnet"
-dev_model = "opus"
-scratch_root = "~/Projects/_scratch/小E"
+# 小E（远窗）配置：复制到 ~/.config/remote-claude/config.toml 再改。完整的每一项说明见 docs/配置参考.md。
+# 钉钉密钥和网页密码都不写在这里：macOS 存钥匙串；Windows 下网页密码指纹存本目录旁的 web_hash.json（钉钉密钥暂只支持 macOS）。
 
-[folders]
-"课程根" = "~/Projects/04_项目/work/CyberScope-courses-zy"
-"平台" = "~/Projects/04_项目/work/CyberScope"
-Projects = "~/Projects"
-"下载" = "~/Downloads"
-
-# 第二期：过程页与试课预览（不填 web_base 就不发链接）
-# web_base = "https://xiaoe.example.cn"
+# ───────── 入口一：网页（默认开，只听本机端口）─────────
+# 本机用不用改；放到外网后改成你的地址（见 docs/外网访问.md），例如 web_base = "https://xiaoe.example.com"
+# web_base = "http://127.0.0.1:8765"
 # web_port = 8765
+# web_user 不用手写：运行 `remote-claude passwd` 会替你写进来
+
+# ───────── 入口二：钉钉（可选，想在钉钉里也能说话才填）─────────
+# 不填 client_id 就是只用网页。填法见 docs/钉钉接入.md
+# client_id = "钉钉开发者后台“凭证与基础信息”里的 Client ID"
+# 只认这些钉钉 ID 发来的单聊消息；用 `remote-claude whoami` 查自己的
+# allowed_user_ids = []
+# dingtalk = false            # 老写法：client_id 留着但整个停用钉钉（等于不填 client_id）
+
+# ───────── 常用文件夹 ─────────
+# 短名 → 路径。网页“新对话”的菜单、钉钉里的“新开 短名：…”都能用。不写也行：网页里有“最近用过的”和手输路径。
+# [folders]
+# 项目 = "~/Projects/my-app"
+# 笔记 = "~/Documents/notes"
+
+# ───────── 干活的方式（都有默认值，按需取消注释）─────────
+# max_parallel = 3             # 最多同时几个对话在干活，多的排队
+# default_effort = "medium"    # 默认思考深度：low / medium / high / xhigh / max
+# simple_model = "sonnet"      # 简单任务（查资料、整理文件）用的模型
+# dev_model = "opus"           # 开发类任务（文件夹里有 .git / pyproject.toml / package.json）用的模型
+# reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
+# translate_english = false    # 默认关闭。想看中文版的思考过程和英文回复，改成 true：有 DeepSeek 密钥就用它，没有就用 Haiku（会消耗你自己的 Claude 额度）
+# extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”
+# auto_route = true           # 直接说话时让分派员（Haiku）判断接着哪个对话、还是新开；网页新对话的“在哪做：自动”也靠它
+
+# ───────── 安全与整理（默认都是保守的）─────────
+# auto_review = false          # false：删文件、git push 这类危险命令都等你在网页/手机上点“允许”
+#                              # true：交给另一个 AI 审核员判断，它拿不准或出错才问你
+# review_policy = ""           # 开了 auto_review 后，写明你额外允许审核员放行什么，例如：“推送到 dev 分支可以放行”
+# auto_cleanup = false         # true：每天归档 90 天没动的旧对话记录、清理旧临时文件夹，每月派一次 AI 体检
+# timezone = ""                # 定时任务的时区，如 "Asia/Shanghai"；空 = 这台电脑当前的时区
+
+# ───────── 文件夹查找 ─────────
+# scratch_root = "~/remote-claude-scratch"   # “不指定文件夹”时的临时文件夹放哪
+# search_roots = ["~/Projects", "~/Desktop", "~/Documents", "~/Downloads"]   # “新开 某个词：…”按名字找文件夹的范围
+# skip_names = []              # 按名字找时要跳过的文件夹名（前缀匹配），比如放私密资料的
+
+# 按任务自动分类（可选，默认关闭）：向模型发送标题、目录末级名称和最多400字摘要。
+# 有 DeepSeek 密钥优先用它，失败或没有密钥时用 Haiku；会消耗相应模型额度。
+# task_grouping = true
+
+# 多账号（可选）：不配时沿用 web_user，一个账号照常使用。
+# 必须有且只有一个 admin；受限 user 目前仅支持 macOS，且必须填写独立工作目录。
+# 分别运行 scripts/set_account.py 账号名 设置密码后重启。
+# [accounts.owner]
+# role = "admin"
+# [accounts.guest]
+# role = "user"
+# root = "~/remote-window"
+# share = 0.2  # 主账号 Claude 周额度的20%；估算未校准时不能精确限制（老写法 week_share 也认）
+
+# ───────── 试课预览（做课专属）─────────
+# 改到课程根里的课就附“试课”链接；外网只转本机 CyberScope 的课程预览页和预览要用的几个接口
 # preview_upstream = "http://127.0.0.1:8000"
-# preview_root = "~/Projects/04_项目/work/CyberScope-courses-zy"
+# preview_root = "~/path/to/courses"
