@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import mimetypes
@@ -84,6 +85,7 @@ class Session:
     codex_hidden: list[str] = field(default_factory=list)  # 回退后收起的原分支轮次
     codex_cut_turn: str = ""  # 已核验的原生轮次编号
     codex_id: str | None = None  # Codex 那边的会话编号（接着上次聊）
+    acp_id: str = ""  # ACP 引擎（Kimi 等）那边的会话编号（接着上次聊）
     pinned: bool = False  # 网页里置顶
     task_group: str = ""  # 具体任务分组，模型生成或手动指定
     task_group_manual: bool = False  # 手动指定后模型不覆盖
@@ -107,6 +109,10 @@ class Session:
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
+    role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
+    boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
+    ticket: str = ""  # 总管派出来的：最近一次汇报的状态（ready / waiting / blocked / failed / dropped / asked / stopped / error）
+    notes: list[str] = field(default_factory=list)  # 总管：上次开口后发生的事，下次开口前一起看
 
     @property
     def label(self) -> str:
@@ -196,12 +202,15 @@ class Runner:
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
+        self.spare = asyncio.Semaphore(1)   # 预留给你接着说话的那一个名额（新开的活用不了）
+        self.use_spare = False   # 总管打开时才用预留名额
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.clients: dict[int, ClaudeSDKClient] = {}
         self.image_delegate = ImageDelegator(registry.path.parent / 'image_jobs') if registry else None
         self.image_tasks: dict[int, set[asyncio.Task]] = {}
         self.codex_live: dict = {}  # 正在跑的 Codex 连接（插话、停下用）
+        self.acp_live: dict = {}  # 正在跑的 ACP 连接（停下用；ACP 不能中途插话）
         self.limits_gpt: dict[str, tuple[float, str | None]] = {}  # ChatGPT 会员的 Codex 额度（同上格式）
         self._gpt_usage_at = 0.0
         self.last: dict[int, Turn] = {}  # 每个对话刚做完的那一轮（记录写好前，网页先用它显示）
@@ -214,10 +223,26 @@ class Runner:
         self.auto_review = False
         self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage = None
+        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot"} 或 None
+        self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
+        self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
+        self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
         self.auto_title = False   # 头一轮做完自动起短名字（app 里打开；测试里不调模型）  # 危险命令交给审核员（reviewer.py）判断；关掉就照旧等你点
 
+    @contextlib.asynccontextmanager
+    async def _slot(self, own: bool, human: bool):
+        """拿一个并行名额。own：自己有名额（总管）；human：你接着跟已有对话说话，名额满了可以用预留的那一个。"""
+        if own:
+            yield
+        elif human and self.use_spare and self.sem.locked() and not self.spare.locked():
+            async with self.spare:
+                yield
+        else:
+            async with self.sem:
+                yield
+
     def busy(self, num: int) -> bool:
-        return num in self.turns or not self.queues.get(num, asyncio.Queue()).empty()
+        return num in self.turns or num in self.waiting or num in self.finishing or not self.queues.get(num, asyncio.Queue()).empty()
 
     def submit(self, s: Session, job: Job) -> int:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
@@ -230,13 +255,13 @@ class Runner:
             asyncio.create_task(self._steer_codex(s, job))
             return -1
         # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后
-        if (turn and client and s.engine != "codex" and turn.accepting and not turn.interrupted and job.text != COMPACT
+        if (turn and client and s.engine == "claude" and turn.accepting and not turn.interrupted and job.text != COMPACT
                 and turn.request != _request_title(Job(text=COMPACT))):
             turn.injected += 1
             turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
             asyncio.create_task(self._inject(s, client, job))
             return -1
-        if (turn and not client and s.engine != "codex" and turn.accepting and not turn.interrupted and job.text != COMPACT
+        if (turn and not client and s.engine == "claude" and turn.accepting and not turn.interrupted and job.text != COMPACT
                 and turn.request != _request_title(Job(text=COMPACT))):
             # 刚开工、Claude 还没连上（头几秒）：等它连上就插进这一轮，不排到下一轮单独再答一遍
             turn.injected += 1
@@ -383,6 +408,23 @@ class Runner:
             return {"hookSpecificOutput": out}
         return hook
 
+    def _stop_check(self, turn: Turn, check):
+        """这一轮要结束时再看一眼：check(turn, 已经拦过一次) 返回一句话就拦下，让它先补上再结束（只拦一次）。"""
+        async def hook(data, tool_use_id, context):
+            why = check(turn, bool(data.get("stop_hook_active")))
+            return {"decision": "block", "reason": why} if why else {}
+        return hook
+
+    def _deny(self, names: set[str], reason: str = ""):
+        """不让这个对话用某些工具（总管不亲自干活）。"""
+        async def hook(data, tool_use_id, context):
+            name = str(data.get("tool_name") or "")
+            if name not in names:
+                return {}
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": reason or f"这个工具（{name}）在这里不能用。"}}
+        return hook
+
     def _fence(self, s: Session):
         """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
         root = Path(s.root).expanduser().resolve()
@@ -440,6 +482,9 @@ class Runner:
         while q and not q.empty():
             q.get_nowait()
         client = self.clients.get(num)
+        if num in self.waiting:   # 还在等名额：拿到也不做了
+            self.dropped.add(num)
+            return True
         if num in self.turns:
             self.turns[num].interrupted = True
         image_tasks = list(self.image_tasks.get(num, ()))
@@ -447,6 +492,9 @@ class Runner:
             task.cancel()
         if image_tasks:
             await asyncio.gather(*image_tasks, return_exceptions=True)
+        if conn := self.acp_live.get(num):   # ACP：让它停下这一轮
+            await conn.cancel()
+            return True
         if conn := self.codex_live.get(num):
             try:
                 await conn.interrupt()
@@ -467,8 +515,20 @@ class Runner:
                 continue
             s.status = "queued"
             self.registry.save()
-            async with self.sem:
+            # 总管有自己的名额：派出去的对话占满并行数时，它照样能听你说话、收回报
+            own = bool(((self.role(s) if self.role else None) or {}).get("own_slot"))
+            # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
+            human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
+            self.waiting.add(num)
+            async with self._slot(own, human):
+                self.waiting.discard(num)
+                if num in self.dropped:
+                    self.dropped.discard(num)
+                    s.status = "idle"
+                    self.registry.save()
+                    continue
                 turn = Turn(started=time.time(), request=_request_title(job), via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
+                turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
@@ -498,6 +558,7 @@ class Runner:
                         await asyncio.gather(*image_tasks, return_exceptions=True)
                     turn.ended = time.time()
                     self.last[num] = turn
+                    self.finishing.add(num)   # 结果还没处理完（查额度、通知）：仍算在忙
                     self.turns.pop(num, None)
                     self.clients.pop(num, None)
                     if (turn.is_error and s.claude_id == started_before and not turn.final_text
@@ -510,16 +571,20 @@ class Runner:
                     elif s.worked is None and started_before is None and not turn.is_error:
                         s.worked = False   # 新开的对话头一轮只聊了天
                     self.registry.save()
-            await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
-            if self.on_usage and turn.usage:
-                try:
-                    self.on_usage(s, turn)
-                except Exception:  # noqa: BLE001 - 记不上消耗不影响报告
-                    log.exception("记消耗失败")
-            job.finished = True
-            if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
-                asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
-            await self.on_done(s, turn)
+            try:
+                if s.engine in ("claude", "codex"):   # ACP 引擎没有额度可查
+                    await (self.refresh_gpt_usage() if s.engine == "codex" else self.refresh_usage())
+                if self.on_usage and turn.usage:
+                    try:
+                        self.on_usage(s, turn)
+                    except Exception:  # noqa: BLE001 - 记不上消耗不影响报告
+                        log.exception("记消耗失败")
+                job.finished = True
+                if self.auto_title and not (s.renamed or s.titled or turn.is_error or job.text == COMPACT):
+                    asyncio.create_task(self._auto_title(s, job.text, turn.final_text))
+                await self.on_done(s, turn)
+            finally:
+                self.finishing.discard(num)
 
     async def title_all(self, records_dir: Path) -> None:
         """还没起过短名字的对话（你手动改过名的除外）一个个补上：按它最近一轮你说的话和回复起。启动时跑一次。"""
@@ -681,7 +746,8 @@ class Runner:
                     result = {"state": "failed", "images": [], "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]))
+        extra = (self.role(session) or {}).get("tools", []) if self.role and session else []
+        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]) + extra)
 
     async def _prompt(self, job: Job):
         content: list[dict] = []
@@ -696,8 +762,11 @@ class Runner:
         yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None}
 
     async def _run(self, s: Session, job: Job, turn: Turn) -> None:
-        if s.root and s.engine == "codex":
-            raise RuntimeError("受限账号不能使用 Codex")
+        if s.root and s.engine != "claude":
+            raise RuntimeError("受限账号只能用 Claude")
+        from .acp import is_acp
+        if is_acp(s.engine):
+            return await _acp_run(self, s, job, turn)
         if s.engine == "codex":
             return await _codex_run(self, s, job, turn)
         if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
@@ -707,8 +776,11 @@ class Runner:
             s.cwd, s.add_dirs = str(Path(s.root).expanduser()), []
             Path(s.cwd).mkdir(parents=True, exist_ok=True)
         hooks = [HookMatcher(matcher="Bash", hooks=[self._guard(s, turn)], timeout=CONFIRM_WAIT + 60)]
+        role = (self.role(s) if self.role else None) or {}
         if fenced:
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self._fence(s)], timeout=60))
+        if role.get("disallowed"):   # 光靠 disallowed_tools 挡不住（bypassPermissions 下照样执行），用钩子拒掉
+            hooks.insert(0, HookMatcher(matcher=None, hooks=[self._deny(set(role["disallowed"]), role.get("deny_reason", ""))], timeout=60))
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
@@ -720,7 +792,9 @@ class Runner:
             enable_file_checkpointing=True,   # 记下每轮改了哪些文件，“回到这里”时能把文件一起退回
             setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
-            system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions)},
+            system_prompt={"type": "preset", "preset": "claude_code", "append": (build_instructions(self.language, "") + f"\n只在当前工作文件夹 {s.root} 里工作，不访问外部文件。") if fenced else build_instructions(self.language, self.extra_instructions) + role.get("append", "")},
+            disallowed_tools=list(role.get("disallowed", [])),
+            tools=role.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
             mcp_servers={"anzhuo": self._image_tool(turn, s)},
             env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
             stderr=lambda line: log.debug("claude: %s", line),
@@ -728,7 +802,8 @@ class Runner:
             thinking={"type": "adaptive", "display": "summarized"},
             include_partial_messages=True,  # 回复边写边出（网页实时看）  # 要思考摘要（默认不给字），网页“工作过程”里看它怎么想的
             # 删东西、推代码、改数据库这类先问你（见 guard.py）；等你点的时间算在钩子里，超时就当不同意
-            hooks={"PreToolUse": hooks},
+            hooks={"PreToolUse": hooks, **({"Stop": [HookMatcher(matcher=None, hooks=[self._stop_check(turn, role["on_stop"])], timeout=60)]}
+                                           if role.get("on_stop") else {})},
             **(self._fence_options(s) if fenced else {}),
         )
         last_text = ""
@@ -1004,9 +1079,22 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             return {"decision": "accept"}
         if method == "applyPatchApproval":
             return {"decision": "approved"}
+        if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具（总管派活的汇报、退回）
+            args = prm.get("arguments") if isinstance(prm.get("arguments"), dict) else {}
+            if label := step_label(f"mcp__anzhuo__{prm.get('tool')}", args):
+                turn.steps.append(label)
+                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": json.dumps(args, ensure_ascii=False)[:500]})
+            res = await h(args)
+            text = "".join(str(c.get("text") or "") for c in res.get("content") or [])
+            return {"contentItems": [{"type": "inputText", "text": text}], "success": not res.get("isError")}
         return None
 
-    conn = CodexConn(s.cwd, on_event, on_request)
+    # 特殊角色（总管派出去的对话）的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
+    role = (self.role(s) if getattr(self, "role", None) else None) or {}
+    handlers = {t.name: t.handler for t in role.get("tools") or []}
+    specs = [{"type": "function", "name": t.name, "description": t.description, "inputSchema": t.input_schema}
+             for t in role.get("tools") or []]
+    conn = CodexConn(s.cwd, on_event, on_request, **({"tools": specs} if specs else {}))   # 没有工具时调用和原来一样
     self.codex_live[s.num] = conn
     turn.model = "GPT（Codex）"
     turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
@@ -1024,7 +1112,7 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
             s.context_pct = s.context_tokens = None
             self.registry.save()
         else:
-            s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(self.language, self.extra_instructions))
+            s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(self.language, self.extra_instructions) + role.get("append", ""))
         turn.model = f"GPT（{conn.model}）" if conn.model else turn.model
         if job.text == COMPACT:   # 压缩上下文
             before = s.context_pct
@@ -1037,6 +1125,16 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
         else:
             turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort)
             await conn.done.wait()
+            # Codex 没有 Stop 钩子：该汇报没汇报就接着补一轮，只让它补上汇报；回复仍用补之前那段
+            check = role.get("on_stop")
+            if check and conn.turn_status == "completed" and not turn.interrupted and (why := check(turn, False)):
+                kept = list(texts)
+                conn.done.clear()
+                conn.turn_status = ""
+                turn.codex_turn_id = await conn.start_turn(why, [], effort)
+                await conn.done.wait()
+                if kept:
+                    texts[:] = kept
     except CodexError as e:
         turn.is_error = True
         turn.error = str(e)[:300]
@@ -1062,6 +1160,194 @@ async def _codex_run(self, s: Session, job: Job, turn: Turn) -> None:
     turn.images += imgs
     turn.files += files
     turn.effort = effort
+
+
+ACP_KIND = {"read": "看", "edit": "改", "delete": "删", "move": "挪", "search": "搜：", "execute": "跑命令：", "fetch": "读网页：",
+            "think": "想：", "switch_mode": "换模式："}
+
+
+def _acp_texts(call: dict) -> list[str]:
+    """工具调用里附带的文字（各家放的地方不一样：参数 JSON、“Requesting approval to Running: …”）。"""
+    out = []
+    for c in call.get("content") or []:
+        inner = c.get("content") if isinstance(c, dict) else None
+        if isinstance(inner, dict) and isinstance(inner.get("text"), str):
+            out.append(inner["text"])
+    return out
+
+
+def _acp_input(call: dict) -> dict:
+    """这次调用的参数：有 rawInput 用它；没有就从附带的 JSON 文字里找（Kimi 开头只给标题和一段 JSON）。"""
+    raw = call.get("rawInput")
+    if isinstance(raw, dict) and raw:
+        return raw
+    for text in _acp_texts(call):
+        if text.lstrip().startswith("{"):
+            try:
+                d = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                return d
+    return {}
+
+
+def _acp_step(call: dict) -> tuple[str, str, str]:
+    """ACP 的一次工具调用 → (步骤名, 细节, 命令或文件)。命令、路径找不到时第三项为空。"""
+    kind, title = str(call.get("kind") or ""), str(call.get("title") or "")
+    raw = _acp_input(call)
+    locs = [str(x.get("path")) for x in call.get("locations") or [] if isinstance(x, dict) and x.get("path")]
+    words = [title, *_acp_texts(call)]
+    cmd = ""
+    if kind == "execute":
+        cmd = str(raw.get("command") or raw.get("cmd") or "")
+        if not cmd:   # “Running: ls -la”“Requesting approval to Running: git push”
+            cmd = next((m.group(1).strip() for w in words if (m := re.search(r"Running:\s*(.+)", w, re.S))), "")
+    path = locs[0] if locs else str(raw.get("path") or raw.get("file_path") or "")
+    if not path and kind in ("read", "edit", "delete", "move"):
+        path = next((m.group(1).strip() for w in words if (m := re.search(r"(?:Writing|Reading|Editing|Deleting|Moving)\s+(\S.*)$", w))), "")
+    if kind == "execute" and not cmd:
+        return "跑命令", title, ""
+    if kind == "execute":
+        return "跑命令：" + brief(cmd, 18), cmd[:3000], cmd
+    if kind in ("read", "edit", "delete", "move") and path:
+        return f"{ACP_KIND[kind]} {Path(path).name}", path, path
+    return (ACP_KIND.get(kind, "") + brief(title, 18)) if title else (kind or "工具"), (json.dumps(raw, ensure_ascii=False)[:500] if raw else title), ""
+
+
+def thinking_value(effort: str, option: dict | None) -> str:
+    """远窗的思考深度（low…max）→ 这个助手“思考”配置项里最接近的取值（各家不一样：off/on、low/high/max……）。"""
+    have = [str(x.get("value")) for x in (option or {}).get("options") or []]
+    prefs = {"low": ["low", "off", "minimal"], "medium": ["medium", "high", "on"], "high": ["high", "on", "medium"],
+             "xhigh": ["xhigh", "max", "high", "on"], "max": ["max", "xhigh", "high", "on"]}.get(effort, [effort])
+    return next((v for v in prefs if v in have), "")
+
+
+async def _acp_run(self, s: Session, job: Job, turn: Turn) -> None:
+    """用 ACP 跑一轮（Kimi 等）：开或接着会话 → 说这句话 → 把事件翻成和 Claude 一样的步骤、说明、回复。
+    第一句话前带上远窗的约定（ACP 没有系统提示）。跑命令要批准时：危险的交给你点头，其余放行。"""
+    from .acp import AcpConn, AcpError, ENGINES
+    if stuck := await asyncio.to_thread(blocked, [Path(s.cwd), *map(Path, s.add_dirs)]):
+        raise FolderBlocked("、".join(display(p) for p in stuck))
+    name = ENGINES[s.engine]["name"]
+    said: list[str] = []   # 这一轮它说过的每一段（工具调用把话隔成几段；最后一段是回复）
+    buf = {"say": "", "think": ""}
+    calls: dict[str, dict] = {}
+
+    def flush(kind: str) -> None:
+        text = buf[kind].strip()
+        buf[kind] = ""
+        if not text:
+            return
+        if kind == "say":
+            said.append(text)
+            turn.partial = ""
+        turn.timeline.append({"t": time.time(), "kind": kind, "text": text[:6000 if kind == "say" else 4000]})
+
+    def on_update(u: dict) -> None:
+        turn.last_at = time.time()
+        k = u.get("sessionUpdate")
+        content = u.get("content") if isinstance(u.get("content"), dict) else {}
+        if k == "agent_message_chunk":
+            if buf["think"]:
+                flush("think")
+            buf["say"] += str(content.get("text") or "")
+            turn.partial = buf["say"][-6000:]
+        elif k == "agent_thought_chunk":
+            buf["think"] += str(content.get("text") or "")
+        elif k in ("tool_call", "tool_call_update"):
+            flush("think"), flush("say")
+            cid = str(u.get("toolCallId") or "")
+            call = calls.setdefault(cid, {})
+            # 只认第一次带来的参数文字：之后的 update 把 content 换成了命令输出，不能拿来找参数
+            if "_input" not in call and (got := _acp_input(u)):
+                call["_input"] = got
+            call.update({x: v for x, v in u.items() if v is not None and x != "content"})
+            call.setdefault("rawInput", call.get("_input"))
+            label, detail, target = _acp_step(call)
+            if "_at" not in call:   # 第一次：记一步；之后参数补全了（命令、文件名）就原地改这一步，不另起一步
+                call["_at"] = (len(turn.steps), len(turn.timeline))
+                turn.steps.append(label)
+                turn.timeline.append({"t": time.time(), "kind": "do", "text": label, "detail": detail})
+            else:
+                i, j = call["_at"]
+                turn.steps[i] = label
+                turn.timeline[j].update(text=label, detail=detail)
+            if target and not call.get("_counted"):
+                call["_counted"] = True
+                if call.get("kind") == "execute":
+                    turn.commands.append(target[:200])
+                elif call.get("kind") in ("edit", "delete", "move"):
+                    turn.changed_files.append(target)
+        elif k == "plan":
+            st = {"completed": "done", "in_progress": "doing"}
+            turn.plan = [{"text": str(x.get("content", ""))[:60], "status": st.get(x.get("status"), "pending")}
+                         for x in (u.get("entries") or [])[:20]]
+        elif k == "usage_update":
+            used, size = u.get("used"), u.get("size")
+            if used and size:
+                turn.context_pct = s.context_pct = min(100.0, 100.0 * used / size)
+                s.context_tokens = int(used)
+
+    async def on_permission(prm: dict) -> str | None:
+        """要批准时：危险命令交给你点头（不同意就拒），其余放行一次。"""
+        call = prm.get("toolCall") or {}
+        opts = prm.get("options") or []
+        pick = lambda *kinds: next((o.get("optionId") for k in kinds for o in opts if o.get("kind") == k), None)  # noqa: E731
+        known = calls.get(str(call.get("toolCallId") or ""), {})
+        # 先用之前记下的参数，再看批准请求自己带的文字（Kimi 只写“Requesting approval to Running: …”）
+        _, _, target = _acp_step(known)
+        if not target:
+            _, _, target = _acp_step({**known, **{x: v for x, v in call.items() if v is not None}})
+        kind = str(known.get("kind") or call.get("kind") or "")
+        what = guard.danger(target) if target else ("要跑命令，但看不出具体是什么" if kind == "execute" else "")
+        if what and not await self.decide(s, turn, what, target or str(call.get("title") or "")):
+            return pick("reject_once", "reject_always")
+        return pick("allow_once", "allow_always")
+
+    conn = AcpConn(s.engine, s.cwd, on_update, on_permission, add_dirs=s.add_dirs)
+    self.acp_live[s.num] = conn
+    turn.model = name
+    turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
+    role = (self.role(s) if self.role else None) or {}
+    try:
+        await conn.start()
+        fresh = not s.acp_id
+        s.acp_id = await conn.open_session(s.acp_id or None)
+        self.registry.save()
+        if s.model:
+            await conn.set_option("model", s.model)
+        effort = s.effort or self.default_effort or ""
+        if effort and (want := thinking_value(effort, conn.option("thinking"))):
+            await conn.set_option("thinking", want)
+        from .acp import remember
+        remember(s.engine, conn.option("model"))   # 总管派活时知道它有哪些模型
+        model = (conn.option("model") or {}).get("currentValue") or ""
+        turn.model = f"{name}（{model}）" if model else name
+        text = job.text
+        if fresh:   # ACP 没有系统提示：远窗的约定放在第一句话前面
+            rules = codex_instructions(self.language, self.extra_instructions) + role.get("append", "")
+            text = f"（远窗的约定，整个对话都照此执行：{rules}）\n\n{text}"
+        stop = await conn.prompt(text, job.images)
+        flush("think"), flush("say")
+        if stop == "cancelled":
+            turn.interrupted = True
+        elif stop in ("refusal", "max_tokens", "max_turn_requests"):
+            turn.error = {"refusal": f"{name} 拒绝了这个请求", "max_tokens": "回复太长被截断了",
+                          "max_turn_requests": "这一轮工具调用次数到上限了"}[stop]
+    except AcpError as e:
+        turn.is_error = True
+        turn.error = str(e)[:300]
+    finally:
+        turn.accepting = False
+        self.acp_live.pop(s.num, None)
+        await conn.close()
+    turn.partial = ""
+    turn.final_text = said[-1] if said else ""
+    turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
+    turn.images += imgs
+    turn.files += files
+    turn.effort = s.effort or self.default_effort or ""
 
 
 def _tool_detail(name: str, inp: dict) -> str:

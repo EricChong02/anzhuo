@@ -28,6 +28,7 @@ from .push import Push
 from .speech import Speech
 from .sessions import COMPACT, Session
 from .cards import parse_decision
+from .acp import ENGINES as ACP_ENGINES, is_acp, available as acp_available
 from .sessions import NOISE
 from .commands import Cmd
 from .dingtalk import Incoming
@@ -108,7 +109,7 @@ def model_options() -> list[list[str]]:
     from .app import MODELS
     from .codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        ["gpt", display_model(configured_model()) or "GPT"]]
+        ["gpt", display_model(configured_model()) or "GPT"]] + [[k, v["name"]] for k, v in ACP_ENGINES.items() if acp_available(k)]
 
 def _md(text: str) -> str:
     """回复里的 Markdown 粗略转成 HTML：转义后只处理加粗、行内代码和链接，其余保留换行。"""
@@ -226,10 +227,18 @@ class Web:
 
     def __init__(self, base: str, port: int, data_dir: Path,
                  user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
-                 save_hash=None):
+                 save_hash=None, web_prefix: str = ""):
+        # 子路径挂载：被别的面板反代透传时，整站挂在 {web_prefix}/... 下（见 config.example.toml 的 web_prefix）。空 = 根路径，现状不变
+        prefix = (web_prefix or "").strip()
+        if prefix and not prefix.startswith("/"):
+            prefix = "/" + prefix
+        self.web_prefix = prefix.rstrip("/")
+        self.px = self.web_prefix + PREFIX   # /_x 命名空间的实际地址，比如 /yuanchuang/_x
         # 账号：名字 → {role: admin / user, root: user 的工作文件夹, hash: 密码指纹}。老写法（user + pw_hash）当作唯一的 admin
         self.accounts = dict(accounts) if accounts else ({user: {"role": "admin", "root": "", "hash": pw_hash}} if user else {})
         self.save_hash = save_hash  # 管理页改密码时存指纹（默认存钥匙串）
+        from .config import CONFIG_PATH
+        self.config_path = CONFIG_PATH  # 设置页读写的 config.toml（测试里换成临时文件）
         self.usage_path = data_dir / "usage.jsonl"
         self.fails: dict[str, list[float]] = {}
         self.all_fails: list[float] = []
@@ -239,6 +248,18 @@ class Web:
         self.store_path = data_dir / "web.json"
         self.push = Push(data_dir / "push.json", self.base or "https://localhost", mirror=watch_host)
         self.store = self._load()
+        # 鉴权用的路径集合按前缀重算：PUBLIC / USER_ROUTES 是按 /_x 写的模块常量，挂了子路径就整体平移
+        # （/dl 不在 /_x 命名空间里，路由挂到 {web_prefix}/dl，鉴权集合要跟着搬，不然非管理员下文件会被 403）
+        def _shift(p: str) -> str:
+            if p.startswith(PREFIX):
+                return self.px + p[len(PREFIX):]
+            if self.web_prefix and p.startswith("/dl"):
+                return self.web_prefix + p
+            return p
+        self.public = tuple(_shift(p) for p in PUBLIC)
+        self.user_routes = {_shift(p) for p in USER_ROUTES}
+        if self.web_prefix:
+            self.user_routes |= {f"{self.web_prefix}/", self.web_prefix}   # 挂载点的入口重定向，谁都能走到主界面
         self._rewind_lock = asyncio.Lock()
         self.speech = Speech(data_dir / "speech")
         self.bridge = None  # 小E 本体（app.Bridge），网页对话框靠它看对话、发话
@@ -355,14 +376,13 @@ class Web:
             return int(mine[-LOCK_IP[0]] + LOCK_IP[1] - now) + 1
         return 0
 
-    @staticmethod
-    def _safe_next(target: str) -> str:
-        return target if target.startswith("/") and not target.startswith("//") else f"{PREFIX}/"
+    def _safe_next(self, target: str) -> str:
+        return target if target.startswith("/") and not target.startswith("//") else f"{self.px}/"
 
     def _login_form(self, nxt: str, msg: str = "", status: int = 200) -> web.Response:
         note = f'<p class="err">{html.escape(msg)}</p>' if msg else ""
         body = LOGIN_CSS + f"""
-<form class="login" method="post" action="{PREFIX}/login">
+<form class="login" method="post" action="{self.px}/login">
 {MARK}<h1>远窗</h1><p class="sub">登录一次，这台设备 30 天免登录</p>{note}
 <input type="hidden" name="next" value="{html.escape(nxt)}">
 <input name="username" placeholder="账号" autocomplete="username" autocapitalize="off" required>
@@ -371,14 +391,14 @@ class Web:
         return self._page("登录 · 远窗", body, status)
 
     async def _login_get(self, request: web.Request) -> web.Response:
-        nxt = self._safe_next(request.query.get("next", f"{PREFIX}/"))
+        nxt = self._safe_next(request.query.get("next", f"{self.px}/"))
         if self._logged_in(request):
             raise web.HTTPFound(nxt)
         return self._login_form(nxt)
 
     async def _login_post(self, request: web.Request) -> web.Response:
         form = await request.post()
-        nxt = self._safe_next(str(form.get("next", f"{PREFIX}/")))
+        nxt = self._safe_next(str(form.get("next", f"{self.px}/")))
         ip = self._client_ip(request)
         if wait := self._locked(ip):
             return self._login_form(nxt, f"错太多次了，{max(1, wait // 60)} 分钟后再试。", 429)
@@ -651,30 +671,32 @@ class Web:
             return None
 
     # ---------- 页面 ----------
-    @staticmethod
-    def _page(title: str, body: str, status: int = 200) -> web.Response:
-        return web.Response(text=PAGE.format(title=html.escape(title), body=body), status=status,
+    def _page(self, title: str, body: str, status: int = 200) -> web.Response:
+        page = PAGE.format(title=html.escape(title), body=body)
+        if self.web_prefix:   # PAGE 是按 /_x 写的模板，挂了子路径就把里面的引用平移
+            page = page.replace('href="/_x/"', f'href="{self.px}/"')
+        return web.Response(text=page, status=status,
                             content_type="text/html", headers={"Cache-Control": "no-store",
                                                                "Referrer-Policy": "no-referrer"})
 
     def _denied(self, request: web.Request) -> web.Response:
         if request.method == "GET" and "/api/" not in request.path:
-            raise web.HTTPFound(f"{PREFIX}/login?next={quote(request.rel_url.path_qs, safe='')}")
+            raise web.HTTPFound(f"{self.px}/login?next={quote(request.rel_url.path_qs, safe='')}")
         return web.json_response({"detail": "需要先登录远窗"}, status=401)
 
     async def _app_page(self, request: web.Request) -> web.Response:
         from .webui import app_html
-        return web.Response(text=app_html(), content_type="text/html", headers={"Cache-Control": "no-store"})
+        return web.Response(text=app_html(self.web_prefix), content_type="text/html", headers={"Cache-Control": "no-store"})
 
     async def _icon(self, request: web.Request) -> web.StreamResponse:
         name = "icon-512.png" if request.path.endswith("512.png") else "icon.png"
         return web.FileResponse(Path(__file__).parent / "static" / name, headers={"Cache-Control": "max-age=86400"})
 
     async def _manifest(self, request: web.Request) -> web.Response:
-        return web.json_response({"name": "远窗", "short_name": "远窗", "start_url": f"{PREFIX}/", "display": "standalone",
+        return web.json_response({"name": "远窗", "short_name": "远窗", "start_url": f"{self.px}/", "display": "standalone",
                                   "background_color": "#d5dee5", "theme_color": "#d5dee5",
-                                  "icons": [{"src": f"{PREFIX}/icon.png", "sizes": "180x180", "type": "image/png"},
-                                            {"src": f"{PREFIX}/icon-512.png", "sizes": "512x512", "type": "image/png"}]})
+                                  "icons": [{"src": f"{self.px}/icon.png", "sizes": "180x180", "type": "image/png"},
+                                            {"src": f"{self.px}/icon-512.png", "sizes": "512x512", "type": "image/png"}]})
 
     async def _sw(self, request: web.Request) -> web.Response:
         # 点通知：先把要打开的对话编号记进缓存（iPhone 冷启动时不一定带上地址），再叫醒已开着的页面或新开一个
@@ -694,7 +716,7 @@ self.addEventListener('notificationclick', e => {
 });
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
-"""
+""".replace(f"'{PREFIX}/", f"'{self.px}/")
         return web.Response(text=js, content_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
     async def _health(self, request: web.Request) -> web.Response:
@@ -719,7 +741,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"ok": True})
 
     async def _to_index(self, request: web.Request) -> web.Response:
-        raise web.HTTPFound(f"{PREFIX}/")
+        # 挂了子路径时根路径友好跳到挂载点；没挂就跳主界面（现状）
+        raise web.HTTPFound(f"{self.web_prefix}/" if self.web_prefix else f"{self.px}/")
+
+    async def _to_app(self, request: web.Request) -> web.Response:
+        raise web.HTTPFound(f"{self.px}/")
 
     async def _index(self, request: web.Request) -> web.Response:
         """历史记录：按对话列（不是按每一轮）。点对话名回到那个对话接着聊；展开“每一轮”看各轮的完整过程页。"""
@@ -741,10 +767,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if s and s.hidden:
                 bits.append("已删除")
             turns = "".join(
-                f'<li><a href="{PREFIX}/t/{html.escape(r["id"])}">{time.strftime("%m-%d %H:%M", time.localtime(last(r)))} · '
+                f'<li><a href="{self.px}/t/{html.escape(r["id"])}">{time.strftime("%m-%d %H:%M", time.localtime(last(r)))} · '
                 f'{html.escape(r.get("request") or r.get("title") or "")}</a></li>' for r in rs[:30])
             more = f'<li class="meta">更早的 {len(rs) - 30} 轮略</li>' if len(rs) > 30 else ""
-            rows.append(f'<div class="card"><a href="{PREFIX}/?s={num}"><b>{html.escape(name)}</b></a>'
+            rows.append(f'<div class="card"><a href="{self.px}/?s={num}"><b>{html.escape(name)}</b></a>'
                         f'<div class="meta">{html.escape(" · ".join(b for b in bits if b))}</div>'
                         f'<details><summary class="meta">每一轮</summary><ul>{turns}{more}</ul></details></div>')
         return self._page("远窗 · 历史记录", "<h1>历史记录</h1><p class='meta'>按对话列，最近动过的在前；点名字回到那个对话。</p>"
@@ -756,7 +782,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return self._page("没有这一轮", "<h1>没有这一轮的记录</h1>", 404)
         mins = max(1, round(((r["ended"] or r["started"]) - r["started"]) / 60))
         when = time.strftime("%m-%d %H:%M", time.localtime(r["started"]))
-        out = [f'<p class="meta"><a href="{PREFIX}/history">← 历史记录</a></p>',
+        out = [f'<p class="meta"><a href="{self.px}/history">← 历史记录</a></p>',
                f"<h1>{html.escape(r['title'])}：{html.escape(r['request'] or r['label'])}</h1>",
                f"<p class='meta'>{html.escape(r['label'])} · {when} 起 · {mins} 分钟 · "
                f"{html.escape(display(Path(r['cwd'])))} · {html.escape(r.get('model') or '')}</p>"]
@@ -765,11 +791,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if r.get("final_text"):
             out.append(f"<h2>结果</h2><div class='card say'>{_md(r['final_text'])}</div>")
         if r.get("images"):
-            out.append("<h2>截图</h2>" + "".join(f'<img src="{PREFIX}/t/{r["id"]}/img/{i}" loading="lazy">'
+            out.append("<h2>截图</h2>" + "".join(f'<img src="{self.px}/t/{r["id"]}/img/{i}" loading="lazy">'
                                                 for i in range(len(r["images"]))))
         if r.get("files"):
             out.append("<h2>交给你的文件</h2><ul>" + "".join(
-                f'<li><a href="{PREFIX}/t/{r["id"]}/file/{i}">{html.escape(Path(f).name)}</a></li>'
+                f'<li><a href="{self.px}/t/{r["id"]}/file/{i}">{html.escape(Path(f).name)}</a></li>'
                 for i, f in enumerate(r["files"])) + "</ul>")
         if r.get("changed_files"):
             out.append("<h2>改了哪些文件</h2><ul>" + "".join(
@@ -832,7 +858,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             except asyncio.TimeoutError:
                 proc.kill()
         pages = sorted(out.glob("p-*.png"), key=lambda p: int(p.stem.split("-")[-1]))
-        base = f"/dl/{request.match_info['tid']}/{request.match_info['i']}/p/"
+        base = f"{self.web_prefix}/dl/{request.match_info['tid']}/{request.match_info['i']}/p/"
         return web.json_response({"pages": [base + p.name for p in pages]})
 
     async def _pdf_page(self, request: web.Request) -> web.StreamResponse:
@@ -877,10 +903,10 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             try:
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
-                       "url": f"/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
+                       "url": f"{self.web_prefix}/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
                 out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "files": fs,
                             "checkpoint_before": r.get("checkpoint_before", ""), "checkpoint_after": r.get("checkpoint_after", ""), "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
-                            "images": [f"{PREFIX}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
+                            "images": [f"{self.px}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
                 continue
@@ -957,7 +983,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
-                         "pinned": s.pinned, "category": "",
+                         "pinned": s.pinned, "category": "", "role": s.role,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
@@ -968,7 +994,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                    "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
-                                  "models": [m for m in model_options() if not fenced or m[0] != "gpt"],
+                                  "models": [m for m in model_options() if not fenced or m[0] in ("opus", "sonnet", "haiku", "fable")],
                                   "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "task_grouping": getattr(b.cfg, "task_grouping", False), "has_gpt": any(getattr(x, "engine", "") == "codex" for x in b.registry.visible(owner))})
@@ -980,6 +1006,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         home = str(Path.home())
         seen, out = {str(Path(v).expanduser()) for v in b.cfg.folders.values()}, []   # 配了短名的文件夹已经在菜单里，不再重复列
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.role == "router":   # 总管的文件夹不是干活的地方
+                continue
             p = str(Path(s.cwd).expanduser())
             if p in seen or p == home or p.startswith(scratch):
                 continue
@@ -994,6 +1022,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         b = self.bridge
         scratch, home = str(Path(b.cfg.scratch_root).expanduser()), str(Path.home())
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
+            if s.role == "router":   # 总管的文件夹不是干活的地方
+                continue
             p = str(Path(s.cwd).expanduser())
             if p == home or p.startswith(scratch):
                 return ""
@@ -1077,7 +1107,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     def _search_items(self, s) -> list[dict]:
         """一个对话里能搜的话（你说的、它每轮的回复），按记录文件变没变缓存住，不用每次重读几十 MB 的记录。"""
-        if s.engine == "codex":
+        if s.engine != "claude":
             key = ("x", len(list(self.turns_dir.glob(f"{s.num}-*.json"))))
         else:
             p = thread.transcript_path(s.claude_id) if s.claude_id else None
@@ -1087,7 +1117,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             return hit[1]
         items: list[dict] = []
         try:
-            if s.engine == "codex":
+            if s.engine != "claude":
                 items = self._codex_history(s.num)
             elif s.claude_id:
                 items = thread.history(thread.full_messages(s.claude_id, s.cwd), limit=100000)
@@ -1237,15 +1267,15 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _saved_items(self, s):
         b, num = self.bridge, s.num
         # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
-        lt = b.runner.last.get(num) if s.engine == "codex" and hasattr(b.runner, "last") else None
-        key = (s.claude_id or s.codex_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
+        lt = b.runner.last.get(num) if s.engine != "claude" and hasattr(b.runner, "last") else None
+        key = (s.claude_id or s.codex_id or s.acp_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
                lt.ended if lt else 0, self._cc_mtime(s))
         cached = self._threads.get(num)
         if cached and cached[0] == key:
             items = cached[1]
         else:
             items = []
-            if s.engine == "codex":
+            if s.engine != "claude":
                 items = thread.attach_records(self._codex_history(num), self._records(num))
             elif s.claude_id:
                 try:
@@ -1280,6 +1310,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if cut is not None:
                 items = items[:cut + 1] + [{"who": "note", "rewind": True, "fork": s.forking, "text": s.rewind_note or "已回到这里"}]
         items += [{"who": "you", "text": o["text"], "pending": True, "age": int(time.time() - o["t"])} for o in out]
+        if s.role == "router" and s.notes:   # 总管还没看的“期间的情况”（含你用 #N 直接交出去的话）
+            items.append({"who": "note", "text": f"期间的情况 · {len(s.notes)} 条（总管下次开口前会看）", "sa": "\n".join(f"- {n}" for n in s.notes)})
         history = []
         for index, previous in enumerate(chain[:-1]):
             history += [{**it, "source_num": previous.num, "historical": True}
@@ -1336,7 +1368,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             s.relay_suggested = True
             b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
-                 "mkey": "gpt" if s.engine == "codex" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
+                 "mkey": "gpt" if s.engine == "codex" else s.engine if is_acp(s.engine) else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "",
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
@@ -1556,7 +1588,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         model, effort = self._model_effort(data)
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
-        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" else model, effort=effort,
+        await b._start(before, root, [], text, inc, kind="simple", model=None if model == "gpt" or is_acp(model or "") else model, effort=effort,
                        owner=owner, root=str(root))
         return web.json_response({"ok": True, "num": before})
 
@@ -1565,7 +1597,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         """网页上选的模型（opus / sonnet / haiku）和深度（low…max）；没选或不认得的返回 None。"""
         from .app import EFFORTS, MODELS
         m = str(data.get("model") or "")
-        return ("gpt" if m == "gpt" else MODELS.get(m)), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
+        return ("gpt" if m == "gpt" else m if is_acp(m) else MODELS.get(m)), next((v for v in EFFORTS.values() if v and v == data.get("effort")), None)
 
     async def _api_settings(self, request: web.Request) -> web.Response:
         """改某个对话的模型和思考深度，下一轮起生效（正在做的这一轮不变）。"""
@@ -1575,7 +1607,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if not s:
             raise web.HTTPNotFound()
         model, effort = self._model_effort(await request.json())
-        if model == "gpt" or (s.engine == "codex" and model):
+        if model == "gpt" or is_acp(model or "") or (s.engine != "claude" and model):
             model = None   # 一个对话从头到尾用同一家：中途不在 Claude 和 GPT 之间换
         s.model = model or s.model
         s.effort = effort or s.effort
@@ -1607,6 +1639,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         p = b.registry.get(int(request.match_info["num"]))
         if not p:
             raise web.HTTPNotFound()
+        if is_acp(p.engine):
+            return web.json_response({"ok": False, "error": f"{ACP_ENGINES[p.engine]['name']} 的对话暂不支持分叉"})
         to = str((await request.json()).get("to") or "")
         if p.engine == "codex":
             try:
@@ -1653,6 +1687,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         s = b.registry.get(int(request.match_info["num"]))
         if not s:
             raise web.HTTPNotFound()
+        if is_acp(s.engine):
+            return web.json_response({"ok": False, "error": f"{ACP_ENGINES[s.engine]['name']} 的对话暂不支持回退"})
         data = await request.json()
         if data.get("cancel"):
             if s.forking:
@@ -1923,7 +1959,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
     # ---------- 管理页（只有 admin）：账号与登录、额度消耗 ----------
     async def _admin_page(self, request: web.Request) -> web.Response:
-        raise web.HTTPFound(f"{PREFIX}/#admin")   # 管理是主界面里的一个视图
+        raise web.HTTPFound(f"{self.px}/#admin")   # 管理是主界面里的一个视图
 
     async def _api_admin(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -1959,6 +1995,19 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                                   "limits_gpt": self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "period": "week" if current_week else "days", "week_available": cycle_start is not None,
                                   "period_start": cycle_start if current_week else None, "rate": rate})
+
+    # ---------- 设置（只有 admin）：读写 config.toml 里常改的项，见 prefs.py ----------
+    async def _api_prefs(self, request: web.Request) -> web.Response:
+        from . import prefs
+        if request.method == "GET":
+            return web.json_response(prefs.payload(self.bridge, self.config_path))
+        if not self._same_origin(request):
+            raise web.HTTPForbidden()
+        return web.json_response(prefs.update(self.bridge, await request.json(), self.config_path))
+
+    async def _settings_js(self, request: web.Request) -> web.StreamResponse:
+        from .webui import settings_js
+        return web.Response(text=settings_js(self.web_prefix), content_type="application/javascript", headers={"Cache-Control": "no-store"})
 
     async def _api_admin_act(self, request: web.Request) -> web.Response:
         """改密码、停用 / 启用账号、调额度比例、退出某台设备或某个账号的所有设备。admin 自己不能停用自己。"""
@@ -2010,7 +2059,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     # ---------- 启动 ----------
     @web.middleware
     async def _guard(self, request: web.Request, handler):
-        if request.path in PUBLIC:
+        if request.path in self.public:
             return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
@@ -2018,9 +2067,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             request["acct"], request["owner"] = self._admin(), "admin"
         owner, admin = request["owner"], self.role(request["acct"]) == "admin"
         route = request.match_info.route.resource.canonical if request.match_info.route.resource else ""
-        if not admin and route not in USER_ROUTES:
+        if not admin and route not in self.user_routes:
             raise web.HTTPForbidden(text="这个账号用不了这里")
-        if route.startswith(f"{PREFIX}/admin") or route.startswith(f"{PREFIX}/api/admin"):
+        if route.startswith(f"{self.px}/admin") or route.startswith(f"{self.px}/api/admin"):
             if not admin:
                 raise web.HTTPForbidden(text="只有管理员能看")
         # 带对话编号的：只能是自己账号的对话（别人的当作没有）
@@ -2034,60 +2083,70 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     def app(self) -> web.Application:
         app = web.Application(middlewares=[self._guard], client_max_size=0)
         app.cleanup_ctx.append(self._speech_context)
-        app.router.add_get(f"{PREFIX}/login", self._login_get)
-        app.router.add_post(f"{PREFIX}/login", self._login_post)
+        P = self.px   # /_x 的实际地址：空前缀时就是 /_x，挂了子路径时是 {web_prefix}/_x
+        app.router.add_get(f"{P}/login", self._login_get)
+        app.router.add_post(f"{P}/login", self._login_post)
         app.router.add_get("/", self._to_index)
-        app.router.add_get(f"{PREFIX}/", self._app_page)
-        app.router.add_get(f"{PREFIX}/history", self._index)
-        app.router.add_get(f"{PREFIX}/icon.png", self._icon)
-        app.router.add_get(f"{PREFIX}/icon-512.png", self._icon)
-        app.router.add_get(f"{PREFIX}/manifest.json", self._manifest)
-        app.router.add_get(f"{PREFIX}/sw.js", self._sw)
-        app.router.add_get(f"{PREFIX}/health", self._health)
-        app.router.add_get(f"{PREFIX}/api/push/key", self._api_push_key)
-        app.router.add_post(f"{PREFIX}/api/push", self._api_push)
-        app.router.add_post(f"{PREFIX}/api/logout", self._api_logout)
-        app.router.add_get(f"{PREFIX}/api/devices", self._api_devices)
-        app.router.add_post(f"{PREFIX}/api/devices/logout", self._api_device_logout)
-        app.router.add_get(f"{PREFIX}/api/sessions", self._api_sessions)
-        app.router.add_post(f"{PREFIX}/api/task-groups", self._api_task_groups)
-        app.router.add_get(f"{PREFIX}/api/events", self._api_events)
-        app.router.add_get(f"{PREFIX}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
-        app.router.add_get(f"{PREFIX}/api/thread/{{num:\\d+}}", self._api_thread)
-        app.router.add_post(f"{PREFIX}/api/manage/{{num:\\d+}}", self._api_manage)
-        app.router.add_post(f"{PREFIX}/api/speech/{{num:\\d+}}", self._api_speech)
-        app.router.add_post(f"{PREFIX}/api/speech/release", self._release_speech)
-        app.router.add_get(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
-        app.router.add_post(f"{PREFIX}/api/audio/{{key}}", self._api_audio)
-        app.router.add_get(f"{PREFIX}/audio/{{key}}.mp3", self._audio)
-        app.router.add_get(f"{PREFIX}/api/search", self._api_search)
-        app.router.add_post(f"{PREFIX}/api/send", self._api_send)
-        app.router.add_get(f"{PREFIX}/api/schedules", self._api_schedules)
-        app.router.add_post(f"{PREFIX}/api/schedules", self._api_schedules)
-        app.router.add_post(f"{PREFIX}/api/settings/{{num}}", self._api_settings)
-        app.router.add_post(f"{PREFIX}/api/compact/{{num:\\d+}}", self._api_compact)
-        app.router.add_post(f"{PREFIX}/api/relay/{{num:\\d+}}", self._api_relay)
-        app.router.add_post(f"{PREFIX}/api/confirm/{{num:\\d+}}", self._api_confirm)
-        app.router.add_post(f"{PREFIX}/api/stop/{{num:\\d+}}", self._api_stop)
-        app.router.add_post(f"{PREFIX}/api/rewind/{{num:\\d+}}", self._api_rewind)
-        app.router.add_post(f"{PREFIX}/api/fork/{{num:\\d+}}", self._api_fork)
-        app.router.add_get(f"{PREFIX}/api/browse", self._api_browse)
-        app.router.add_get(f"{PREFIX}/api/cc-sessions", self._api_cc_sessions)
-        app.router.add_post(f"{PREFIX}/api/resume-cc", self._api_resume_cc)
-        app.router.add_post(f"{PREFIX}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
-        app.router.add_post(f"{PREFIX}/api/presence", self._api_presence)
-        app.router.add_get(f"{PREFIX}/admin", self._admin_page)
-        app.router.add_get(f"{PREFIX}/api/admin", self._api_admin)
-        app.router.add_post(f"{PREFIX}/api/admin", self._api_admin_act)
-        app.router.add_get(PREFIX, self._to_index)
-        app.router.add_get(f"{PREFIX}/t/{{tid}}", self._turn_page)
-        app.router.add_get(f"{PREFIX}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
-        app.router.add_get(f"{PREFIX}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
+        app.router.add_get(f"{P}/", self._app_page)
+        app.router.add_get(f"{P}/history", self._index)
+        app.router.add_get(f"{P}/icon.png", self._icon)
+        app.router.add_get(f"{P}/icon-512.png", self._icon)
+        app.router.add_get(f"{P}/manifest.json", self._manifest)
+        app.router.add_get(f"{P}/sw.js", self._sw)
+        app.router.add_get(f"{P}/health", self._health)
+        app.router.add_get(f"{P}/api/push/key", self._api_push_key)
+        app.router.add_post(f"{P}/api/push", self._api_push)
+        app.router.add_post(f"{P}/api/logout", self._api_logout)
+        app.router.add_get(f"{P}/api/devices", self._api_devices)
+        app.router.add_post(f"{P}/api/devices/logout", self._api_device_logout)
+        app.router.add_get(f"{P}/api/sessions", self._api_sessions)
+        app.router.add_post(f"{P}/api/task-groups", self._api_task_groups)
+        app.router.add_get(f"{P}/api/events", self._api_events)
+        app.router.add_get(f"{P}/api/uimg/{{num:\\d+}}/{{uuid}}/{{k:\\d+}}", self._api_uimg)
+        app.router.add_get(f"{P}/api/thread/{{num:\\d+}}", self._api_thread)
+        app.router.add_post(f"{P}/api/manage/{{num:\\d+}}", self._api_manage)
+        app.router.add_post(f"{P}/api/speech/{{num:\\d+}}", self._api_speech)
+        app.router.add_post(f"{P}/api/speech/release", self._release_speech)
+        app.router.add_get(f"{P}/api/audio/{{key}}", self._api_audio)
+        app.router.add_post(f"{P}/api/audio/{{key}}", self._api_audio)
+        app.router.add_get(f"{P}/audio/{{key}}.mp3", self._audio)
+        app.router.add_get(f"{P}/api/search", self._api_search)
+        app.router.add_post(f"{P}/api/send", self._api_send)
+        app.router.add_get(f"{P}/api/schedules", self._api_schedules)
+        app.router.add_post(f"{P}/api/schedules", self._api_schedules)
+        app.router.add_post(f"{P}/api/settings/{{num}}", self._api_settings)
+        app.router.add_post(f"{P}/api/compact/{{num:\\d+}}", self._api_compact)
+        app.router.add_post(f"{P}/api/relay/{{num:\\d+}}", self._api_relay)
+        app.router.add_post(f"{P}/api/confirm/{{num:\\d+}}", self._api_confirm)
+        app.router.add_post(f"{P}/api/stop/{{num:\\d+}}", self._api_stop)
+        app.router.add_post(f"{P}/api/rewind/{{num:\\d+}}", self._api_rewind)
+        app.router.add_post(f"{P}/api/fork/{{num:\\d+}}", self._api_fork)
+        app.router.add_get(f"{P}/api/browse", self._api_browse)
+        app.router.add_get(f"{P}/api/cc-sessions", self._api_cc_sessions)
+        app.router.add_post(f"{P}/api/resume-cc", self._api_resume_cc)
+        app.router.add_post(f"{P}/api/unqueue/{{num:\\d+}}", self._api_unqueue)
+        app.router.add_post(f"{P}/api/presence", self._api_presence)
+        app.router.add_get(f"{P}/admin", self._admin_page)
+        app.router.add_get(f"{P}/api/admin", self._api_admin)
+        app.router.add_post(f"{P}/api/admin", self._api_admin_act)
+        app.router.add_get(f"{P}/api/admin/prefs", self._api_prefs)        # 设置（只有 admin：路径在 /api/admin 下）
+        app.router.add_post(f"{P}/api/admin/prefs", self._api_prefs)
+        app.router.add_get(f"{P}/admin/settings.js", self._settings_js)
+        app.router.add_get(P, self._to_app)
+        app.router.add_get(f"{P}/t/{{tid}}", self._turn_page)
+        app.router.add_get(f"{P}/t/{{tid}}/img/{{i:\\d+}}", self._turn_image)
+        app.router.add_get(f"{P}/t/{{tid}}/file/{{i:\\d+}}", self._turn_file)
         # 网页里下文件走 /_x 外面的地址：iPhone、iPad 从主屏幕打开的远窗，点范围外的链接会弹出带“完成”的浏览页，
         # 看完能回来；范围内的链接直接在远窗窗口里打开文件，没有返回键（10-27 遇到）
-        app.router.add_get("/dl/{tid}/{i:\\d+}", self._turn_file)
-        app.router.add_get("/dl/{tid}/{i:\\d+}/pages", self._pdf_pages)
-        app.router.add_get("/dl/{tid}/{i:\\d+}/p/{name}", self._pdf_page)
+        app.router.add_get(f"{self.web_prefix}/dl/{{tid}}/{{i:\\d+}}", self._turn_file)
+        app.router.add_get(f"{self.web_prefix}/dl/{{tid}}/{{i:\\d+}}/pages", self._pdf_pages)
+        app.router.add_get(f"{self.web_prefix}/dl/{{tid}}/{{i:\\d+}}/p/{{name}}", self._pdf_page)
+        # 被反代透传挂到子路径时，挂载点本身也要能落到主界面。
+        # 带不带尾斜杠都要注册：浏览器/导航进来的是无斜杠形态，aiohttp 不会自动补斜杠，
+        # 已登录用户（守卫放行）会直接 404，未登录的只会被守卫弹走测不出来。
+        if self.web_prefix:
+            app.router.add_get(self.web_prefix, self._to_app)
+            app.router.add_get(f"{self.web_prefix}/", self._to_app)
         return app
 
     async def start(self) -> None:

@@ -21,6 +21,7 @@ def test_config_defaults(tmp_path):
     assert c.web_base == "http://127.0.0.1:8765"       # 网页默认开在本机
     assert (c.auto_review, c.auto_cleanup) == (False, False)   # 危险命令等人点；不自动归档、清理
     assert not c.task_grouping and c.accounts == {}
+    assert not c.super_agent                           # 总管默认不开
     assert c.skip_names == [] and c.folders == {} and c.extra_instructions == "" and c.review_policy == ""
     p.write_text('web = false\nclient_id = "abc"\nallowed_user_ids = ["u1"]\nweb_port = 9000\n')
     c = load_config(p)

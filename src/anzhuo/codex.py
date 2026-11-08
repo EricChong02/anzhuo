@@ -15,6 +15,25 @@ log = logging.getLogger(__name__)
 CODEX = Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")
 
 
+def codex_bin() -> Path | None:
+    """找 Codex：macOS 用 ChatGPT 桌面版自带的；别的系统用 PATH 里的 codex（npm 装的 @openai/codex）。
+    Windows 上 npm 只放一个 codex.cmd 外壳，直接起它不行，要找它包里真正的 codex.exe。"""
+    if CODEX.exists():
+        return CODEX
+    import shutil
+    if os.name == "nt":
+        for shim in filter(None, (shutil.which("codex.cmd"), shutil.which("codex"))):
+            root = Path(shim).parent / "node_modules" / "@openai" / "codex"
+            if exe := next(iter(sorted(root.glob("**/vendor/*/bin/codex.exe"))), None):
+                return exe
+            if exe := next(iter(sorted(root.glob("**/codex.exe"))), None):
+                return exe
+        found = shutil.which("codex.exe")
+        return Path(found) if found else None
+    found = shutil.which("codex")
+    return Path(found) if found else None
+
+
 def configured_model() -> str:
     """新会话未指定模型时，Codex 使用本机配置；只读取模型字段。"""
     home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
@@ -51,15 +70,16 @@ def limits_from(r: dict) -> dict:
         w = r.get(key) or {}
         if w.get("usedPercent") is not None:
             at = w.get("resetsAt")
-            out[name] = (float(w["usedPercent"]) / 100,
-                         time.strftime("%-m月%-d日 %H:%M", time.localtime(at)) if at else None)
+            t = time.localtime(at) if at else None   # 不用 %-m：Windows 的 strftime 不认
+            out[name] = (float(w["usedPercent"]) / 100, f"{t.tm_mon}月{t.tm_mday}日 {t.tm_hour:02d}:{t.tm_min:02d}" if t else None)
     return out
 
 
 class CodexConn:
     def __init__(self, cwd: str, on_event: Callable[[str, dict], Awaitable[None] | None],
-                 on_request: Callable[[str, dict], Awaitable[dict]] | None = None):
+                 on_request: Callable[[str, dict], Awaitable[dict]] | None = None, tools: list[dict] | None = None):
         self.cwd = cwd
+        self.tools = tools or []   # 交给 Codex 的自定义工具（dynamicTools，实验接口）；调用时走 item/tool/call 反过来问
         self.on_event = on_event
         self.on_request = on_request  # Codex 反过来问（跑命令要不要批准之类）：返回要回给它的结果
         self.model = ""
@@ -75,14 +95,18 @@ class CodexConn:
         self.turn_error = ""
 
     async def start(self) -> None:
-        if not CODEX.exists():
-            raise CodexError("没找到 ChatGPT 桌面版自带的 Codex（/Applications/ChatGPT.app）")
+        exe = codex_bin()
+        if not exe:
+            raise CodexError("没找到 Codex：macOS 装 ChatGPT 桌面版，其他系统用 npm i -g @openai/codex 装好并登录")
         self.proc = await asyncio.create_subprocess_exec(
-            str(CODEX), "app-server", cwd=self.cwd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            str(exe), "app-server", cwd=self.cwd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=64 * 1024 * 1024)
         self._reader = asyncio.create_task(self._read())
         asyncio.create_task(self._drain())
-        await self.request("initialize", {"clientInfo": {"name": "anzhuo", "version": "1"}})
+        init = {"clientInfo": {"name": "anzhuo", "version": "1"}}
+        if self.tools:   # 自定义工具是实验接口，要先声明
+            init["capabilities"] = {"experimentalApi": True}
+        await self.request("initialize", init)
         await self._send({"jsonrpc": "2.0", "method": "initialized"})
 
     async def _send(self, msg: dict) -> None:
@@ -160,7 +184,8 @@ class CodexConn:
         if thread_id:
             r = await self.request("thread/resume", {"threadId": thread_id, **common})
         else:
-            r = await self.request("thread/start", {**common, "developerInstructions": instructions})
+            r = await self.request("thread/start", {**common, "developerInstructions": instructions,
+                                                    **({"dynamicTools": self.tools} if self.tools else {})})
         self.thread_id = (r.get("thread") or {}).get("id") or thread_id or ""
         self.model = str(r.get("model") or "")
         return self.thread_id

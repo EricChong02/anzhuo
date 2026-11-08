@@ -158,6 +158,8 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .cl .md th{font-weight:500}
 .cl .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .note{align-self:center;font-size:var(--t2);color:var(--mute)}
+.note.rpt{align-self:stretch;text-align:center} .note.rpt summary{cursor:pointer;display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.note.rpt .md{text-align:left;color:var(--ink);font-size:var(--t3);line-height:1.7;margin-top:8px;padding:10px 16px;border-radius:var(--r2);background:var(--plate,var(--side))}
 .imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
 .file-row{display:flex;align-items:center;gap:12px;max-width:520px}.file-row .file{flex:1;min-width:0}.file-download{flex:none;font-size:var(--t2);padding:12px 4px;margin-top:8px}
@@ -692,6 +694,9 @@ mark{background:rgba(224,165,54,.25)}
 }
 /* 系统要求“降低透明度”时，玻璃都变实 */
 @media (prefers-reduced-transparency:reduce){:root{--card:var(--panel);--ctl:var(--panel);--ctl-hi:var(--panel);--glass-lo:var(--panel);--pop:var(--bg)}}
+/* 模型菜单开着时输入框不磨砂：带 backdrop-filter 的元素会成为 fixed 子元素的定位参照，手机上的底部面板会贴着输入框往上弹、
+   撞到标题栏；菜单自己的磨砂也只能糊到输入框里面，看着是透明的 */
+.composer:has(.mmenu){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 @media (prefers-reduced-motion:reduce){.pbar i.doing::before,.pbar i.doing::after,.running .dot::after,.ccard.running .dot::after{animation:none}}
 
 /* 状态光点：轻一点。小的实点 + 一圈很淡的光晕，没有珠子高光；在做的那圈光晕慢慢呼吸 */
@@ -812,9 +817,12 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
   --ink:#34434f;--mute:#67757f;--faint:#909ca6;--plate:rgba(255,255,255,.52);--plate-hi:rgba(255,255,255,.66);--dock:rgba(240,244,245,.94)}
 @media (prefers-color-scheme:dark){:root{--sky:linear-gradient(200deg,#2e3a45 0%,#222c35 40%,#182027 100%);--bg:#222c35;
   --ink:#e2e8ed;--mute:#9eabb6;--faint:#6f7c87;--plate:rgba(255,255,255,.06);--plate-hi:rgba(255,255,255,.09);--dock:rgba(28,37,45,.94)}}
-.dock{background:linear-gradient(to bottom,transparent,var(--dock) 26px);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+/* 底板的磨砂和上沿淡出放在 ::before 上：mask 会把子元素一起裁掉，放在 .dock 本身会切掉往上弹的模型菜单 */
+.dock{isolation:isolate}
+.dock::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--dock) 26px);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
   -webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px)}
-.newv .dock{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
+.newv .dock{isolation:auto} .newv .dock::before{content:none}   /* 新对话页没有底板：不隔离，免得往下弹的菜单被文件夹按钮盖住 */
 .composer:focus-within{background:rgba(255,255,255,.80)}
 @media (prefers-color-scheme:dark){.composer:focus-within{background:rgba(255,255,255,.11)}}
 /* 顶上标题栏：磨砂一层，滚上去的字只剩一点影子；下沿淡出不留硬边 */
@@ -1262,7 +1270,18 @@ function renderUsage(u) {
 document.addEventListener('click', e => { if (usageOpen && !e.target.closest('.usage')) { usageOpen = false; lastKey = ''; loadThread(); } });
 
 // 只给 GPT 做的对话在状态行前标个灰色小字；Claude 是默认的，不标，列表就干净
-const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>' : '';
+const engTag = e => e === 'codex' ? '<span class="eng" title="用 Codex 做的">Codex</span>'
+  : e && e !== 'claude' ? `<span class="eng" title="用 ${esc(e)} 做的">${e === 'kimi' ? 'Kimi' : esc(e)}</span>` : '';
+// 总管（super_agent）：给总管的消息开头的标记；“期间的情况”拆成一张折叠卡，后面的话照常显示
+const SA_TAGS = ['【回报】', '【退回】', '【要用户定】', '【重启】'];
+function saSplit(it) {
+  const P = '【期间的情况】';
+  if (it.who !== 'you' || !(it.text || '').startsWith(P)) return [it];
+  const cut = it.text.indexOf('\n\n');
+  const notes = (cut < 0 ? it.text : it.text.slice(0, cut)).slice(P.length).trim();
+  const rest = cut < 0 ? '' : it.text.slice(cut + 2);
+  return [{who: 'note', text: `期间的情况 · ${notes.split('\n').length} 条`, sa: notes}].concat(rest ? [{...it, text: rest}] : []);
+}
 let taskGrouping = false, taskGroupAttempt = 0;
 function groupPreferences() {
   try { return JSON.parse(localStorage.getItem('taskGroupOpen:' + (me.name || '')) || '{}'); } catch (_) { return {}; }
@@ -1289,7 +1308,9 @@ function renderSide() {
     ['新完成', s => s.unread],
     ['有建议', s => s.suggest],
   ].map(([name, match]) => ({name, match, items: []}));
+  const routers = [];   // 总管（super_agent）：始终在最上面，不进分区和分组
   for (const s of sessions) {
+    if (s.role === 'router') { routers.push(s); continue; }
     const priority = priorityGroups.find(g => g.match(s));
     if (priority) { priority.items.push(s); continue; }
     const name = s.task_group || '未分组';
@@ -1302,7 +1323,8 @@ function renderSide() {
     g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
     return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
   }).join('');
-  $('#list').innerHTML = priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
+  const routerHtml = routers.length ? `<div class="label">${esc(routers.length > 1 ? '总管' : routers[0].name)}</div>${routers.map(row).join('')}` : '';
+  $('#list').innerHTML = routerHtml + priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
     const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
     const running = xs.filter(s => s.status === 'running').length;
     const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
@@ -1310,7 +1332,7 @@ function renderSide() {
     const open = prefs[name] ?? xs.some(s => s.num === sel);
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
-  }).join('')) : (!priorityHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
+  }).join('')) : (!priorityHtml && !routerHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
@@ -1566,11 +1588,15 @@ function renderModel(st, onPick, isNew) {
   const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
   const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(label(k))}</b></span>${ok}</button>`;
-  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt');
-  if (!isNew && st.model && st.model !== 'gpt' && !claude.includes(st.model)) claude.push(st.model);
-  const gptChat = !isNew && st.model === 'gpt';
-  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+  // 别家助手（走 ACP 的 Kimi 等）：每家一组、一行；开对话时选，对话里不换
+  const alt = modelOpts.map(m => m[0]).filter(k => !['opus', 'sonnet', 'haiku', 'fable', 'gpt'].includes(k));
+  const altRows = ks => ks.length ? `<div class="lb">其他助手</div>${ks.map(row).join('')}` : '';
+  const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt' && !alt.includes(k));
+  if (!isNew && st.model && st.model !== 'gpt' && !alt.includes(st.model) && !claude.includes(st.model)) claude.push(st.model);
+  const gptChat = !isNew && st.model === 'gpt', altChat = !isNew && alt.includes(st.model);
+  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` + altRows(alt)
     : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
+    : altChat ? altRows([st.model])
     : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, '中'])[1];
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(label(st.model))} · ${esc(ename)}${ICON.chev}</button>`
@@ -1925,6 +1951,7 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
+  d.items = d.items.flatMap(saSplit);
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
   // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
@@ -1935,6 +1962,13 @@ function renderThread(d) {
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
   const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
+    // 总管收到的回报、退回、提问、重启提示（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会说
+    const tag = it.who === 'you' && SA_TAGS.find(t => it.text.startsWith(t));
+    if (tag) {
+      const [head, ...rest] = it.text.slice(tag.length).split('\n\n');
+      return `<details class="note rpt"><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
+    }
+    if (it.who === 'note' && it.sa) return `<details class="note rpt"><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
@@ -2616,7 +2650,7 @@ function openAdmin(tab, fromPop) {
   if (!fromPop) navTo({a: admTab}, '#admin');
   $('#app').classList.add('in');
   $('#main').innerHTML = `<div class="head"><button class="icon-btn back" id="back">${ICON.back}</button><div class="ti"><b>管理</b></div>
-      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button></div></div>
+      <div class="adm-tabs" id="admTabs" role="tablist"><button role="tab" data-t="usage">用量</button><button role="tab" data-t="accounts">账号</button><button role="tab" data-t="settings">设置</button></div></div>
     <div class="adm" id="adm"><div class="col" id="admCol"></div></div>`;
   $('#back').onclick = () => history.state && history.state.a ? history.back() : goList();
   $('#admTabs').onclick = e => { const b = e.target.closest('button'); if (!b || b.dataset.t === admTab) return; admTab = b.dataset.t; history.replaceState({a: admTab}, '', '#admin'); drawAdmin(); };
@@ -2642,9 +2676,24 @@ async function admAct(body) {
 function drawAdmin() {
   const col = $('#admCol'); if (!col) return;
   document.querySelectorAll('#admTabs button').forEach(b => { b.classList.toggle('on', b.dataset.t === admTab); b.setAttribute('aria-selected', b.dataset.t === admTab); });
+  if (admTab === 'settings') return openSettings(col);
   if (!admData) { col.innerHTML = '<div class="ac-empty">读取中…</div>'; return; }
   if (admTab === 'accounts') return drawAccounts(col, admData);
   drawUsage(col, admData);
+}
+
+// ── 设置：界面在 settings.js（打开这一页时才加载），后端见 prefs.py ──
+let settingsShown = false;
+function openSettings(col) {
+  if (settingsShown && col.querySelector('.st-group')) return;   // 用量数据刷新时别把正在改的设置冲掉
+  settingsShown = true;
+  if (window.drawSettings) return window.drawSettings(col);
+  col.innerHTML = '<div class="ac-empty">读取中…</div>';
+  const s = document.createElement('script');
+  s.src = '/_x/admin/settings.js';
+  s.onload = () => window.drawSettings(col);
+  s.onerror = () => { settingsShown = false; col.innerHTML = '<div class="ac-empty">设置页没加载出来，刷新再试</div>'; };
+  document.head.appendChild(s);
 }
 
 // ── 用量 ──
