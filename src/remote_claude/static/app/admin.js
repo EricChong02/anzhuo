@@ -1,6 +1,5 @@
 // ═══ 管理（只有 admin）：用量、账号。是主区里的一个视图，和对话页一样进出 ═══
 let admTab = 'usage', admDays = 'week', admData = null;
-let admOtherQuotaOpen = false, admOtherSplitOpen = false;
 const ADM_ICON = {
   phone: '<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg>',
   desk: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
@@ -77,38 +76,36 @@ function quotaPlate(title, ls) {
 function wkv(u, cost) { return u.rate == null ? null : cost * u.rate; }
 function fpct(p) { return p <= 0 ? '0%' : p < 0.1 ? '<0.1%' : p < 10 ? (Math.round(p * 10) / 10) + '%' : Math.round(p) + '%'; }
 function wk(u, cost) { const p = wkv(u, cost); return p == null ? '' : fpct(p); }
+// 用量页三块：额度（每家一块板，其他账号的周上限并在同一块里）→ 消耗（大数 + 图例 + 每天柱子）→ 哪些对话用得多（先看前 8 个）
+let admAllConvs = false;
 function drawUsage(col, d) {
-  const u = d.usage, os = admOwners(d);
+  const u = d.usage, os = admOwners(d), many = os.length > 1;
   const fenced = d.accounts.filter(a => a.quota);
-  const quotas = quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt)
-    + (fenced.length ? `<details class="aq-others" id="admOtherQuota" ${admOtherQuotaOpen ? 'open' : ''}><summary>其他账号</summary><div class="aq-grid">` + fenced.map(a => `<div class="plate aq"><h3>${esc(a.name)}</h3>${aqRow(`本周 · 上限 ${Math.round(a.quota.share * 100)}%`, a.quota.calibrating ? null : a.quota.pct,
-        a.quota.reset_at ? quotaReset({name: '本周', reset_at: a.quota.reset_at}).relative : '')}</div>`).join('') + '</div></details>' : '');
+  const others = fenced.length ? `<div class="plate aq aq-wide"><h3>其他账号 · 本周</h3>${fenced.map(a => aqRow(`${a.name} · 上限 ${Math.round(a.quota.share * 100)}%`, a.quota.calibrating ? null : a.quota.pct,
+      a.quota.reset_at ? quotaReset({name: '本周', reset_at: a.quota.reset_at}).relative : '')).join('')}</div>` : '';
   const turns = u.days.reduce((s, x) => s + x.turns, 0), toks = u.days.reduce((s, x) => s + x.tokens, 0);
   const gptToks = u.days.reduce((s, x) => s + x.gpt_tokens, 0);
-  const splits = os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, tokens: 0};
-    return `<div><span class="sw" style="background:${ownerColor(d, o)}"></span>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></div>`; });
-  const split = splits[0] + (splits.length > 1 ? `<details id="admOtherSplit" ${admOtherSplitOpen ? 'open' : ''}><summary>其他账号</summary>${splits.slice(1).join('')}</details>` : '');
-  const convs = u.conversations;
-  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotas}</div>
-    <div class="adm-h"><span>已记录消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
+  const legend = many ? `<div class="au-legend">${os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, tokens: 0};
+    return `<span><i class="sw" style="background:${ownerColor(d, o)}"></i>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></span>`; }).join('')}</div>` : '';
+  const facts = [wk(u, u.total_cost) ? `周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
+  const convs = u.conversations, shown = admAllConvs ? convs : convs.slice(0, 8);
+  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>
+    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
     ${d.period === 'week' && !d.week_available ? '<div class="ac-empty">本周数据暂不可用</div>' : ''}
-    <div class="plate"><div class="au-top"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${wk(u, u.total_cost) ? '周额度 ' + wk(u, u.total_cost) + ' · ' : ''}${turns} 轮${gptToks ? ' · Codex ' + tokn(gptToks) : ''}</span></div>
-      <div class="au-split">${split}</div></div>
+    <div class="plate"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${facts.join(' · ')}</span></div>${legend}
       <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
-    <div class="adm-h"><span>对话消耗排行</span><span>${convs.length ? convs.length + ' 个' : ''}</span></div>
-    <div class="plate ac-list">${convs.length ? convs.map(c => {
+    <div class="adm-h"><span>用得多的对话</span><span>${convs.length ? convs.length + ' 个' : ''}</span></div>
+    <div class="plate ac-list">${convs.length ? shown.map(c => {
       const gpt = c.engine === 'codex', mine = c.owner === 'admin' && sessions.some(s => s.num === c.num);
       const ms = c.models.map(m => m.replace(/^claude-/, '').replace(/-\d+(-\d+)?$/, '')), main = ms.filter(m => m !== 'haiku');
-      const bits = [ownerName(c.owner), ...(main.length ? main : ms), c.turns + ' 轮', ago(c.last)], p = gpt ? null : wkv(u, c.cost);
+      const bits = [many ? ownerName(c.owner) : '', ...(main.length ? main : ms), c.turns + ' 轮', ago(c.last)].filter(Boolean), p = gpt ? null : wkv(u, c.cost);
       return `<button class="ac" ${mine ? `data-n="${c.num}"` : 'tabindex="-1"'}>
         <span class="nm">${gpt ? engTag('codex') : ''}<span>${esc(c.name)}</span></span><span class="v num">${p == null ? tokn(c.tokens) : fpct(p)}</span>
         <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${p == null ? 'tokens' : tokn(c.tokens)}</span>
         <span class="bar"><i style="width:${p == null ? 0 : Math.max(1, Math.min(100, p))}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
-    }).join('') : '<div class="ac-empty">还没有记录</div>'}</div>`;
-  const otherQuota = $('#admOtherQuota'), otherSplit = $('#admOtherSplit');
-  if (otherQuota) otherQuota.ontoggle = () => { admOtherQuotaOpen = otherQuota.open; };
-  if (otherSplit) otherSplit.ontoggle = () => { admOtherSplitOpen = otherSplit.open; };
+    }).join('') + (convs.length > shown.length ? `<button class="ac-more" id="acMore">显示全部 ${convs.length} 个</button>` : '') : '<div class="ac-empty">还没有记录</div>'}</div>`;
   $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = b.dataset.d === 'week' ? 'week' : +b.dataset.d; loadAdmin(); };
+  if ($('#acMore')) $('#acMore').onclick = () => { admAllConvs = true; drawUsage(col, d); };
   col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
   drawChart(d);
 }
@@ -162,26 +159,31 @@ function drawChart(d) {
 addEventListener('resize', () => { if ($('#auSvg') && admData) drawChart(admData); });
 
 // ── 账号 ──
+// 设备一多就一长串：先列这台和最近用过的 3 台，其余点“其余 N 台”再展开
+const admDevOpen = new Set();
 function drawAccounts(col, d) {
   col.innerHTML = d.accounts.map(a => {
     const user = a.role !== 'admin', others = a.devices.filter(x => !x.me);
+    const devs = [...a.devices].sort((x, y) => Number(y.me) - Number(x.me) || (y.seen || 0) - (x.seen || 0));
+    const shown = admDevOpen.has(a.name) ? devs : devs.slice(0, 4);
     return `<div class="plate aa ${a.disabled ? 'off' : ''}" data-a="${esc(a.name)}">
       <div class="aa-hd"><span class="aa-av ${user ? 'u' : ''}">${esc(a.name.slice(0, 1).toUpperCase())}</span>
         <div class="tx"><b>${esc(a.name)}${a.disabled ? '<span class="aa-tag">已停用</span>' : ''}</b><small>${user ? esc(a.root) : '全部权限'}</small></div></div>
       ${user && a.quota ? `<div class="aa-line"><span>周上限</span><div class="adm-tabs">${[10, 20, 30, 50].map(p => `<button data-act="share" data-v="${p}" class="${Math.round(a.quota.share * 100) === p ? 'on' : ''}">${p}%</button>`).join('')}</div></div>` : ''}
-      <div class="aa-devs">${a.devices.map(x => `<div class="aa-dev">${/iPhone|安卓/.test(x.name) ? ADM_ICON.phone : ADM_ICON.desk}
+      <div class="aa-devs">${shown.map(x => `<div class="aa-dev">${/iPhone|安卓/.test(x.name) ? ADM_ICON.phone : ADM_ICON.desk}
           <div class="tx"><b>${esc(x.name)}${x.me ? '<span class="me">这台</span>' : ''}</b><small>${x.me ? '正在用' : x.seen ? ago2(x.seen) : '—'}${x.ip ? ' · ' + esc(x.ip) : ''}</small></div>
-          ${x.me ? '' : `<button class="pill bad" data-act="logout" data-id="${x.id}">退出</button>`}</div>`).join('') || '<div class="aa-dev"><small>没有登录着的设备</small></div>'}</div>
-      <div class="aa-acts"><button class="pill" data-act="pw">改密码</button>${others.length > 1 ? '<button class="pill bad" data-act="logout_all">全部退出</button>' : ''}
+          ${x.me ? '' : `<button class="pill bad" data-act="logout" data-id="${x.id}">退出</button>`}</div>`).join('') || '<div class="aa-dev"><small>没有登录着的设备</small></div>'}${devs.length > shown.length ? `<button class="ac-more" data-act="devs">其余 ${devs.length - shown.length} 台</button>` : ''}</div>
+      <div class="aa-acts"><button class="pill" data-act="pw">改密码</button>${others.length > 1 ? '<button class="pill bad" data-act="logout_all">退出其他设备</button>' : ''}
         ${user ? `<button class="pill ${a.disabled ? '' : 'bad'}" data-act="${a.disabled ? 'enable' : 'disable'}">${a.disabled ? '启用' : '停用'}</button>` : ''}</div></div>`;
   }).join('');
   col.onclick = e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const account = b.closest('[data-a]').dataset.a, act = b.dataset.act;
     if (act === 'pw') return pwSheet(account);
+    if (act === 'devs') { admDevOpen.add(account); return drawAccounts(col, d); }
     if (act === 'share') return admAct({action: 'share', account, value: +b.dataset.v / 100});
     if (act === 'disable') return confirmSheet(`停用 ${account}？`, '停用', () => admAct({action: 'disable', account}));
-    if (act === 'logout_all') return confirmSheet(`退出 ${account} 的其他设备？`, '全部退出', () => admAct({action: 'logout_all', account}));
+    if (act === 'logout_all') return confirmSheet(`退出 ${account} 的其他设备？`, '退出其他设备', () => admAct({action: 'logout_all', account}));
     b.disabled = true;
     admAct({action: act, account, id: b.dataset.id});
   };

@@ -10,10 +10,8 @@
 .plate{background:var(--plate);-webkit-backdrop-filter:var(--frost);backdrop-filter:var(--frost);border-radius:20px;padding:16px 18px}
 .num{font-family:var(--fd);font-variant-numeric:tabular-nums}
 /* 额度：一块板一家，5 小时 / 本周两行 */
-.aq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-.aq-others{grid-column:1/-1}
-.aq-others summary,.au-split summary{cursor:pointer;color:var(--mute);font-size:var(--t2)}
-.aq-others[open] summary,.au-split details[open] summary{margin-bottom:12px}
+.aq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.aq-grid>*{min-width:0} .aq-wide{grid-column:1/-1}
 .aq h3{margin:0 0 12px;font-size:var(--t3);font-weight:500}
 .aq-row+.aq-row{margin-top:14px}
 .aq-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:var(--t2);color:var(--mute)}
@@ -23,11 +21,10 @@
 .aq-row.critical .aq-top b{color:var(--red)} .aq-row.critical .qb i{background:var(--red)}
 .aq-empty{color:var(--faint);font-size:var(--t2)}
 /* 消耗：大数 + 各账号 + 每天的柱子 */
-.au-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .au-big b{display:block;font-size:40px;font-weight:300;line-height:1.1;letter-spacing:.01em}
 .au-big span{font-size:var(--t2);color:var(--mute)}
-.au-split{display:flex;gap:18px;flex-wrap:wrap}
-.au-split div{font-size:var(--t2);color:var(--mute)} .au-split b{display:block;font-size:var(--t4);font-weight:400;color:var(--ink)}
+.au-legend{display:flex;gap:6px 18px;flex-wrap:wrap;margin-top:12px;font-size:var(--t2);color:var(--mute)}
+.au-legend b{font-weight:400;color:var(--ink);margin-left:6px}
 .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px}
 .au-chart{position:relative;margin-top:18px}
 .au-chart svg{display:block;width:100%;height:200px;overflow:visible;stroke:none}
@@ -48,6 +45,8 @@
 .ac .pc{font-size:var(--t1);color:var(--faint);text-align:right}
 .ac .bar{grid-column:1/-1;height:3px;border-radius:var(--rf);background:var(--line);overflow:hidden;margin-top:6px}
 .ac .bar i{display:block;height:100%;border-radius:var(--rf)}
+.ac-more{width:100%;padding:12px;border-radius:14px;color:var(--acc);font-size:var(--t2)}
+@media (hover:hover){.ac-more:hover{background:var(--plate-hi)}}
 .ac-empty{padding:28px 0;text-align:center;color:var(--faint);font-size:var(--t2)}
 /* 账号 */
 .aa{display:flex;flex-direction:column;gap:14px}
@@ -74,18 +73,8 @@
 .au-tip{background:rgba(238,242,244,.97)}
 @media (prefers-color-scheme:dark){.au-tip{background:rgba(32,40,48,.97)}}
 @media (max-width:600px){.adm{padding:6px 12px calc(48px + env(safe-area-inset-bottom))} .au-big b{font-size:34px}
-  .aq-grid{grid-template-columns:1fr 1fr;gap:10px} .aq-grid .aq:nth-child(3){grid-column:1/-1}
-  .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}
-  .au-split{gap:14px}}
+  .aq-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+  .aq{padding:14px} .aq h3{margin-bottom:8px} .aq-top b{font-size:var(--t4)} .aq-row+.aq-row{margin-top:10px}}
 
-.task-tools{display:flex;align-items:center;justify-content:space-between;padding:12px 10px 8px;color:var(--mute);font-size:var(--t2)}
-.task-group{border-bottom:1px solid var(--line);margin:0 4px}
-.task-group>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;padding:14px 8px;list-style:none}
-.task-group>summary::-webkit-details-marker{display:none}
-.task-group>summary b{display:block;font-size:var(--t3);font-weight:500;color:var(--ink)}
-.task-group>summary small{display:block;margin-top:4px;font-size:var(--t1);color:var(--mute)}
-.task-group>summary>svg{width:16px;height:16px;flex:none;color:var(--mute);transition:transform .15s}
-.task-group[open]>summary>svg{transform:rotate(90deg)}
-.task-rows{padding-bottom:10px}
 .quota-dialog .quota-manage{width:100%;justify-content:center;margin-top:20px;min-height:44px;font-size:var(--t2);color:var(--acc)}
 .au-period{font-size:var(--t1);color:var(--mute);line-height:1.7;padding:4px 6px} #admDays button{padding:0 11px}

@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import mimetypes
 import re
 import time
 from pathlib import Path
@@ -53,7 +54,14 @@ class ThreadsMixin:
                 continue
             tl = r.get("timeline") or []
             said = [e["text"] for e in tl if e.get("kind") == "you"] or [r.get("request") or ""]
-            items += [{"who": "you", "text": t} for t in said if t]
+            if any(e.get("imgs") for e in tl if e.get("kind") == "you"):   # 带图的话：图按“这一轮/第几张”从 uimg 取
+                k = 0
+                for e in (e for e in tl if e.get("kind") == "you"):
+                    n = len(e.get("imgs") or [])
+                    items.append({"who": "you", "text": "" if n and e["text"] == "（见图）" else e["text"], **({"imgs": [f"{p.stem}/{i}" for i in range(k, k + n)]} if n else {})})
+                    k += n
+            else:
+                items += [{"who": "you", "text": t} for t in said if t]
             proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {}), **({"sub": e["sub"]} if e.get("sub") else {})}
                     for e in tl if e.get("kind") in ("think", "say", "do")]
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
@@ -299,13 +307,33 @@ class ThreadsMixin:
         finally:
             self._zh_busy.discard(key)
 
+    def _record_image(self, num: int, ref: str) -> tuple[bytes, str] | None:
+        """记录在小E 这边的对话（GPT、Kimi）里你发过的图：ref = 那一轮的编号/第几张；只认收件目录里的文件。"""
+        stem, _, k = ref.partition("/")
+        if not stem.startswith(f"{num}-") or not k.isdigit():
+            return None
+        try:
+            r = json.loads((self.turns_dir / f"{stem}.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        paths = [p for e in r.get("timeline") or [] if e.get("kind") == "you" for p in e.get("imgs") or []]
+        if int(k) >= len(paths):
+            return None
+        f, inbox = Path(paths[int(k)]).resolve(), (self.turns_dir.parent / "inbox").resolve()
+        if not f.is_relative_to(inbox) or not f.is_file():
+            return None
+        return f.read_bytes(), mimetypes.guess_type(f.name)[0] or "image/png"
+
     async def _api_uimg(self, request: web.Request) -> web.Response:
         """对话里你发过的图。"""
         s = self.bridge.registry.get(int(request.match_info["num"]))
         ref = f"{request.match_info['uuid']}/{request.match_info['k']}"
-        if not s or not s.claude_id or ref in self._uimg_miss:
+        if not s or ref in self._uimg_miss or not (s.claude_id or engines.get(s.engine).history == "records"):
             raise web.HTTPNotFound()
-        got = self._uimg.get(ref) or await asyncio.to_thread(thread.user_image, s.claude_id, s.cwd, ref)
+        if engines.get(s.engine).history == "records":   # GPT、Kimi：图是小E 收件时存下的文件，路径记在那一轮里
+            got = self._uimg.get(ref) or await asyncio.to_thread(self._record_image, s.num, ref)
+        else:
+            got = self._uimg.get(ref) or await asyncio.to_thread(thread.user_image, s.claude_id, s.cwd, ref)
         if not got:
             self._uimg_miss.add(ref)
             raise web.HTTPNotFound()

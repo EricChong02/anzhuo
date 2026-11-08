@@ -7,7 +7,7 @@ from pathlib import Path
 APP_PATH = Path(__file__).parent / "static" / "app.html"
 APP_DIR = APP_PATH.parent / "app"
 # 样式后面的覆盖前面的（theme 是几版视觉叠上去的），脚本里顶层的 let/const 要先定义再用：顺序不能随便换
-APP_CSS = ("base.css", "theme.css", "admin.css")
+APP_CSS = ("base.css", "theme.css", "admin.css", "list.css")
 APP_JS = ("core.js",        # 小工具、图标、扩展挂接点 XE、api / upload、Markdown
           "quota.js",       # 额度条、接力按钮、用量弹层
           "list.js",        # 侧栏列表：任务分组、搜索、滑动删除、长按菜单、定时任务、提示条

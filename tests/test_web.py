@@ -1034,3 +1034,26 @@ def test_quota_rows_carry_eta_and_pace(monkeypatch):
     week, five = Web._limits({"seven_day": (.8, week_reset), "five_hour": (.1, five_reset)})
     assert week["eta"] and now < week["eta"] < week["reset_at"] and week["level"] == "告急"
     assert five["eta"] is None and five["pace"] == 50 and five["level"] == "充足"   # 已过 20%（下限）用了 10% → 到重置约 50%
+
+
+def test_codex_history_shows_sent_images(tmp_path):
+    """GPT 对话里你发的图：记在那一轮的 timeline 里，历史带上 imgs，uimg 只从收件目录取文件。"""
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+    registry = Registry(tmp_path / "sessions.json")
+    session = registry.add(Session(num=registry.reserve_num(), name="看图", cwd=str(tmp_path), engine="codex"))
+    w = Web("http://x", 0, tmp_path)
+    w.bridge = NS(registry=registry, runner=NS(last={}), outgoing={})
+    (tmp_path / "inbox" / "web").mkdir(parents=True)
+    pic = tmp_path / "inbox" / "web" / "a.jpg"
+    pic.write_bytes(b"\xff\xd8jpg")
+    outside = tmp_path / "secret.png"
+    outside.write_bytes(b"x")
+    turn = Turn(started=100, ended=110, request="（见图）", final_text="看到了")
+    turn.timeline = [{"t": 100, "kind": "you", "text": "（见图）", "imgs": [str(pic), str(outside)]}]
+    w.save_turn(session.label, turn, str(tmp_path), "测试")
+    you = [x for x in w._codex_history(1) if x["who"] == "you"]
+    assert you == [{"who": "you", "text": "", "imgs": ["1-100/0", "1-100/1"]}]
+    assert w._record_image(1, "1-100/0") == (b"\xff\xd8jpg", "image/jpeg")
+    assert w._record_image(1, "1-100/1") is None        # 收件目录以外的文件不给
+    assert w._record_image(2, "1-100/0") is None        # 别的对话的编号不认

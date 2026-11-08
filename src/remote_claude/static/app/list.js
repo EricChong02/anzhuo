@@ -25,44 +25,40 @@ async function organizeTasks(force = false) {
   } catch (_) { if (force) toast('整理暂未完成，请稍后重试'); }
   finally { taskGrouping = false; await loadSessions(); }
 }
+// 侧栏只分三块：总管（固定在最上面）、现在（要你看 / 在做 / 刚做完的，按急缓排）、任务（其余按任务收起来）
+// 平时的对话一行：名字左、时间右；有状态（在做、等你、出错、做完了）才多一行说明
+const ROW_STATE = s => ['running', 'queued', 'awaiting', 'error', 'paused'].includes(s.status) ? statusText(s) : s.suggest ? '有建议' : s.unread ? '做完了' : '';
+const NOW = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || s.unread || s.suggest;
+const RANK = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
+function sideRow(s) {
+  const state = ROW_STATE(s), boss = s.role === 'router';
+  return `${boss ? '' : `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button>`}<button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''} ${state ? '' : 'one'} ${boss ? 'boss' : ''}" data-n="${s.num}">
+      ${boss ? `<span class="bossic">${ICON.boss}</span>` : ''}<span class="tx"><div class="nl"><span class="nm">${esc(s.name)}</span>${engTag(s.engine)}<span class="tm">${esc(ago(s.updated))}</span></div>${state ? `<div class="st"><span class="dot"></span><span class="sx">${esc(state)}</span></div>` : ''}</span><span class="more" data-m="${s.num}">⋯</span></button>${boss ? '' : '</div>'}`;
+}
 function renderSide() {
   XE.emit('side', {query});
-  if (query) return renderSearch();
-  const row = s => `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''}" data-n="${s.num}">
-      <span class="tx"><div class="nm">${esc(s.name)}</div><div class="st"><span class="dot"></span>${engTag(s.engine)}<span class="sx">${esc(statusText(s))}</span></div></span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
-  const buckets = new Map(), prefs = groupPreferences();
-  const priorityGroups = [
-    ['需要你', s => ['awaiting', 'error'].includes(s.status)],
-    ['在做', s => ['running', 'queued'].includes(s.status)],
-    ['已暂停', s => s.status === 'paused'],
-    ['新完成', s => s.unread],
-    ['有建议', s => s.suggest],
-  ].map(([name, match]) => ({name, match, items: []}));
-  const routers = [];   // 总管（super_agent）：始终在最上面，不进分区和分组
+  if (query) { $('#boss').innerHTML = ''; return renderSearch(); }
+  const prefs = groupPreferences(), buckets = new Map(), routers = [], now = [];
   for (const s of sessions) {
-    if (s.role === 'router') { routers.push(s); continue; }
-    const priority = priorityGroups.find(g => g.match(s));
-    if (priority) { priority.items.push(s); continue; }
-    const name = s.task_group || '待整理';
-    if (!buckets.has(name)) buckets.set(name, []);
-    buckets.get(name).push(s);
+    if (s.role === 'router') routers.push(s);
+    else if (NOW(s)) now.push(s);
+    else {
+      const name = s.task_group || '待整理';
+      if (!buckets.has(name)) buckets.set(name, []);
+      buckets.get(name).push(s);
+    }
   }
+  now.sort((a, b) => RANK(a) - RANK(b) || b.updated - a.updated);
   const groups = [...buckets].sort((a, b) => Math.max(...b[1].map(s => s.updated)) - Math.max(...a[1].map(s => s.updated)));
-  const rank = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
-  const priorityHtml = priorityGroups.filter(g => g.items.length).map(g => {
-    g.items.sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
-    return `<div class="label">${g.name} · ${g.items.length}</div>${g.items.map(row).join('')}`;
-  }).join('');
-  const routerHtml = routers.length ? `<div class="label">${esc(routers.length > 1 ? '总管' : routers[0].name)}</div>${routers.map(row).join('')}` : '';
-  $('#list').innerHTML = routerHtml + priorityHtml + (groups.length ? `<div class="task-tools"><span>${taskGrouping ? '正在按任务整理…' : '按任务查找'}</span></div>` + (groups.map(([name, xs]) => {
-    const needs = xs.filter(s => ['awaiting', 'error'].includes(s.status)).length;
-    const running = xs.filter(s => s.status === 'running').length;
-    const queued = xs.filter(s => s.status === 'queued').length, paused = xs.filter(s => s.status === 'paused').length;
-    const counts = [needs ? `${needs} 件需要你` : '', running ? `${running} 件在做` : '', queued ? `${queued} 件排队` : '', paused ? `${paused} 件暂停` : '', `${xs.length} 个对话`].filter(Boolean).join(' · ');
+  const group = ([name, xs]) => {
     const open = prefs[name] ?? xs.some(s => s.num === sel);
-    xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || rank(a) - rank(b) || b.updated - a.updated);
-    return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary><span><b>${esc(name)}</b><small>${esc(counts)}</small></span>${ICON.chev}</summary><div class="task-rows">${xs.map(row).join('')}</div></details>`;
-  }).join('')) : (!priorityHtml && !routerHtml ? `<div class="note" style="padding:10px">还没有对话</div>` : ''));
+    xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updated - a.updated);
+    return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary>${ICON.chev}<b>${esc(name)}</b><small>${xs.length}</small></summary><div class="task-rows">${xs.map(sideRow).join('')}</div></details>`;
+  };
+  $('#boss').innerHTML = routers.map(sideRow).join('');
+  const html = (now.length ? `<div class="label">现在</div>${now.map(sideRow).join('')}` : '')
+    + (groups.length ? `<div class="label">${taskGrouping ? '任务 · 正在整理…' : '任务'}</div>${groups.map(group).join('')}` : '');
+  $('#list').innerHTML = html || (routers.length ? '' : `<div class="note" style="padding:10px">还没有对话</div>`);
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
@@ -97,7 +93,7 @@ async function delSession(num) {
 }
 function wireRows() {
   document.querySelectorAll('#list .swdel').forEach(d => d.onclick = e => { e.stopPropagation(); delSession(+d.dataset.d); });
-  document.querySelectorAll('#list .item[data-n]').forEach(b => {
+  document.querySelectorAll('#boss .item[data-n], #list .item[data-n]').forEach(b => {
     let timer = 0, longed = false, x0 = 0, y0 = 0, axis = '', base = 0, dx = 0;
     const sw = b.parentElement.classList.contains('swipe');
     if (sw && +b.dataset.n === swOpen) swSet(b, -SW, false);
@@ -268,8 +264,8 @@ async function renderSearch() {
   if (!$('#list').querySelector('.sres')) $('#list').innerHTML = '<div class="note sres" style="padding:10px">搜索中…</div>';
   let d; try { d = await api('search?q=' + encodeURIComponent(q)); } catch (e) { return; }
   if (seq !== searchSeq || q !== query) return;
-  const row = (r, del) => `<button class="item" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nm">${hl(r.name, q)}</div>
-    <div class="st"><span class="dot"></span>${engTag(r.engine)}${del ? (r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回') : ago(r.updated)}</div>
+  const row = (r, del) => `<button class="item ${del || r.snippet ? '' : 'one'}" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nl"><span class="nm">${hl(r.name, q)}</span>${engTag(r.engine)}<span class="tm">${del ? '' : esc(ago(r.updated))}</span></div>
+    ${del ? `<div class="st">${r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回'}</div>` : ''}
     ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
   const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
   const extra = XE.collect('search', q), lib = extra.map(x => x.html || '').join('');

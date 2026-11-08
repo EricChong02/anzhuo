@@ -2,13 +2,14 @@
 const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`; };
 setInterval(() => { document.querySelectorAll('.tick').forEach(t => { t.textContent = dur(Date.now() / 1000 - +t.dataset.t0); }); tickSilence(); }, 1000);
 // 你发的图：气泡里一排小图，点开看大图
-const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')}</div>` : '';
+const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}"></a>`).join('')}</div>` : '';
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
   const near = stick, savedTop = feed.scrollTop;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
   const relayTail = x => x.startsWith('（这是接力的新对话') && x.includes('用户这次说：\n\n') ? x.split('用户这次说：\n\n').pop() : x;   // 接力对话第一句：记录里带着交接说明
-  const sayCount = t => saidList.filter(x => x.startsWith(t.slice(0, 40)) || relayTail(x).startsWith(t.slice(0, 40))).length;   // 记录里可能多了“（附件已存到…）”，按开头比
+  // 记录里可能多了“（附件已存到…）”，按开头比；只发图或文件时网页摆的是“[图片]”，记录里是空的或“（见图）”，对不上字——就按“记录里你说的话多了一条”算
+  const sayCount = t => { const k = /^\[(?:图片|附件)\]$/.test(t) ? '' : t.slice(0, 40); return saidList.filter(x => x.startsWith(k) || relayTail(x).startsWith(k)).length; };
   lastSaid[d.num] = sayCount;
   lastYou[d.num] = saidList.filter(Boolean).slice(-1)[0] || '';
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
@@ -56,7 +57,7 @@ function renderThread(d) {
       ...(it.links || []).map(x => linkPill(x, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a>${/\.pdf$/i.test(f.name) ? `<a class="file-download" href="${esc(f.url)}?download=1" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a>` : ''}</div>`).join('');
+    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
     const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
