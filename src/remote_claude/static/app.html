@@ -1720,13 +1720,19 @@ function openSession(num, fromPop, view) {
   renderSide(); headStatus(); if (!view) showCached(num); loadThread();
 }
 
-// 告诉 Mac“我正开着这个对话看”：做完时不再弹通知、不发钉钉（切走、锁屏就不算在看）
+// 告诉 Mac“我正开着这个对话看”：做完时不再弹通知、不发钉钉（切走、锁屏、5 分钟没碰就不算在看）
+// Mac 屏幕灭了 Safari 仍算“可见”，只能看人有没有碰：点、按键、滚轮、移鼠标（不算自动滚动）
+const LOOK_IDLE = 300000;
+let lastAct = Date.now(), looked = false;
+const looking = () => !!sel && !document.hidden && document.hasFocus() && Date.now() - lastAct < LOOK_IDLE;
+for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'focus'])
+  addEventListener(ev, () => { const back = !looked; lastAct = Date.now(); if (back && looking()) { looked = true; presence(true); } }, {passive: true, capture: true});
 function presence(on) {
-  const body = JSON.stringify({num: sel || 0, visible: !!(on && sel && !document.hidden)});
+  const body = JSON.stringify({num: sel || 0, visible: !!(on && looking()), v: 2});
   if (!on && navigator.sendBeacon) navigator.sendBeacon('/_x/api/presence', new Blob([body], {type: 'application/json'}));
   else fetch('/_x/api/presence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: true}).catch(() => {});
 }
-setInterval(() => { if (sel && !document.hidden) presence(true); }, 15000);
+setInterval(() => { const on = looking(); if (sel && (on || looked)) presence(on); looked = on; }, 15000);
 addEventListener('pagehide', () => presence(false));
 function goList() { presence(false); sel = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
 // 实时推送：Mac 那边一有变化就推过来（列表 s、这个对话 t、正在写的回复 p），不再每几秒问一次
@@ -3017,7 +3023,7 @@ const boot = async () => {
   setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
   setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
   setInterval(() => { if (!document.hidden && $('#adm')) loadAdmin(); }, 30000);
-  document.addEventListener('visibilitychange', () => { presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lastAct = Date.now(); presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
   // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
   addEventListener('keydown', e => {
     if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && e.key.length === 1 && !coarsePhone()) {   // 焦点不在输入框时直接打字：落进输入框

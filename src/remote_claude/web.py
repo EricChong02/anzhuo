@@ -1668,7 +1668,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         return web.json_response({"ok": True})
 
     async def _api_presence(self, request: web.Request) -> web.Response:
-        """网页每 15 秒报一次“我正开着 #N 看”；切走、锁屏时报不在。"""
+        """网页每 15 秒报一次“我正开着 #N 看”；切走、锁屏、5 分钟没碰时报不在。
+        只认带 v=2 的：老页面不管人走没走都报“在看”（Mac 屏幕灭了 Safari 照样报），会把手机通知全挡掉。"""
         try:
             data = json.loads(await request.text() or "{}")
         except ValueError:
@@ -1676,7 +1677,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         num = int(data.get("num") or 0)
         if num and not self.bridge.registry.mine(num, request.get("owner", "admin")):
             return web.json_response({"ok": False}, status=404)
-        if num and data.get("visible"):
+        if num and data.get("visible") and data.get("v") == 2:
             self.watch[num] = time.time()
         else:
             self.watch.pop(num, None) if num else self.watch.clear()

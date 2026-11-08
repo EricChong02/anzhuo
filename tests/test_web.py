@@ -372,6 +372,29 @@ def test_devices(tmp_path):
     asyncio.run(go())
 
 
+def test_presence_needs_idle_aware_page(tmp_path):
+    """“我在看”只认会判断人走开的新页面（v=2）：老页面在 Mac 屏幕灭了照样报，会把手机通知全挡掉。"""
+    from types import SimpleNamespace as NS
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=NS(mine=lambda n, owner: True))
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            await c.post("/_x/api/presence", json={"num": 5, "visible": True})
+            assert not w.watching(5)                                                   # 老页面报的不算
+            await c.post("/_x/api/presence", json={"num": 5, "visible": True, "v": 2})
+            assert w.watching(5)
+            await c.post("/_x/api/presence", json={"num": 5, "visible": False, "v": 2})  # 走开了
+            assert not w.watching(5)
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
 def test_records_match_by_time_while_running():
     """正在做的那轮还没有记录：按时间对，文件挂在它所属的那条回复上，不整体错一位。"""
     from remote_claude import thread
