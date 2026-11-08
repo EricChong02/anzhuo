@@ -44,6 +44,22 @@ def step_label(name: str, inp: dict) -> str | None:
         return None
     if name.endswith("send_images"):
         return "交截图"
+    # 总管（super_agent）的工具
+    if name.endswith("__new_session"):
+        return "派活：" + _short(inp.get("task") or "", 18)
+    if name.endswith("__send_to_session"):
+        return f"转给 #{inp.get('num')}"
+    if name.endswith("__list_sessions"):
+        return "看对话列表"
+    if name.endswith("__session_status"):
+        return f"看 #{inp.get('num')}"
+    if name.endswith("__stop_session"):
+        return f"停下 #{inp.get('num')}"
+    if name.endswith("__report"):
+        return "汇报：" + ("问你" if inp.get("question") else {"ready": "做完了", "waiting": "这轮做完", "blocked": "卡住了",
+                                                              "failed": "做不成", "dropped": "不用做"}.get(inp.get("state"), "进展"))
+    if name.endswith("__handback"):
+        return "退回给总管"
     if name in ("ToolSearch", "ListAgents", "TaskStop"):
         return None
     return _short(name.split("__")[-1], 22)

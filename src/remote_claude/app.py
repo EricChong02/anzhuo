@@ -14,15 +14,17 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, folders, report, router, translate, usage
+from . import cards, folders, report, router, superagent, translate, usage
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
 from .web import Web, relay_hint
+from .acp import ENGINES as ACP_ENGINES, is_acp
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
+ENGINES_ALT = ("gpt", *ACP_ENGINES)   # 不是 Claude 的引擎：开对话时选，中途不换
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 # 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
@@ -104,6 +106,8 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
         model = MODELS[m.group(1).lower()]
     elif re.search(r"(?:用|交给|让)\s*(codex|gpt|chatgpt)", text, re.I):
         model = "gpt"
+    elif re.search(r"(?:用|交给|让)\s*kimi", text, re.I):   # ACP 引擎：模型那一栏就写引擎名
+        model = "kimi"
     if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
         effort = EFFORTS[m.group(1)]
     return model, effort
@@ -142,6 +146,7 @@ class Bridge:
         _sch.set_timezone(cfg.timezone)
         self.runner.auto_title = True
         self.runner.on_usage = self._usage
+        self.runner.role = lambda s: superagent.role(self, s)
         self.spend = LocalSpend(data_dir / "localspend.json")   # 本机全部 Claude Code 的消耗：换算周额度 % 用
         try:
             if n := usage.migrate(data_dir / "usage.jsonl"):
@@ -157,7 +162,8 @@ class Bridge:
         self.board_shown = ""
         self.progress_every = (15.0, 45.0)  # 工作台多久更新一次：都在前 5 分钟 / 有做得久的（省钉钉调用次数）
         self.web = Web(cfg.web_base, cfg.web_port, data_dir, cfg.preview_upstream, cfg.preview_root,
-                       watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash)
+                       watch_host=cfg.watch_host, accounts=web_accounts(cfg) if cfg.web_base else {}, save_hash=write_web_hash,
+                       web_prefix=cfg.web_prefix)
         self.web.bridge = self
         self.cards_path = data_dir / "cards.json"
         self.cards: dict[str, dict] = self._load_cards()  # 卡片 → 它属于哪个对话、是什么卡；重启后按钮还能用
@@ -170,9 +176,14 @@ class Bridge:
         self.chat_at = 0.0  # 最近一次小E 直接回答的时间
         self.work_at = 0.0  # 最近一次把话交给对话的时间
         self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else "local"
+        self.interrupted = []   # 重启前在做 / 排队的（总管派出去的活重启后接着做）
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
                 s.status = "error"
+                self.interrupted.append(s.num)
+        if cfg.super_agent:
+            superagent.ensure(self)
+            self.runner.use_spare = True
         self.registry.save()
 
     def create_schedule(self, data: dict) -> dict:
@@ -406,6 +417,10 @@ class Bridge:
         self.registry.save()
         return s
 
+    def _limits(self, s: Session) -> dict:
+        """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
+        return self.runner.limits_gpt if s.engine == "codex" else {} if is_acp(s.engine) else self.runner.limits
+
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         if s.num in self._relaying:
             self._relaying.discard(s.num)
@@ -424,7 +439,7 @@ class Bridge:
         if translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
-        title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
+        title, body = report.build(s.label, turn, s.cwd, self._limits(s))
         if self.web.enabled:
             try:
                 tid = self.web.save_turn(s.label, turn, s.cwd, title.split(" · ")[0] if title else "回复")
@@ -433,7 +448,7 @@ class Bridge:
                 turn.links = [("完整过程", self.web.link(f"/_x/t/{tid}"))]
                 turn.links += [(f"试课：{name}", self.web.link(url))
                                for name, url in self.web._turn(tid).get("previews", [])]
-                title, body = report.build(s.label, turn, s.cwd, self.runner.limits_gpt if s.engine == "codex" else self.runner.limits)
+                title, body = report.build(s.label, turn, s.cwd, self._limits(s))
             except LookupError:
                 pass
             except Exception:  # noqa: BLE001 - 过程页出问题不影响报告
@@ -446,6 +461,8 @@ class Bridge:
             s.limit_until = until   # 撞上 5 小时额度：恢复后一分钟自动接着做
             asyncio.create_task(self._auto_resume(s.num, until))
         self.registry.save()
+        if await superagent.on_turn_done(self, s, turn):
+            return   # 总管派的活：先回报给总管，由总管告诉你
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
@@ -901,7 +918,7 @@ class Bridge:
 
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None, model: str | None = None, effort: str | None = None,
-                     owner: str = "admin", root: str = "") -> None:
+                     owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None) -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
         if kind is None:
@@ -910,17 +927,20 @@ class Bridge:
                 from . import router
                 kind = await router.classify_kind(text) or "dev"   # 在代码仓里也只有较复杂的开发才上 Opus；判断失败按开发算
         auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root)
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
+                    boss=boss)
         said_model, said_effort = inline_overrides(text)
-        if root and (model or said_model) == "gpt":   # 受限账号只用 Claude（Codex 不在沙箱里）
+        if root and (model or said_model) in ENGINES_ALT:   # 受限账号只用 Claude（Codex、Kimi 不在沙箱里）
             model = said_model = None
         if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
             s.engine, model, said_model, s.model = "codex", None, None, None
+        elif is_acp(model or said_model or ""):   # 用 ACP 引擎（Kimi 等）干这件事；engine_model 是它自己的模型名（总管指定的）
+            s.engine, model, said_model, s.model = (model or said_model), None, None, engine_model
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "GPT · Codex" if s.engine == "codex" else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
+        why = "GPT · Codex" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
@@ -954,7 +974,9 @@ class Bridge:
             waiting = sorted((x for x in self.registry.visible() if x.awaiting), key=lambda x: -x.updated)
             if waiting:  # “按C来做”“好的”这类回复，交给正在等你回答的那个对话（最近问的那个）
                 num = waiting[0].num
-        if num is None and cmd.text and not routed and self.cfg.auto_route and (chatting or not _is_reply(cmd.text)):
+        # 开了总管（super_agent）就由总管分派，分派员让开，免得两个都来判断
+        auto_route = self.cfg.auto_route and not self.cfg.super_agent
+        if num is None and cmd.text and not routed and auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
             busy = {n for n in self.registry.sessions if self.runner.busy(n)}
             r = await router.route(cmd.text, self.registry.visible(), self.registry.current,
@@ -986,7 +1008,7 @@ class Bridge:
             self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
-        if said_model == "gpt" or s.engine == "codex":
+        if said_model in ENGINES_ALT or s.engine != "claude":
             said_model = None   # 对话中途换不了 Claude / GPT；话里提到“用 codex”多半是在说别的事
         if said_model or said_effort:
             s.model = said_model or s.model
@@ -1007,6 +1029,10 @@ class Bridge:
         await self.say("接着还是新开", f"这句要接着 {cur.label}，还是新开一个？回编号：\n\n1. 接着 {cur.label}\n2. 新开（{where}）")
 
     async def _submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
+        if s.role == superagent.ROUTER and self.cfg.super_agent:
+            if inc.via in superagent.HUMAN and not inc.image_codes and not inc.local_images and await superagent.direct(self, s, text):
+                return   # “#N 话”：直接交给 #N，总管不用跑一轮
+            text = superagent.take_notes(s, text)   # 总管开口前先看“期间的情况”
         s.awaiting, s.awaiting_kind, s.limit_until = "", "", 0.0
         if text.strip() and text != COMPACT:
             shown = text.split("\n\n（下面是引用的内容")[0].strip()
@@ -1133,6 +1159,11 @@ class Bridge:
         asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
+        if self.cfg.super_agent:   # 记下各个 ACP 助手有哪些模型，总管派活时能挑
+            from .acp import probe_all
+            asyncio.create_task(probe_all(str(self.data_dir / "router")))
+        if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
+            asyncio.create_task(superagent.recover(self, self.interrupted))
         for s in self.registry.sessions.values():   # 重启前撞了额度在等恢复的，接着等
             if s.limit_until and s.auto_resume:
                 asyncio.create_task(self._auto_resume(s.num, s.limit_until))
