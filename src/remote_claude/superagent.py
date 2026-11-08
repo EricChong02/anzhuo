@@ -195,7 +195,7 @@ def catalog(bridge: "Bridge") -> dict[str, dict]:
     from .app import MODELS
     from .codex import codex_bin
     from .acp import MODELS_SEEN
-    out = {"claude": {"name": "Claude", "models": list(MODELS), "default": f"按文件夹：像项目用 {bridge.cfg.dev_model}，否则 {bridge.cfg.simple_model}"}}
+    out = {"claude": {"name": "Claude", "models": list(MODELS), "default": f"按任务档位：定方案用 {bridge.cfg.design_model}，开发用 {bridge.cfg.dev_model}，其余用 {bridge.cfg.simple_model}"}}
     if codex_bin():
         out["gpt"] = {"name": "GPT（Codex）", "models": [], "default": "Codex 自己配置的模型"}
     for k, v in ACP_ENGINES.items():

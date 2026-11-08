@@ -27,8 +27,13 @@
 # ───────── 干活的方式（都有默认值，按需取消注释）─────────
 # max_parallel = 3             # 最多同时几个对话在干活，多的排队
 # default_effort = "medium"    # 默认思考深度：low / medium / high / xhigh / max
-# simple_model = "sonnet"      # 简单任务（查资料、整理文件）用的模型
-# dev_model = "opus"           # 开发类任务（文件夹里有 .git / pyproject.toml / package.json）用的模型
+# 新开对话没指定模型时，分派员（Haiku）先判断这件事是哪一档，再用对应的模型：
+# simple_model = "sonnet"      # 简单任务（查资料、整理文件、问答、小改动）
+# dev_model = "sonnet"         # 照清楚的要求动手开发（写代码、做功能、改 bug）
+# design_model = "opus"        # 拿主意定方案（设计、梳理想法、写方案、架构设计、验收）
+# subagent_model = "sonnet"    # 对话里派出的子代理默认用的模型；写 "" = 跟主对话一样
+# relay_long = 120000          # 上下文（token）到这么长就提示接力：越长每句话越贵
+# relay_cold = 80000           # 隔一个多小时回来（缓存过期）、上下文又有这么长，也提示接力
 # reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
 # translate_english = false    # 默认关闭。想看中文版的思考过程和英文回复，改成 true：有 DeepSeek 密钥就用它，没有就用 Haiku（会消耗你自己的 Claude 额度）
 # extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”

@@ -37,6 +37,7 @@ class Field:
     help: str = ""
     options: tuple = ()   # select 的可选值：((值, 显示), ...)
     live: bool = True   # False = 存下来，重启远窗后生效
+    rng: tuple = (1, 10)   # int 的取值范围
     check: Callable[[Any], None] | None = None
 
 
@@ -76,8 +77,12 @@ FIELDS: list[Field] = [
     Field("super_agent_name", "总管的名字", "总管", "text", "留空叫“总管”", check=_short(30)),
     Field("super_agent_routing", "分派规则", "总管", "textarea",
           "你没点名用哪个引擎 / 模型时，总管照这个选。一行一条，比如“写代码：claude，模型 sonnet”", check=_short(LONG)),
-    Field("simple_model", "简单任务用的模型", "干活", "select", "查资料、整理文件、问答", options=()),
-    Field("dev_model", "开发任务用的模型", "干活", "select", "文件夹里有 .git / pyproject.toml / package.json 时", options=()),
+    Field("simple_model", "简单任务用的模型", "干活", "select", "查资料、整理文件、问答、小改动", options=()),
+    Field("dev_model", "开发任务用的模型", "干活", "select", "照清楚的要求写代码、做功能、改 bug", options=()),
+    Field("design_model", "定方案用的模型", "干活", "select", "设计课、梳理想法、写方案、架构设计、验收", options=()),
+    Field("subagent_model", "子代理默认模型", "干活", "select", "对话里派出去的子代理；“跟主对话”= 不另指定", options=()),
+    Field("relay_long", "上下文多长提示接力", "干活", "int", "单位 token，比如 120000；越长每句话越贵", rng=(30_000, 1_000_000)),
+    Field("relay_cold", "隔一小时回来、多长提示接力", "干活", "int", "缓存过期后整段要重写，单位 token", rng=(10_000, 1_000_000)),
     Field("default_effort", "默认思考深度", "干活", "select", options=()),
     Field("max_parallel", "最多同时干活的对话数", "干活", "int", "多的排队", live=False),
     Field("reply_language", "回复语言", "干活", "text", "留空 = 不指定", check=_short(20)),
@@ -98,8 +103,10 @@ BY_KEY = {f.key: f for f in FIELDS}
 
 
 def _options(f: Field) -> tuple:
-    if f.key in ("simple_model", "dev_model"):
+    if f.key in ("simple_model", "dev_model", "design_model"):
         return _models()
+    if f.key == "subagent_model":
+        return (("", "跟主对话"),) + _models()
     if f.key == "default_effort":
         return _efforts()
     return f.options
@@ -148,8 +155,9 @@ def _coerce(f: Field, raw):
             v = int(raw)
         except (TypeError, ValueError):
             raise Invalid("要填数字") from None
-        if not 1 <= v <= 10:
-            raise Invalid("填 1 到 10")
+        lo, hi = f.rng
+        if not lo <= v <= hi:
+            raise Invalid(f"填 {lo} 到 {hi}")
         return v
     if f.kind == "lines":
         items = raw if isinstance(raw, list) else str(raw or "").splitlines()
@@ -206,6 +214,8 @@ def apply(bridge: "Bridge", new: Config) -> None:
     r = bridge.runner
     r.language = new.reply_language
     r.extra_instructions = new.extra_instructions
+    from .app import MODELS
+    r.subagent_model = MODELS.get(new.subagent_model, "")
     r.auto_review = new.auto_review
     r.review_policy = new.review_policy
     from .sessions import user_setting

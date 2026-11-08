@@ -113,6 +113,9 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
     return model, effort
 
 
+KIND_CN = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
+
+
 def _looks_like_project(cwd: Path) -> bool:
     """手动新开时按文件夹猜：在代码仓库或项目里（有 .git、pyproject.toml、package.json）算开发。"""
     for d in [cwd, *list(cwd.parents)[:3]]:
@@ -141,6 +144,7 @@ class Bridge:
         self.runner.review_policy = cfg.review_policy
         self.runner.language = cfg.reply_language
         self.runner.extra_instructions = cfg.extra_instructions
+        self.runner.subagent_model = MODELS.get(cfg.subagent_model, "")
         translate.enabled = cfg.translate_english
         from . import schedules as _sch
         _sch.set_timezone(cfg.timezone)
@@ -398,7 +402,7 @@ class Bridge:
             return "正在写交接说明，写完自动开新对话。"
         if self.runner.busy(num):
             return "正在回答或还有排队消息，请等回答结束后再接力。"
-        if not s.relay_suggested and not relay_hint(s, False, False):
+        if not s.relay_suggested and not relay_hint(s, False, False, cfg=self.cfg):
             return "这个对话暂时没有接力建议。"
         self._relaying.add(num)
         ahead = self.runner.submit(s, Job(text=RELAY, via=via))
@@ -916,17 +920,23 @@ class Bridge:
                 f"（{folders.display(Path(y.cwd))}）" for i, y in others))
         await self.say("接着桌面", "\n\n".join(lines))
 
+    def _kind_model(self, kind: str | None) -> str:
+        """任务档位 → 配置里给它定的模型短名（opus / sonnet …）。"""
+        name = {"design": self.cfg.design_model, "dev": self.cfg.dev_model}.get(kind or "", self.cfg.simple_model)
+        return name if name in MODELS else "sonnet"
+
     async def _start(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                      kind: str | None = None, model: str | None = None, effort: str | None = None,
                      owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None) -> None:
         """model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的。"""
         name = report.brief(text, 16) or "新对话"
+        project = _looks_like_project(cwd)
         if kind is None:
-            kind = "simple"
-            if _looks_like_project(cwd) and not model and not inline_overrides(text)[0]:
+            kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
+            if text and not model and not inline_overrides(text)[0]:
                 from . import router
-                kind = await router.classify_kind(text) or "dev"   # 在代码仓里也只有较复杂的开发才上 Opus；判断失败按开发算
-        auto = MODELS[self.cfg.dev_model if kind == "dev" else self.cfg.simple_model]   # 没指定时按任务类型挑
+                kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活用 design_model
+        auto = MODELS[self._kind_model(kind)]   # 没指定时按任务类型挑
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
                     boss=boss)
         said_model, said_effort = inline_overrides(text)
@@ -940,7 +950,7 @@ class Bridge:
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "GPT · Codex" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "你指定的" if model or said_model else ("开发" if kind == "dev" else "简单任务")
+        why = "GPT · Codex" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "你指定的" if model or said_model else KIND_CN.get(kind, "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:

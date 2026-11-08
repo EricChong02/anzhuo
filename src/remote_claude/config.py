@@ -40,7 +40,11 @@ class Config:
     auto_route: bool = True  # 直接说话时让分派员判断接着哪个对话、还是新开（router.py）
     default_effort: str | None = None  # 默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
     simple_model: str = "sonnet"  # 简单任务（查资料、整理文件、问答）用的模型
-    dev_model: str = "opus"  # 开发类工作（写代码、做功能，不限哪个项目）用的模型
+    dev_model: str = "sonnet"  # 照要求动手开发（写代码、做功能、改 bug）用的模型
+    design_model: str = "opus"  # 拿主意定方案（设计课、梳理想法、写方案、架构、验收）用的模型
+    subagent_model: str = "sonnet"  # Claude 对话里派出的子代理默认用的模型；空 = 跟 Claude Code 默认（和主对话一样）
+    relay_long: int = 120_000  # 上下文到这么长就提示接力：每说一句都要把整段重读一遍
+    relay_cold: int = 80_000  # 隔了一个多小时（缓存过期）再回来、上下文又有这么长，先提示接力
     reply_language: str = "简体中文"  # 让每个对话用什么语言回复；写成空字符串 = 不指定
     extra_instructions: str = ""  # 你自己追加给每个对话的固定要求（比如“做完小任务直接提交，不要问”）
     translate_english: bool = False  # 默认关闭。打开后，回复里有大段英文时译成中文再给你看：有 DeepSeek 密钥就用它，没有就用 Haiku
@@ -95,7 +99,11 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         auto_route=bool(raw.get("auto_route", True)),
         default_effort=raw.get("default_effort"),
         simple_model=raw.get("simple_model", "sonnet"),
-        dev_model=raw.get("dev_model", "opus"),
+        dev_model=raw.get("dev_model", "sonnet"),
+        design_model=raw.get("design_model", "opus"),
+        subagent_model=str(raw.get("subagent_model", "sonnet")),
+        relay_long=int(raw.get("relay_long", 120_000)),
+        relay_cold=int(raw.get("relay_cold", 80_000)),
         reply_language=str(raw.get("reply_language", "简体中文")),
         extra_instructions=str(raw.get("extra_instructions", "")),
         translate_english=bool(raw.get("translate_english", False)),

@@ -809,12 +809,15 @@ def test_relay(tmp_path, monkeypatch, engine):
 
 
 def test_relay_hint():
-    """什么时候提示接力：上下文 20 万以上；或隔了一个多小时回来、上下文 8 万以上（缓存过期要整段重写）。"""
+    """什么时候提示接力：上下文 12 万以上；或隔了一个多小时回来、上下文 8 万以上（缓存过期要整段重写）。门槛可配置。"""
+    from remote_claude.config import Config
     from remote_claude.sessions import Session
     from remote_claude.web import relay_hint
     now = 1_000_000.0
-    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=250_000, updated=now - 60)
+    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=130_000, updated=now - 60)
     assert relay_hint(s, False, False, now)["kind"] == "long"
+    assert relay_hint(s, False, False, now, cfg=Config(relay_long=200_000)) is None   # 门槛调高了就不提示
+    s.context_tokens = 250_000
     assert relay_hint(s, True, False, now) is None                 # 正在做不打扰
     assert relay_hint(s, False, True, now) == {"kind": "running"}
     s.updated = now - 2 * 3600
@@ -824,3 +827,37 @@ def test_relay_hint():
     assert relay_hint(s, False, False, now) is None                # 短对话重写也不贵
     s.context_tokens, s.relay_to = 250_000, 9
     assert relay_hint(s, False, False, now) is None                # 已经接力过
+
+
+def test_new_session_model_by_kind(tmp_path, monkeypatch):
+    """新开对话没指定模型：按分派员判断的档位挑模型；定方案用 design_model，判断不出来时代码仓按开发算。"""
+    from remote_claude import router
+    from remote_claude.app import MODELS
+    from remote_claude.dingtalk import Incoming
+    (tmp_path / "proj" / ".git").mkdir(parents=True)
+    (tmp_path / "notes").mkdir()
+    cfg = Config(client_id="x", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), dev_model="haiku")
+    said = {}
+
+    async def classify(text, timeout=15):
+        return said.get(text)
+    monkeypatch.setattr(router, "classify_kind", classify)
+
+    async def fake_run(self, s, job, turn):
+        turn.final_text = "好"
+    monkeypatch.setattr(Runner, "_run", fake_run)
+    inc = lambda t: Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text=t, via="web")
+
+    async def go():
+        b = Bridge(cfg, FakeDT(), data_dir=tmp_path / "data")
+        assert b.runner.subagent_model == MODELS["sonnet"]   # 子代理默认 Sonnet
+        said["设计一节课"] = "design"
+        out = []
+        for cwd, text in [(tmp_path / "notes", "设计一节课"), (tmp_path / "proj", "修个 bug"), (tmp_path / "notes", "查个资料"),
+                          (tmp_path / "notes", "设计一节课 用 sonnet")]:
+            n = b.registry.reserve_num()
+            await b._start(n, cwd, [], text, inc(text))
+            out.append(b.registry.get(n).model)
+        return out
+
+    assert asyncio.run(go()) == [MODELS["opus"], MODELS["haiku"], MODELS["sonnet"], MODELS["sonnet"]]

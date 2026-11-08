@@ -33,6 +33,7 @@ from .cards import parse_decision
 from .acp import ENGINES as ACP_ENGINES, is_acp, available as acp_available
 from .sessions import NOISE
 from .commands import Cmd
+from .config import Config
 from .dingtalk import Incoming
 from .folders import display, readable
 from .report import EFFORT_CN, LIMIT_CN, model_name
@@ -124,22 +125,22 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", 
        "transfer-encoding", "upgrade", "host", "cookie", "content-length"}
 
 
-RELAY_LONG = 200_000   # 上下文到这么长就提示接力：每说一句都要把它重读一遍
-RELAY_COLD = 80_000    # 隔了一个多小时再回来、上下文又有这么长：缓存过期，接着说要整段重写一遍
 CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
 
 
-def relay_hint(s, busy: bool, relaying: bool, now: float | None = None) -> dict | None:
-    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。"""
+def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None) -> dict | None:
+    """该不该提示“接力到新对话”。返回 {kind: long/cold, tokens, hours, key}；key 用来记你点过“不用”。
+    门槛见配置 relay_long（上下文太长）、relay_cold（缓存过期又不短）。"""
     if relaying:
         return {"kind": "running"}
+    long_at, cold_at = getattr(cfg, "relay_long", Config.relay_long), getattr(cfg, "relay_cold", Config.relay_cold)
     tk = s.context_tokens or 0
-    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < RELAY_COLD:
+    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < cold_at:
         return None
     idle = (now or time.time()) - s.updated
     if s.engine == "claude" and idle > CACHE_TTL:
         return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
-    if tk >= RELAY_LONG:
+    if tk >= long_at:
         return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
     return None
 
@@ -1527,7 +1528,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
                 item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
         relay_busy = bool(turn) or b.runner.busy(num)
         relaying = num in getattr(b, "_relaying", ())
-        recommendation = relay_hint(s, relay_busy, relaying)
+        recommendation = relay_hint(s, relay_busy, relaying, cfg=getattr(b, "cfg", None))
         if recommendation and recommendation["kind"] in ("long", "cold") and not s.relay_suggested:
             s.relay_suggested = True
             b.registry.save()
@@ -2260,7 +2261,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         if num not in self.bridge._relaying:
             if self.bridge.runner.busy(num):
                 return web.json_response({"ok": False, "message": "正在回答或还有排队消息，请等回答结束后再接力。"}, status=409)
-            if not s.relay_suggested and not relay_hint(s, False, False):
+            if not s.relay_suggested and not relay_hint(s, False, False, cfg=getattr(self.bridge, "cfg", None)):
                 return web.json_response({"ok": False, "message": "这个对话暂时没有接力建议。"}, status=409)
         msg = self.bridge.relay(num, via="web")
         return web.json_response({"ok": True, "message": msg})

@@ -231,6 +231,7 @@ class Runner:
         self.default_effort = default_effort or user_setting("effortLevel") or ""
         self.language = "简体中文"   # 回复语言（配置 reply_language）
         self.extra_instructions = ""   # 你自己追加给每个对话的要求（配置 extra_instructions）
+        self.subagent_model = ""   # 子代理默认用的模型全名（配置 subagent_model）；空 = 跟 Claude Code 默认
         self.auto_review = False   # 危险命令交给审核员（reviewer.py）判断（配置 auto_review）；关着就等你点
         self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
@@ -818,7 +819,9 @@ class Runner:
             disallowed_tools=list(role.get("disallowed", [])),
             tools=role.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
             mcp_servers={"xiaoe": self._image_tool(turn, s)},
-            env={"ENABLE_TOOL_SEARCH": "false"},   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
+            env={"ENABLE_TOOL_SEARCH": "false",   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
+                 # 子代理默认用便宜一档的模型（只是默认：派的时候点名模型、或 fork 照旧跟主对话）
+                 **({"CLAUDE_CODE_SUBAGENT_MODEL": self.subagent_model} if self.subagent_model else {})},
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},

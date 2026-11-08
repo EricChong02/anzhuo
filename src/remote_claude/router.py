@@ -18,11 +18,12 @@ from .sessions import Session
 log = logging.getLogger(__name__)
 
 ROUTER_MODEL = "claude-haiku-5-5"
+KINDS = ("design", "dev", "simple")  # 新事的三档：拿主意定方案 / 照要求开发 / 其余；各用哪个模型见配置 design_model、dev_model、simple_model
 ROUTER_EFFORT = "low"  # 小E 自己的判断只用低档思考；干活的对话另按配置（默认中）
 
 SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工作对话发消息，你判断这条消息该交给谁。
 只输出一个 JSON 对象，不要任何别的文字：
-{"action": "reply" | "continue" | "new" | "ask", "target": 对话编号或 null, "folder": 文件夹或 null, "kind": "dev" | "simple" | null, "answer": 文字或 null, "reason": "十个字以内"}
+{"action": "reply" | "continue" | "new" | "ask", "target": 对话编号或 null, "folder": 文件夹或 null, "kind": "design" | "dev" | "simple" | null, "answer": 文字或 null, "reason": "十个字以内"}
 - reply：只限打招呼、谢谢、问你是谁、问远窗的指令怎么写，或和所有对话都毫不相关的闲聊、常识问答；你直接回答。answer 写给用户的回答，简体中文，口语，一到三句话；问用法时按下面的用法说明答。
   你只是分派员，不能替干活的对话回答它的事，也不要用它的口吻道歉、解释或承诺。
   问“以后能不能…”“开发完之后…”“要怎么设计”这类关于功能本身的问题，不是问指令怎么写：如果有对话在开发远窗（原名案头、小E，remote-claude），选 continue 它。
@@ -37,14 +38,16 @@ SYSTEM = """你是一个分派员。用户在手机上给他 Mac 上的几个工
 有对话“正在做”或几分钟前刚做完时，用户的话多半是说给它的：讨论它在做的东西、对它发来的卡片/报告/截图的反馈、抱怨、追问、出主意，都选 continue 它。拿不准是 reply 还是 continue 时，选 continue。
 标着“在等你回答”的对话刚问了用户问题；用户的话像是在回答它（选方案、同意、补充意见），就 continue 它，即使它不是当前对话。
 如果给了“你刚才直接回答用户的”，而这条消息是在接着那段话说（追问、纠正、补充，比如“她老公不是老师”“那如果是…呢”），就选 reply，结合前文接着回答；那段话要用到文件或动手做事时才选 new。
-选 new 时再给 kind：只有较复杂的开发才写 "dev"——新做一个功能或页面、跨多个文件的改动、重构、架构设计、难查的 bug、做课件或整门课程页面；
-其余都写 "simple"：查资料、整理文件、问答、写一段文字、算东西，以及小开发（改样式或文案、调个参数或配置、改一两处小 bug、写个小脚本、跑命令、看代码解释代码、单文件小改动）。凡是“加一个功能”“前后端都要改”这类，哪怕话很短也写 "dev"。其他情况 kind 写 null。"""
+选 new 时再给 kind：要拿主意、定方案的写 "design"——设计一节课或整门课、整节课重做、定课件结构和交互、梳理想法、写设计方案、跨多个文件的架构设计、验收别人做完的活；
+照着已经清楚的要求动手开发的写 "dev"——新做一个功能或页面、跨多个文件的改动、重构、难查的 bug、照定好的方案实现课件某一节；
+其余都写 "simple"：查资料、整理文件、问答、写一段文字、算东西，以及小开发（改样式或文案、调个参数或配置、改一两处小 bug、写个小脚本、跑命令、看代码解释代码、单文件小改动）。凡是“加一个功能”“前后端都要改”这类，哪怕话很短也至少写 "dev"。其他情况 kind 写 null。"""
 
 KIND_SYSTEM = """判断用户这件事该用哪档模型。只输出一个词，不要别的文字：
-dev：较复杂的开发——新做功能或页面、跨多个文件的改动、重构、架构设计、难查的 bug、做课件或整门课程页面。
+design：要拿主意、定方案——设计一节课或整门课、整节课重做、定课件结构和交互、梳理想法、写设计方案、跨多个文件的架构设计、验收别人做完的活。
+dev：照着已经清楚的要求动手开发——新做功能或页面、跨多个文件的改动、重构、难查的 bug、照定好的方案实现课件某一节。
 simple：其余所有事——查资料、整理文件、问答、写文字，以及小开发（改样式或文案、调参数或配置、改一两处小 bug、写小脚本、跑命令、看代码解释代码、单文件小改动）。
-凡是“加一个功能”“做一个页面”“前后端都要改”“重构”“设计方案”“做课件、给课件加内容”，都算 dev；只有一两处小改动才算 simple。
-例子——simple：“把按钮颜色改成蓝色”“把超时从30秒改成60秒”“修一下错别字”“这个报错怎么回事”“这个函数干嘛的”；dev：“给小E加个定时重试机制”“给课件加一页二次函数互动演示”“重构路由模块”。"""
+凡是“加一个功能”“做一个页面”“前后端都要改”“重构”，至少算 dev；“设计方案”“这节课怎么设计”“帮我理一理”“整节课重做”算 design；只有一两处小改动才算 simple。
+例子——simple：“把按钮颜色改成蓝色”“把超时从30秒改成60秒”“修一下错别字”“这个报错怎么回事”“这个函数干嘛的”；dev：“给小E加个定时重试机制”“按方案把第三节的互动做出来”“重构路由模块”；design：“设计一节二次函数的课”“这个平台的权限怎么设计”“帮我理理这学期的教研想法”。"""
 
 
 @dataclass
@@ -53,7 +56,7 @@ class Route:
     target: int | None = None
     folder: str | None = None
     reason: str = ""
-    kind: str | None = None  # 新事是开发（dev）还是简单任务（simple）
+    kind: str | None = None  # 新事是定方案（design）、开发（dev）还是简单任务（simple）
     answer: str = ""  # action 为 reply 时小E直接回的话
 
 
@@ -107,7 +110,7 @@ def _parse(raw: str, valid: set[int]) -> Route | None:
         action = "ask"
     folder = j.get("folder")
     folder = str(folder).strip() if folder not in (None, "", "null") else None
-    kind = j.get("kind") if j.get("kind") in ("dev", "simple") else None
+    kind = j.get("kind") if j.get("kind") in KINDS else None
     answer = str(j.get("answer") or "").strip()
     if action == "reply" and not answer:
         action = "continue" if target else "ask"
@@ -142,7 +145,7 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
 
 
 async def classify_kind(text: str, timeout: float = 15) -> str | None:
-    """只判断这件事是复杂开发（dev）还是简单任务（simple），挑模型用；出错、超时返回 None，由调用方按老规矩。"""
+    """只判断这件事是定方案（design）、开发（dev）还是简单任务（simple），挑模型用；出错、超时返回 None，由调用方按老规矩。"""
     options = ClaudeAgentOptions(model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=KIND_SYSTEM, tools=[], max_turns=1,
                                  setting_sources=[], cwd=str(Path.home()), extra_args={"no-session-persistence": None})
     out = []
@@ -158,4 +161,4 @@ async def classify_kind(text: str, timeout: float = 15) -> str | None:
         log.warning("判断任务轻重失败", exc_info=True)
         return None
     word = "".join(out).strip().lower()
-    return word if word in ("dev", "simple") else None
+    return word if word in KINDS else None
