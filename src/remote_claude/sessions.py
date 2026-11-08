@@ -187,6 +187,7 @@ class Runner:
         self.language = "简体中文"   # 回复语言（配置 reply_language）
         self.extra_instructions = ""   # 你自己追加给每个对话的要求（配置 extra_instructions）
         self.subagent_model = ""   # 子代理默认用的模型全名（配置 subagent_model）；空 = 跟 Claude Code 默认
+        self.deepseek_block: list[str] = ["_原始私密"]   # DeepSeek 对话不许碰的文件夹名（配置 deepseek_block）
         self.auto_review = False   # 危险命令交给审核员（reviewer.py）判断（配置 auto_review）；关着就等你点
         self.review_policy = ""   # 配置 review_policy：你额外授权审核员放行的事
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）

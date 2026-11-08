@@ -112,7 +112,7 @@ def test_codex_follow_up_turn_when_unfinished(tmp_path, monkeypatch):
         async def open_thread(self, *a): return "th"
         async def close(self): pass
 
-        async def start_turn(self, text, images, effort):
+        async def start_turn(self, text, images, effort, model=None):
             turns.append(text)
             self.on_event("item/completed", {"item": {"type": "agentMessage", "text": f"答{len(turns)}"}})
             self.turn_status = "completed"
@@ -209,3 +209,37 @@ def test_other_engines_keep_their_model(tmp_path, monkeypatch):
         assert c.model == "claude-sonnet-5-5"
 
     asyncio.run(go())
+
+
+def test_deepseek_engine_env_block_and_cost(monkeypatch):
+    """DeepSeek：Claude Code 换后端；密钥只从钥匙串来；私密文件夹不开工、中途也碰不到；消耗按 DeepSeek 价重算。"""
+    from remote_claude.engines import deepseek
+    monkeypatch.setattr(deepseek, "api_key", lambda: "sk-test")
+    e = engines.DEEPSEEK
+    assert engines.get("deepseek") is e and engines.engine_of("deepseek") == "deepseek" and not e.fenced_ok
+    r, s = NS(subagent_model="", deepseek_block=["_原始私密"]), Session(num=1, name="x", cwd="/tmp")
+    env = e.env(r, s)
+    assert env["ANTHROPIC_BASE_URL"] == deepseek.BASE_URL and env["ANTHROPIC_AUTH_TOKEN"] == "sk-test"
+    assert env["ANTHROPIC_MODEL"] == "deepseek-flash" and e.model_for(s) == "deepseek-flash"
+    s.model = "deepseek-v4-pro"
+    assert e.env(r, s)["ANTHROPIC_MODEL"] == "deepseek-v4-pro"
+    assert deepseek.blocked_by(["/Users/x/Projects/_原始私密/微信"], ["_原始私密"]) == "_原始私密"
+    assert deepseek.blocked_by(["/Users/x/Projects/04_项目"], ["_原始私密"]) == ""
+    hook = e.extra_hooks(r, s)[0].hooks[0]
+    denied = asyncio.run(hook({"tool_input": {"file_path": "/p/_原始私密/a.txt"}}, None, None))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert asyncio.run(hook({"tool_input": {"command": "ls"}}, None, None)) == {}
+    usd = deepseek.cost_usd({"deepseek-flash": {"inputTokens": 1_000_000, "cacheReadInputTokens": 0, "outputTokens": 0}})
+    assert abs(usd - 1 / deepseek.CNY_PER_USD) < 1e-9
+
+
+def test_said_engine_model(monkeypatch):
+    """话里点别家的型号：gpt luna → Codex 能用的最新 luna；deepseek pro → v4-pro。"""
+    from remote_claude import codex
+    from remote_claude.app import inline_overrides, said_engine_model
+    monkeypatch.setattr(codex, "MODELS_SEEN", {"gpt-6.1-sol": "", "gpt-6-luna": "", "gpt-5.6-luna": ""})
+    assert said_engine_model("codex", "用 gpt luna 改个按钮") == "gpt-6-luna"
+    assert said_engine_model("codex", "交给 codex 做") is None
+    assert said_engine_model("deepseek", "用 deepseek pro 查查") == "deepseek-v4-pro"
+    assert said_engine_model("deepseek", "用 deepseek 查查") is None
+    assert inline_overrides("用 deepseek 查个资料")[0] == "deepseek"

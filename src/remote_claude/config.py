@@ -34,6 +34,7 @@ class Config:
     folders: dict[str, str] = field(default_factory=dict)  # 短名 → 路径；网页新对话的菜单和“新开 短名：…”都用它
     search_roots: list[str] = field(default_factory=lambda: list(DEFAULT_SEARCH_ROOTS))  # “新开 某个词：…”按名字找文件夹的范围
     skip_names: list[str] = field(default_factory=list)  # 按名字找文件夹时跳过的文件夹名（前缀匹配），比如放私密资料的
+    deepseek_block: list[str] = field(default_factory=lambda: ["_原始私密"])  # DeepSeek 对话（内容出境）不许碰的文件夹名（前缀匹配）
     scratch_root: str = "~/remote-claude-scratch"  # “不指定文件夹”时的临时文件夹放哪
     # ---- 干活的方式 ----
     max_parallel: int = 3
@@ -94,6 +95,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         folders=dict(raw.get("folders", {})),
         search_roots=list(raw.get("search_roots", DEFAULT_SEARCH_ROOTS)),
         skip_names=list(raw.get("skip_names", [])),
+        deepseek_block=[str(x) for x in raw.get("deepseek_block", ["_原始私密"])],
         scratch_root=str(raw.get("scratch_root", "~/remote-claude-scratch")),
         max_parallel=int(raw.get("max_parallel", 3)),
         auto_route=bool(raw.get("auto_route", True)),

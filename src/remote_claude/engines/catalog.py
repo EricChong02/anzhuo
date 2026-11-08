@@ -7,12 +7,14 @@ from .acp import AcpEngine
 from .base import Engine
 from .claude import ClaudeEngine
 from .codex import CodexEngine
+from .deepseek import DeepSeekEngine
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 CLAUDE = ClaudeEngine()
 CODEX = CodexEngine()
+DEEPSEEK = DeepSeekEngine()
 _acp: dict[str, AcpEngine] = {}
 
 
@@ -24,6 +26,8 @@ def get(engine: str | None) -> Engine:
     """对话登记的引擎名 → 实现。不认得的当 Claude（早先的对话没写引擎，都是 Claude）。"""
     if engine == CODEX.name:
         return CODEX
+    if engine == DEEPSEEK.name:
+        return DEEPSEEK
     if is_acp(engine):
         return _acp.setdefault(engine, AcpEngine(engine))
     return CLAUDE
@@ -31,7 +35,7 @@ def get(engine: str | None) -> Engine:
 
 def known() -> list[Engine]:
     """登记了的全部引擎（装没装上看 available()）。"""
-    return [CLAUDE, CODEX, *(get(k) for k in acp_conn.ENGINES)]
+    return [CLAUDE, CODEX, DEEPSEEK, *(get(k) for k in acp_conn.ENGINES)]
 
 
 def by_key(key: str | None) -> Engine | None:

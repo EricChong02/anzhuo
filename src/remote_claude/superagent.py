@@ -191,18 +191,14 @@ def role(bridge: "Bridge", s: Session | None) -> dict | None:
 
 def catalog(bridge: "Bridge") -> dict[str, dict]:
     """这台电脑上能用的引擎和各自的模型：{引擎的键: {"name", "models": [可填的值], "default"}}。"""
-    from .acp import MODELS_SEEN
     out = {}
     for e in engines.known():
         if not e.available():
             continue
         if e.pick_model == "menu":
             models, default = list(MODELS), f"按任务档位：定方案用 {bridge.cfg.design_model}，开发用 {bridge.cfg.dev_model}，其余用 {bridge.cfg.simple_model}"
-        elif e.pick_model == "own":
-            seen = MODELS_SEEN.get(e.name) or {}
-            models, default = seen.get("models", []), seen.get("current") or "它自己配置的模型"
         else:
-            models, default = [], f"{e.tool} 自己配置的模型"
+            models, default = e.models()
         out[e.key] = {"name": e.full, "models": models, "default": default}
     return out
 

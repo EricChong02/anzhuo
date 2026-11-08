@@ -705,7 +705,7 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
                 return "new-branch"
             async def open_thread(self, *args):
                 raise AssertionError("回退后不能直接接着原分支")
-            async def start_turn(self, text, images, effort):
+            async def start_turn(self, text, images, effort, model=None):
                 assert s.codex_id == "new-branch" and not s.rewind_at
                 calls.append(text)
                 self.done.set()

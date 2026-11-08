@@ -39,10 +39,14 @@ async def approve_command(runner: "Runner", s: "Session", turn: "Turn", method: 
 
 class CodexEngine(Engine):
     name, label, tool, key = "codex", "GPT", "Codex", "gpt"
+    pick_model = "own"   # 型号用 Codex 自己报的（model/list）；不选就用 ~/.codex/config.toml 里的
     can_steer = can_rewind = can_fork = has_quota = has_tools = stop_hook = True
 
     def available(self) -> bool:
         return codex_conn.codex_bin() is not None
+
+    def models(self) -> tuple[list[str], str]:
+        return list(codex_conn.MODELS_SEEN), codex_conn.configured_model() or "Codex 自己配置的模型"
 
     def limits(self, runner: "Runner") -> dict:
         return runner.limits_gpt
@@ -179,7 +183,8 @@ class CodexEngine(Engine):
                 s.context_pct = s.context_tokens = None
                 runner.registry.save()
             else:
-                s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(runner.language, runner.extra_instructions) + rl.get("append", ""))
+                s.codex_id = await conn.open_thread(s.codex_id, codex_instructions(runner.language, runner.extra_instructions) + rl.get("append", ""),
+                                                    s.model or None)
             turn.model = f"GPT（{conn.model}）" if conn.model else turn.model
             if job.text == COMPACT:   # 压缩上下文
                 before = s.context_pct
@@ -190,14 +195,14 @@ class CodexEngine(Engine):
                 if before is not None:
                     s.context_pct = turn.context_pct = s.context_tokens = None   # 压完的用量等下一轮再报
             else:
-                turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort)
+                turn.codex_turn_id = await conn.start_turn(job.text, job.images, effort, s.model or None)
                 await conn.done.wait()
                 # Codex 没有 Stop 钩子：做完再看一眼（unfinished），该汇报没汇报就接着补一轮；回复仍用补之前那段
                 if conn.turn_status == "completed" and not turn.interrupted and (why := self.unfinished(runner, s, turn, False)):
                     kept = list(texts)
                     conn.done.clear()
                     conn.turn_status = ""
-                    turn.codex_turn_id = await conn.start_turn(why, [], effort)
+                    turn.codex_turn_id = await conn.start_turn(why, [], effort, s.model or None)
                     await conn.done.wait()
                     if kept:
                         texts[:] = kept

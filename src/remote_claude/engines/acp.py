@@ -36,6 +36,10 @@ class AcpEngine(Engine):
     def available(self) -> bool:
         return acp_conn.available(self.name)
 
+    def models(self) -> tuple[list[str], str]:
+        seen = acp_conn.MODELS_SEEN.get(self.name) or {}
+        return seen.get("models", []), seen.get("current") or "它自己配置的模型"
+
     async def halt(self, conn: Any) -> None:
         await conn.cancel()
 

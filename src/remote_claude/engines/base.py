@@ -60,6 +60,10 @@ class Engine:
     def available(self) -> bool:
         return True
 
+    def models(self) -> tuple[list[str], str]:
+        """pick_model = own 时能选的型号和不选时用哪个（给你、总管看的说明）。"""
+        return [], f"{self.tool or self.label} 自己配置的模型"
+
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:
         """跑一轮：连接放进 runner.live[s.num]（插话、停下用），结束时自己拿掉；结果写进 turn。"""
         raise NotImplementedError

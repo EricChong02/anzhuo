@@ -108,8 +108,8 @@ def display_model(model_id: str) -> str:
 def model_options() -> list[list[str]]:
     from .codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        [engines.CODEX.key, display_model(configured_model()) or engines.CODEX.label]] + [
-        [e.key, e.label] for e in engines.known() if e.pick_model == "own" and e.available()]
+        [e.key, (display_model(configured_model()) or e.label) if e is engines.CODEX else e.label]
+        for e in engines.known() if e.pick_model == "own" and (e is engines.CODEX or e.available())]
 
 # 试课预览放行的接口：判题、草稿课列表、提词与参考答案（后两者后端要教师登录，外网没有就自然拒绝）、心跳与前端日志
 PREVIEW_API = ("/api/lesson-preview/", "/api/drafts", "/api/teacher/lecture-cues", "/api/teacher/answers",

@@ -31,7 +31,7 @@ def set_timezone(name: str) -> None:
 
 
 ACTIVE = {'dispatching', 'submitted', 'running'}
-MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt'}
+MODELS = {'auto', 'opus', 'sonnet', 'haiku', 'fable', 'gpt', 'deepseek'}
 
 def next_slot(task: dict, now: float) -> float | None:
     if task['kind'] == 'once': return None

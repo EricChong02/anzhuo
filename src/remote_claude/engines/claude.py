@@ -296,13 +296,26 @@ class ClaudeEngine(Engine):
         return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]) + extra)
 
     # ---------- 跑一轮 ----------
+    # ---------- 换后端的引擎（DeepSeek 等，同样是 Claude Code）改这几处 ----------
+    def model_for(self, s: "Session") -> str | None:
+        return s.model
+
+    def env(self, runner: "Runner", s: "Session") -> dict:
+        """给 Claude Code 进程的环境变量。"""
+        return {"ENABLE_TOOL_SEARCH": "false",   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
+                # 子代理默认用便宜一档的模型（只是默认：派的时候点名模型、或 fork 照旧跟主对话）
+                **({"CLAUDE_CODE_SUBAGENT_MODEL": runner.subagent_model} if runner.subagent_model else {})}
+
+    def extra_hooks(self, runner: "Runner", s: "Session") -> list:
+        return []
+
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:
         await check_folders(s)
         fenced = bool(s.root)
         if fenced:   # 受限账号：文件夹、引擎都固定，就算登记里被改过也按这里来
             s.cwd, s.add_dirs = str(Path(s.root).expanduser()), []
             Path(s.cwd).mkdir(parents=True, exist_ok=True)
-        hooks = [HookMatcher(matcher="Bash", hooks=[self.guard(runner, s, turn)], timeout=CONFIRM_WAIT + 60)]
+        hooks = [*self.extra_hooks(runner, s), HookMatcher(matcher="Bash", hooks=[self.guard(runner, s, turn)], timeout=CONFIRM_WAIT + 60)]
         rl = role(runner, s)
         if fenced:
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self.fence(s)], timeout=60))
@@ -311,7 +324,7 @@ class ClaudeEngine(Engine):
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
-            model=s.model,
+            model=self.model_for(s),
             effort=s.effort or runner.default_effort or None,
             resume=s.claude_id,
             resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
@@ -325,9 +338,7 @@ class ClaudeEngine(Engine):
             disallowed_tools=list(rl.get("disallowed", [])),
             tools=rl.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
             mcp_servers={"xiaoe": self.tools(runner, turn, s)},
-            env={"ENABLE_TOOL_SEARCH": "false",   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
-                 # 子代理默认用便宜一档的模型（只是默认：派的时候点名模型、或 fork 照旧跟主对话）
-                 **({"CLAUDE_CODE_SUBAGENT_MODEL": runner.subagent_model} if runner.subagent_model else {})},
+            env=self.env(runner, s),
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},

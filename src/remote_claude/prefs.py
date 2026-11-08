@@ -91,6 +91,7 @@ FIELDS: list[Field] = [
     Field("scratch_root", "临时文件夹放哪", "文件夹", "text", "没指定文件夹时用", check=_short(500)),
     Field("search_roots", "按名字找文件夹的范围", "文件夹", "lines", "一行一个路径"),
     Field("skip_names", "找文件夹时跳过", "文件夹", "lines", "一行一个文件夹名（前缀匹配），比如放私密资料的"),
+    Field("deepseek_block", "不发给 DeepSeek 的文件夹", "文件夹", "lines", "一行一个文件夹名（前缀匹配）：在这里面不开 DeepSeek 对话，DeepSeek 对话也碰不到"),
     Field("auto_review", "危险命令交给 AI 审核员", "安全", "bool", "关着时删文件、git push 这类都等你点“允许”"),
     Field("review_policy", "审核员可以放行的事", "安全", "textarea", "打开审核员后才有用，比如“推送到 dev 分支可以放行”", check=_short(LONG)),
     Field("translate_english", "大段英文译成中文", "其他", "bool", "有 DeepSeek 密钥用它，没有用 Haiku（花你的额度）"),
@@ -216,6 +217,7 @@ def apply(bridge: "Bridge", new: Config) -> None:
     r.extra_instructions = new.extra_instructions
     from .app import MODELS
     r.subagent_model = MODELS.get(new.subagent_model, "")
+    r.deepseek_block = list(new.deepseek_block)
     r.auto_review = new.auto_review
     r.review_policy = new.review_policy
     from .sessions import user_setting

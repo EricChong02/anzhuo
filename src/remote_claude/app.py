@@ -102,6 +102,8 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
         model = MODELS[m.group(1).lower()]
     elif re.search(r"(?:用|交给|让)\s*(codex|gpt|chatgpt)", text, re.I):
         model = "gpt"
+    elif re.search(r"(?:用|交给|让)\s*deepseek", text, re.I):
+        model = "deepseek"
     elif re.search(r"(?:用|交给|让)\s*kimi", text, re.I):   # ACP 引擎：模型那一栏就写引擎名
         model = "kimi"
     if m := re.search(r"(?:深度|思考)\s*(?:调到|调成|改成|设为|用|开)?\s*(很高|最高|低|中|高)", text):
@@ -110,6 +112,17 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
 
 
 KIND_CN = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
+
+
+def said_engine_model(engine: str, text: str) -> str | None:
+    """话里点了别家的型号：“用 gpt luna”“codex 用 terra”→ Codex 能用的同名型号里最新的那个；“用 deepseek pro”→ deepseek-v4-pro。"""
+    models, _ = engines.get(engine).models()
+    if engine == engines.CODEX.name:
+        m = re.search(r"(?:gpt|codex)\S{0,3}\s*(?:用\s*)?(sol|terra|luna|astra)", text, re.I)
+        return next((x for x in models if m and m.group(1).lower() in x.lower()), None)
+    if engine == engines.DEEPSEEK.name and re.search(r"deepseek\S{0,3}\s*(?:用\s*)?(?:v4[- ]?)?pro", text, re.I):
+        return next((x for x in models if "pro" in x), None)
+    return None
 
 
 def _looks_like_project(cwd: Path) -> bool:
@@ -141,6 +154,7 @@ class Bridge:
         self.runner.language = cfg.reply_language
         self.runner.extra_instructions = cfg.extra_instructions
         self.runner.subagent_model = MODELS.get(cfg.subagent_model, "")
+        self.runner.deepseek_block = list(cfg.deepseek_block)
         translate.enabled = cfg.translate_english
         from . import schedules as _sch
         _sch.set_timezone(cfg.timezone)
@@ -248,7 +262,7 @@ class Bridge:
         if engines.get(s.engine).cum_usage and not s.claude_usage:   # 对话里还没存累计值：用记录里这个对话最后一条的
             last = next((r.get("cum") for r in reversed(usage.load(self.data_dir / "usage.jsonl"))
                          if r.get("num") == s.num and r.get("cum")), None)
-        if rec := usage.row(s, turn, self.runner.limits, last=last):
+        if rec := usage.row(s, turn, engines.get(s.engine).limits(self.runner), last=last):
             usage.append(self.data_dir / "usage.jsonl", rec)
             self.registry.save()
 
@@ -944,7 +958,7 @@ class Bridge:
             model = said_model = alt = None
         if alt:   # ACP 引擎（Kimi 等）的 engine_model 是它自己的模型名（总管指定的）；GPT 用 Codex 自己配置的
             s.engine, model, said_model = alt, None, None
-            s.model = engine_model if engines.get(alt).pick_model == "own" else None
+            s.model = (engine_model or said_engine_model(alt, text)) if engines.get(alt).pick_model == "own" else None
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
@@ -1170,6 +1184,9 @@ class Bridge:
         asyncio.create_task(self._spend_loop())
         asyncio.create_task(self.schedules.loop(self._dispatch_schedule, self._scheduled_busy, self._schedule_failed))
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
+        from .codex import codex_bin, probe_models
+        if codex_bin():   # 记下 Codex 能用哪些型号（Sol / Terra / Luna …），网页、总管选型号用
+            asyncio.create_task(probe_models())
         if self.cfg.super_agent:   # 记下各个 ACP 助手有哪些模型，总管派活时能挑
             from .acp import probe_all
             asyncio.create_task(probe_all(str(self.data_dir / "router")))
