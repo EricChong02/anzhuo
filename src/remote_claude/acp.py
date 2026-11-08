@@ -58,10 +58,6 @@ async def probe_all(cwd: str) -> None:
             await probe(engine, cwd)
 
 
-def is_acp(engine: str) -> bool:
-    return engine in ENGINES
-
-
 def command(engine: str) -> list[str] | None:
     spec = ENGINES.get(engine)
     if not spec:

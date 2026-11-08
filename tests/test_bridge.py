@@ -504,7 +504,7 @@ def test_inject_while_running(tmp_path, monkeypatch):
             gate.set()
 
     async def fake_run(self, s, job, turn):
-        self.clients[s.num] = FakeClient()
+        self.live[s.num] = FakeClient()
         await gate.wait()
         turn.final_text = "好"
 
@@ -596,7 +596,7 @@ def test_compact(tmp_path, monkeypatch):
         b.registry.add(Session(num=6, name="做课", cwd=str(tmp_path), claude_id="sid", context_pct=59))
         await b.on_raw(msg("改封面"))
         await asyncio.sleep(0.05)
-        b.runner.clients[6] = object()       # 假装正在做、能插话
+        b.runner.live[6] = object()       # 假装正在做、能插话
         await b.on_raw(msg("压缩"))
         assert "等手上 1 件做完再压" in dt.sent[-1][1]
         gate.set()
@@ -620,7 +620,7 @@ def test_quiet_dingtalk(tmp_path, monkeypatch):
                 pass
 
     async def fake_run(self, s, job, turn):
-        self.clients[s.num] = FakeClient()
+        self.live[s.num] = FakeClient()
         turn.steps.append("看 a.py")
         await gate.wait()
         turn.changed_files.append(str(tmp_path / "a.py"))

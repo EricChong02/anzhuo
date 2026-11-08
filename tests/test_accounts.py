@@ -129,9 +129,9 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
     (home / "outside-link").symlink_to(home / "Projects")
     (root / "sneaky").symlink_to(home / "Projects")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    r = Runner(None, None)
+    from remote_claude.engines import CLAUDE
     s = Session(num=1, name="x", cwd=str(root), owner="user", root=str(root))
-    hook = r._fence(s)
+    hook = CLAUDE.fence(s)
     run = lambda name, args: asyncio.run(hook({"tool_name": name, "tool_input": args}, "id", None))
     assert run("Read", {"file_path": str(root / "a.txt")}) == {}
     assert run("Read", {"file_path": "a.txt"}) == {}   # 相对路径按工作文件夹算
@@ -142,7 +142,7 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
                        ("CronCreate", {}), ("mcp__xiaoe__generate_images", {}), ("Skill", {})]:
         out = run(name, args)
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny", (name, args)
-    opts = r._fence_options(s)
+    opts = CLAUDE.fence_options(s)
     deny = json.loads(opts["settings"])["permissions"]["deny"]
     assert opts["sandbox"]["enabled"] and opts["sandbox"]["allowUnsandboxedCommands"] is False
     assert f"Read(/{home}/Projects/**)" in deny and f"Edit(/{home}/.ssh)" in deny

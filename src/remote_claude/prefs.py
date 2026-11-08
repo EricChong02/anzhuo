@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import tomlkit
 
 from .config import CONFIG_PATH, Config, load_config
+from .engines import MODELS
 
 if TYPE_CHECKING:
     from .app import Bridge
@@ -42,7 +43,6 @@ class Field:
 
 
 def _models() -> tuple:
-    from .app import MODELS
     return tuple((k, k) for k in MODELS)
 
 

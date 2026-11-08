@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from remote_claude.engines import policy
 from remote_claude import acp
 from remote_claude.app import Bridge, inline_overrides
 from remote_claude.config import Config
@@ -112,7 +113,7 @@ def test_stop_cancels(tmp_path, fake):
         b.runner.submit(s, Job(text="慢慢做", via="web"))
         for _ in range(100):
             await asyncio.sleep(0.05)
-            if 1 in b.runner.acp_live and b.runner.turns.get(1) and b.runner.turns[1].partial:
+            if 1 in b.runner.live and b.runner.turns.get(1) and b.runner.turns[1].partial:
                 break
         assert await b.runner.stop(1)
         t = await _wait(b, 1)
@@ -191,7 +192,7 @@ def test_inject_while_running_is_queued(tmp_path, fake):
                 break
         assert b.runner.submit(s, Job(text="整理一下", via="web")) == 1   # 前面还有 1 件
         assert b.runner.queued(1)
-        await b.runner.acp_live[1].cancel()   # 只结束正在做的这一轮（“停”会连排着的一起清掉）
+        await b.runner.live[1].cancel()   # 只结束正在做的这一轮（“停”会连排着的一起清掉）
         for _ in range(400):
             await asyncio.sleep(0.05)
             t = b.runner.last.get(1)
@@ -222,20 +223,18 @@ def test_unknown_command_asks(tmp_path, fake, monkeypatch):
     asyncio.run(go())
 
 
-def test_acp_danger_delete_and_move():
-    """删文件、挪文件按 `rm -- 路径` 的规则判：临时目录放行，别处要问你；挪文件源和目标都判，看不出路径的也问你。"""
-    from remote_claude.sessions import acp_danger
+def test_acp_move_and_delete_paths():
+    """挪文件源和目标都判、看不出挪到哪也问你；参数里的路径列表也算。"""
+    from remote_claude.engines.acp import permission_target
     home = str(Path.home())
-    assert acp_danger("delete", {"locations": [{"path": "/tmp/x.txt"}]}, "")[0] == ""
-    what, shown = acp_danger("delete", {"rawInput": {"path": f"{home}/Documents/a.md"}}, "")
-    assert what and "rm -- " in shown
-    assert acp_danger("delete", {}, "")[0]                                  # 看不出删哪个
-    assert acp_danger("move", {"rawInput": {"source": "/tmp/a"}}, "")[0]    # 只有一个路径：看不出挪到哪
-    assert acp_danger("move", {"rawInput": {"source": "/tmp/a", "destination": "/tmp/b"}}, "")[0] == ""
-    what, shown = acp_danger("move", {"rawInput": {"source": "/tmp/a", "destination": f"{home}/Documents/b"}}, "")
-    assert what.startswith("挪动：") and shown.startswith("mv -- ")
-    assert acp_danger("execute", {}, "ls")[0] == "" and acp_danger("execute", {}, "git push")[0]
-    assert acp_danger("execute", {}, "")[0]                                 # 看不出跑什么命令
+    one = permission_target("move", {"rawInput": {"source": "/tmp/a"}}, {}, "/w")
+    assert one == ["/tmp/a"] and "看不出" in policy.danger("move", one)
+    two = permission_target("move", {"rawInput": {"source": "/tmp/a", "destination": "/tmp/b"}}, {}, "/w")
+    assert policy.danger("move", two) is None
+    out = permission_target("move", {"rawInput": {"src": "/tmp/a", "to": f"{home}/Documents/b"}}, {}, "/w")
+    assert policy.danger("move", out).startswith("挪走")
+    many = permission_target("delete", {"rawInput": {"paths": ["/tmp/a", f"{home}/Documents/c.md"]}}, {}, "/w")
+    assert policy.danger("delete", many)
 
 
 def test_acp_close_cancels_tasks(fake):
@@ -261,5 +260,40 @@ def test_codex_close_cancels_tasks():
         await conn.close()
         await asyncio.sleep(0)
         assert t.cancelled() and not conn._tasks
+def test_delete_judged_like_rm(tmp_path, fake, monkeypatch):
+    """删文件和 Claude 那边的 rm 同一套规则：工作区外的要问你，不同意就拒；临时目录里的照旧放行。"""
+    asked = []
+
+    async def decide(self, s, turn, what, cmd):
+        asked.append((what, cmd))
+        return False
+    monkeypatch.setattr(Runner, "decide", decide)
+
+    async def go():
+        b = _bridge(tmp_path)
+        s = Session(num=1, name="t", cwd=str(tmp_path), engine="fake")
+        b.registry.add(s)
+        b.runner.submit(s, Job(text="删掉那个文件", via="web"))
+        t = await _wait(b, 1)
+        assert asked == [("删除 重要.txt", "删除：/Users/demo/重要.txt")] and t.final_text == "没删"
+        assert t.steps == ["删 重要.txt"] and t.changed_files == ["/Users/demo/重要.txt"]
+        asked.clear()
+        b.runner.submit(s, Job(text="删掉临时文件", via="web"))   # /tmp 里的：和 rm 一样放行
+        await asyncio.sleep(0.2)
+        t = await _wait(b, 1)
+        assert not asked and t.final_text == "删了"
+
+    asyncio.run(go())
+
+
+def test_conn_keeps_and_cancels_its_tasks(tmp_path, fake):
+    """读输出、读 stderr 的协程留着引用，关闭连接时一并收掉，不留在事件循环里。"""
+    async def go():
+        conn = acp.AcpConn("fake", str(tmp_path), lambda u: None)
+        await conn.start()
+        tasks = list(conn._tasks)
+        assert len(tasks) == 2 and not any(t.done() for t in tasks)
+        await conn.close()
+        assert all(t.done() for t in tasks)
 
     asyncio.run(go())

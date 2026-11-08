@@ -216,6 +216,7 @@ def test_guard_hook_waits_for_answer():
     import asyncio
     import time
     from remote_claude.report import Turn
+    from remote_claude.engines import CLAUDE
     from remote_claude.sessions import Runner, Session
     asked = []
 
@@ -227,7 +228,7 @@ def test_guard_hook_waits_for_answer():
         r.auto_review = False   # 关掉审核员：照旧等你点
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time())
         r.turns[3] = turn
-        hook = r._guard(s, turn)
+        hook = CLAUDE.guard(r, s, turn)
         assert await hook({"tool_input": {"command": "ls"}}, "t0", None) == {}
         task = asyncio.create_task(hook({"tool_input": {"command": "git push"}}, "t1", None))
         await asyncio.sleep(0.05)
@@ -247,6 +248,7 @@ def test_reviewer_decides(monkeypatch):
     import asyncio
     import time
     from remote_claude import reviewer
+    from remote_claude.engines import CLAUDE
     from remote_claude.report import Turn, build
     from remote_claude.sessions import Runner, Session
     answers = iter([(True, "任务要求推送"), (False, "删用户资料"), None])
@@ -264,7 +266,7 @@ def test_reviewer_decides(monkeypatch):
         r.auto_review = True   # 审核员默认关，这里测开着的情形
         s, turn = Session(num=3, name="x", cwd="/tmp"), Turn(started=time.time(), request="改完推上去")
         r.turns[3] = turn
-        hook = r._guard(s, turn)
+        hook = CLAUDE.guard(r, s, turn)
         first = await hook({"tool_input": {"command": "git " + "pu" + "sh"}}, "t1", None)
         assert first["hookSpecificOutput"]["permissionDecision"] == "allow"
         out = (await hook({"tool_input": {"command": "rm -rf ~/Documents/x"}}, "t2", None))["hookSpecificOutput"]
@@ -291,7 +293,7 @@ def test_compact_queue():
     async def go():
         r = Runner(registry=None, on_done=None)
         s = Session(num=6, name="做课", cwd="/tmp")
-        r.turns[6], r.clients[6] = Turn(started=time.time(), request="压缩上下文"), object()
+        r.turns[6], r.live[6] = Turn(started=time.time(), request="压缩上下文"), object()
         r.workers[6] = asyncio.get_running_loop().create_future()   # 假装有人在干活，别真开 worker
         assert r.compacting(6) == "running"
         assert r.submit(s, Job(text="把这节课上线")) == 1            # 排队，不是插话（-1）
@@ -335,7 +337,7 @@ def test_guard_force_restart():
 
 def test_codex_handoff_links(tmp_path):
     """GPT 把要交的文件写成 [下载…](/本机/路径) 链接：能交的拿出来发，链接只留文字；说明文档、源码的链接不动。"""
-    from remote_claude.sessions import handoff
+    from remote_claude.engines.base import handoff
     z = tmp_path / "包.zip"; z.write_bytes(b"PK")
     md = tmp_path / "先看这里.md"; md.write_text("x")
     png = tmp_path / "a.png"; png.write_bytes(b"x")
@@ -348,7 +350,7 @@ def test_codex_handoff_links(tmp_path):
 
 def test_noise_result():
     """后台任务通知被答的那句空话认得出来，正常回复不误伤。"""
-    from remote_claude.sessions import NOISE
+    from remote_claude.engines.claude import NOISE
     assert NOISE.match("No response requested.") and NOISE.match("") and NOISE.match(" no response requested \n")
     assert not NOISE.match("No response requested. 但我顺便看了一下进度：还在跑。")
 
@@ -377,7 +379,7 @@ def test_track_agent_lifecycle():
     import time
     from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage
     from remote_claude.report import Turn
-    from remote_claude.sessions import running_agents, sub_name, track_agent
+    from remote_claude.engines.claude import running_agents, sub_name, track_agent
     t = Turn(started=time.time())
     track_agent(t, TaskStartedMessage(subtype="task_started", data={}, task_id="a1", description="查课程目录", uuid="u", session_id="s", tool_use_id="tu1"))
     assert len(running_agents(t)) == 1 and sub_name(t, "tu1") == "查课程目录" and sub_name(t, None) == ""
@@ -412,10 +414,11 @@ def test_title_valid():
     assert not valid("Here's a tit") and not valid("对话名字") and not valid("好") and valid("大数据第二节磨课")
 
 
-def test_queue_merges_and_waits_for_client():
+def test_queue_merges_and_waits_for_client(monkeypatch):
     """还没开工时连着说的几句并成一件；刚开工、Claude 还没连上时说的话等连上就插进这一轮。"""
     import asyncio
     import time
+    from remote_claude.engines import CLAUDE
     from remote_claude.report import Turn
     from remote_claude.sessions import Job, Runner, Session
 
@@ -423,7 +426,7 @@ def test_queue_merges_and_waits_for_client():
         r = Runner(registry=None, on_done=None)
         s = Session(num=3, name="做课", cwd="/tmp")
         r.turns[3] = Turn(started=time.time(), request="压缩上下文")   # 正在压缩：后来的话排队
-        r.clients[3] = object()
+        r.live[3] = object()
         r.workers[3] = asyncio.get_running_loop().create_future()
         assert r.submit(s, Job(text="改封面")) == 1
         assert r.submit(s, Job(text="标题也大一点")) == 1             # 并进前一件，不另排
@@ -431,15 +434,15 @@ def test_queue_merges_and_waits_for_client():
         assert len(q) == 1 and q[0].parts == ["改封面", "标题也大一点"] and q[0].text == "改封面\n\n标题也大一点"
         assert r.unqueue_last(3).text.startswith("改封面") and not r.queued(3)
         # 刚开工、还没连上
-        r.turns[3], r.clients = Turn(started=time.time(), request="改封面"), {}
+        r.turns[3], r.live = Turn(started=time.time(), request="改封面"), {}
         injected = []
 
-        async def fake_inject(s_, client, job):
+        async def fake_inject(runner, s_, client, job):
             injected.append(job.text)
-        r._inject = fake_inject
+        monkeypatch.setattr(CLAUDE, "_inject", fake_inject)
         assert r.submit(s, Job(text="顺便看下第二屏")) == -1
         await asyncio.sleep(0.1)
-        r.clients[3] = object()
+        r.live[3] = object()
         await asyncio.sleep(0.7)
         assert injected == ["顺便看下第二屏"] and r.turns[3].injected == 1
 

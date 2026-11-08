@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING
 
 from claude_agent_sdk import tool
 
-from . import folders
-from .acp import ENGINES as ACP_ENGINES, available as acp_available, is_acp
+from . import engines, folders
+from .engines import MODELS
 from .dingtalk import Incoming
 from .sessions import Session
 
@@ -121,7 +121,7 @@ def state(bridge: "Bridge", s: Session) -> str:
 
 def brief(bridge: "Bridge", s: Session) -> dict:
     return {"num": s.num, "name": s.name, "folder": folders.display(Path(s.cwd)), "state": state(bridge, s),
-            "engine": "GPT" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "Claude", "awaiting": s.awaiting,
+            "engine": engines.get(s.engine).label, "awaiting": s.awaiting,
             "last": s.last_summary, "from_router": bool(s.boss)}
 
 
@@ -150,7 +150,6 @@ def ensure(bridge: "Bridge") -> Session:
             s.name = want
         bridge.registry.save()
         return s
-    from .app import MODELS
     num = bridge.registry.reserve_num()
     cwd = bridge.data_dir / "router"
     cwd.mkdir(parents=True, exist_ok=True)
@@ -191,17 +190,20 @@ def role(bridge: "Bridge", s: Session | None) -> dict | None:
 # ---------- 用哪个引擎、哪个模型 ----------
 
 def catalog(bridge: "Bridge") -> dict[str, dict]:
-    """这台电脑上能用的引擎和各自的模型：{引擎: {"name", "models": [可填的值], "default"}}。"""
-    from .app import MODELS
-    from .codex import codex_bin
+    """这台电脑上能用的引擎和各自的模型：{引擎的键: {"name", "models": [可填的值], "default"}}。"""
     from .acp import MODELS_SEEN
-    out = {"claude": {"name": "Claude", "models": list(MODELS), "default": f"按任务档位：定方案用 {bridge.cfg.design_model}，开发用 {bridge.cfg.dev_model}，其余用 {bridge.cfg.simple_model}"}}
-    if codex_bin():
-        out["gpt"] = {"name": "GPT（Codex）", "models": [], "default": "Codex 自己配置的模型"}
-    for k, v in ACP_ENGINES.items():
-        if acp_available(k):
-            seen = MODELS_SEEN.get(k) or {}
-            out[k] = {"name": v["name"], "models": seen.get("models", []), "default": seen.get("current") or "它自己配置的模型"}
+    out = {}
+    for e in engines.known():
+        if not e.available():
+            continue
+        if e.pick_model == "menu":
+            models, default = list(MODELS), f"按任务档位：定方案用 {bridge.cfg.design_model}，开发用 {bridge.cfg.dev_model}，其余用 {bridge.cfg.simple_model}"
+        elif e.pick_model == "own":
+            seen = MODELS_SEEN.get(e.name) or {}
+            models, default = seen.get("models", []), seen.get("current") or "它自己配置的模型"
+        else:
+            models, default = [], f"{e.tool} 自己配置的模型"
+        out[e.key] = {"name": e.full, "models": models, "default": default}
     return out
 
 
@@ -278,10 +280,9 @@ def tools(bridge: "Bridge", router: Session) -> list:
           "folder 可写文件夹短名、完整路径或文件夹名里的几个字，不写就用临时文件夹；"
           "engine、model 按用户点名或用户定的分派规则填（只能从系统提示里列出的能用的引擎和模型里选），都没有就不填。",
           {"type": "object", "properties": {"task": {"type": "string"}, "folder": {"type": "string"},
-                                            "engine": {"type": "string", "enum": ["claude", "gpt", *ACP_ENGINES]},
+                                            "engine": {"type": "string", "enum": [e.key for e in engines.known()]},
                                             "model": {"type": "string"}}, "required": ["task"]})
     async def new_session(args):
-        from .app import MODELS
         task = str(args.get("task") or "").strip()
         if not task:
             return _error("task 不能为空")
@@ -297,20 +298,21 @@ def tools(bridge: "Bridge", router: Session) -> list:
                 cwd = cands[0]
                 if spec != str(cwd):   # 用户说的是短名 / 名字：告诉它说的就是当前文件夹，免得在里面再建一个同名的
                     task = f"（用户说的“{spec}”就是你现在的工作文件夹 {cwd}）\n{task}"
-        engine = str(args.get("engine") or "").lower() or "claude"
+        key = str(args.get("engine") or "").lower() or engines.CLAUDE.key
         want = str(args.get("model") or "").strip()
         cat = catalog(bridge)
-        if engine not in cat:
-            return _error(f"这台电脑上用不了 engine={engine}。能用的：{'、'.join(cat)}。")
-        known = cat[engine]["models"]
-        if want and engine == "claude":
+        if key not in cat:
+            return _error(f"这台电脑上用不了 engine={key}。能用的：{'、'.join(cat)}。")
+        eng = engines.by_key(key)
+        known = cat[key]["models"]
+        if want and eng.pick_model == "menu":   # Claude：claude-opus-5-5 这类全名也认
             want = want.lower().removeprefix("claude-").split("-")[0]
         if want and known and want not in known:
-            return _error(f"{cat[engine]['name']} 没有模型“{want}”。可填：{'、'.join(known)}；或者不填用默认。")
-        if engine == "claude":
+            return _error(f"{cat[key]['name']} 没有模型“{want}”。可填：{'、'.join(known)}；或者不填用默认。")
+        if eng.pick_model == "menu":
             model, extra = MODELS.get(want), None
-        else:
-            model, extra = engine, (want or None) if is_acp(engine) else None
+        else:   # 别家：模型那一栏写引擎的键；ACP 自己的型号另传（GPT 用 Codex 自己配置的）
+            model, extra = key, (want or None) if eng.pick_model == "own" else None
         num = reg.reserve_num()
         if cwd is None:
             cwd = folders.scratch_dir(bridge.cfg, num)
@@ -319,8 +321,8 @@ def tools(bridge: "Bridge", router: Session) -> list:
         s = reg.get(num)
         if not s:
             return _error("没开成")
-        used = cat.get(s.engine if s.engine != "codex" else "gpt", {}).get("name", s.engine)
-        return _text(f"已开 #{s.num} {s.name}，用 {used}（模型：{s.model or cat.get(engine, {}).get('default', '默认')}），"
+        used = cat.get(engines.get(s.engine).key, {}).get("name", s.engine)
+        return _text(f"已开 #{s.num} {s.name}，用 {used}（模型：{s.model or cat.get(key, {}).get('default', '默认')}），"
                      f"在 {folders.display(Path(s.cwd))} 开工了。做完、要用户定或出错时会告诉你。")
 
     @tool("send_to_session", "把一句话交给某个已有对话（用户的后续要求、对它问题的回答）。它正在做就插话，没在做就开始新一轮。",

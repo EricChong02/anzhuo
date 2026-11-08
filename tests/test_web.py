@@ -687,6 +687,7 @@ def test_codex_native_fork_failure_keeps_original():
 def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
     from types import SimpleNamespace as NS
     from remote_claude import codex, sessions
+    from remote_claude.engines import CODEX, base
     async def go():
         registry = sessions.Registry(tmp_path / "sessions.json")
         s = registry.add(sessions.Session(num=1, name="测试", cwd=str(tmp_path), engine="codex",
@@ -711,10 +712,10 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
                 return "new-turn"
             async def close(self): pass
         monkeypatch.setattr(codex, "CodexConn", Conn)
-        monkeypatch.setattr(sessions, "blocked", lambda *a: "")
-        runner = NS(default_effort="medium", codex_live={}, registry=registry)
+        monkeypatch.setattr(base, "blocked", lambda *a: "")
+        runner = NS(default_effort="medium", live={}, registry=registry)
         turn = Turn(started=time.time())
-        await sessions._codex_run(runner, s, sessions.Job("新问题"), turn)
+        await CODEX.run(runner, s, sessions.Job("新问题"), turn)
         assert calls == [("parent", "turn-100"), "新问题"]
         assert turn.codex_turn_id == "new-turn" and not turn.is_error
         restored = sessions.Registry(tmp_path / "sessions.json").get(1)

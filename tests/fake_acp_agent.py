@@ -3,6 +3,7 @@
 - 话里有 “push”：跑 git push（要批准），被拒就回复“没推送”，批准了回复“推送了”
 - 话里有 “慢”：一直等，收到 session/cancel 才结束（stopReason=cancelled）
 - 话里有 “订阅”：直接报错（像 Kimi 订阅不含 Kimi Code 时那样）
+- 话里有 “删”：删一个文件（kind=delete，要批准）；话里有“临时”删 /tmp 里的，否则删 /Users/demo/重要.txt
 收到的每个请求记在环境变量 FAKE_ACP_LOG 指定的文件里。"""
 import json
 import os
@@ -75,6 +76,15 @@ def run_prompt(rid, sid, text):
         update(sid, {"sessionUpdate": "tool_call", **call})
         ok = ask(sid, call, "run something") in ("yes", "always")
         say(sid, "跑了" if ok else "没跑")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if "删" in text:
+        path = "/tmp/rc-test/a.txt" if "临时" in text else "/Users/demo/重要.txt"
+        call = {"toolCallId": "d1", "title": f"Delete {os.path.basename(path)}", "kind": "delete", "status": "pending",
+                "locations": [{"path": path}]}
+        update(sid, {"sessionUpdate": "tool_call", **call})
+        ok = ask(sid, call, f"Deleting {path}") in ("yes", "always")
+        say(sid, "删了" if ok else "没删")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if "push" in text:

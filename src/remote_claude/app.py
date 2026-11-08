@@ -14,18 +14,14 @@ from pathlib import Path
 from claude_agent_sdk import list_sessions
 
 from .localspend import LocalSpend
-from . import cards, folders, report, router, superagent, translate, usage
+from . import cards, engines, folders, report, router, superagent, translate, usage
 from .commands import HELP, Cmd, parse
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
 from .dingtalk import DingTalk, Incoming, NoDingTalk, parse_incoming
 from .report import Turn
 from .web import Web, relay_hint
-from .acp import ENGINES as ACP_ENGINES, is_acp
+from .engines import EFFORTS, MODELS  # noqa: F401 - 型号表、深度表在 engines/catalog.py；别处还从这里拿
 from .sessions import COMPACT, Job, Registry, Runner, Session, describe, user_setting
-
-MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
-ENGINES_ALT = ("gpt", *ACP_ENGINES)   # 不是 Claude 的引擎：开对话时选，中途不换
-EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 # 接力：让长对话写一份交接说明，换到新对话接着做（新对话不用背着几十万 token 的旧记录）
 RELAY = """这个对话太长了，要换到一个新对话接着做。请写一份交接说明，新对话只靠它接手，所以要具体：
@@ -195,7 +191,7 @@ class Bridge:
         if data.get("target") and (not target or target.hidden):
             raise ValueError("目标对话不存在")
         model = data.get("model") or "auto"
-        if target and model != "auto" and (model == "gpt") != (target.engine == "codex"):
+        if target and model != "auto" and engines.switches(model, target.engine):
             raise ValueError("已有对话不能切换 Claude / Codex，请选择继承模型或新开专用对话")
         if data.get("folder") and data["folder"] not in self.cfg.folders:
             raise ValueError("请选择已配置的工作文件夹")
@@ -218,7 +214,7 @@ class Bridge:
         if s and self._scheduled_busy(s.num):
             raise ValueError("目标对话正忙，请稍后重新安排")
         model = task["model"]
-        if s and model != "auto" and (model == "gpt") != (s.engine == "codex"):
+        if s and model != "auto" and engines.switches(model, s.engine):
             raise ValueError("目标对话的模型类型发生变化，请修改任务")
         if not s:
             num = self.registry.reserve_num()
@@ -228,8 +224,9 @@ class Bridge:
             if why := await asyncio.to_thread(folders.blocked, [cwd]):
                 raise ValueError("工作文件夹不可访问")
             pick = model if model != "auto" else (self.cfg.dev_model if _looks_like_project(cwd) else self.cfg.simple_model)
-            s = Session(num=num, name=task['title'], cwd=str(cwd), engine="codex" if pick == "gpt" else "claude",
-                        model=None if pick == "gpt" else MODELS[pick], effort=task['effort'], renamed=True, titled=True)
+            alt = engines.engine_of(pick)
+            s = Session(num=num, name=task['title'], cwd=str(cwd), engine=alt or engines.CLAUDE.name,
+                        model=None if alt else MODELS[pick], effort=task['effort'], renamed=True, titled=True)
             current = self.registry.current
             self.registry.add(s)
             self.registry.current = current
@@ -237,7 +234,7 @@ class Bridge:
             task['target'] = s.num
             self.schedules.save()
         else:
-            if model != "auto" and model != "gpt": s.model = MODELS[model]
+            if model != "auto" and not engines.engine_of(model): s.model = MODELS[model]
             s.effort = task['effort']
         s.awaiting = s.awaiting_kind = ""
         self.registry.save()
@@ -248,7 +245,7 @@ class Bridge:
 
     def _usage(self, s: Session, turn: Turn) -> None:
         last = None
-        if s.engine != "codex" and not s.claude_usage:   # 对话里还没存累计值：用记录里这个对话最后一条的
+        if engines.get(s.engine).cum_usage and not s.claude_usage:   # 对话里还没存累计值：用记录里这个对话最后一条的
             last = next((r.get("cum") for r in reversed(usage.load(self.data_dir / "usage.jsonl"))
                          if r.get("num") == s.num and r.get("cum")), None)
         if rec := usage.row(s, turn, self.runner.limits, last=last):
@@ -423,7 +420,7 @@ class Bridge:
 
     def _limits(self, s: Session) -> dict:
         """这个对话用的那一家的额度（ACP 引擎查不到额度）。"""
-        return self.runner.limits_gpt if s.engine == "codex" else {} if is_acp(s.engine) else self.runner.limits
+        return engines.get(s.engine).limits(self.runner)
 
     async def _turn_done(self, s: Session, turn: Turn) -> None:
         if s.num in self._relaying:
@@ -765,6 +762,8 @@ class Bridge:
                 return await self.say("模型", f"{s.label} 用的是 {report.model_name(MODELS.get(s.model or '', s.model or '')) or '默认（' + str(user_setting('model')) + '）'}。")
             if cmd.name not in MODELS and cmd.name != "默认":
                 return await self.say("模型", "可选：" + "、".join(MODELS) + "、默认")
+            if engines.get(s.engine).pick_model != "menu":   # 别家（GPT、Kimi）的对话：中途不换成 Claude 的型号
+                return await self.say("模型", f"{s.label} 用的是 {engines.get(s.engine).label}，中途换不了模型。")
             s.model = None if cmd.name == "默认" else MODELS[cmd.name]
             shown = report.model_name(s.model) if s.model else "默认"
         else:
@@ -940,17 +939,17 @@ class Bridge:
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], model=auto, owner=owner, root=root,
                     boss=boss)
         said_model, said_effort = inline_overrides(text)
-        if root and (model or said_model) in ENGINES_ALT:   # 受限账号只用 Claude（Codex、Kimi 不在沙箱里）
-            model = said_model = None
-        if (model or said_model) == "gpt":   # 用 Codex（GPT）干这件事
-            s.engine, model, said_model, s.model = "codex", None, None, None
-        elif is_acp(model or said_model or ""):   # 用 ACP 引擎（Kimi 等）干这件事；engine_model 是它自己的模型名（总管指定的）
-            s.engine, model, said_model, s.model = (model or said_model), None, None, engine_model
+        alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号
+        if root and alt and not engines.get(alt).fenced_ok:   # 受限账号只用 Claude
+            model = said_model = alt = None
+        if alt:   # ACP 引擎（Kimi 等）的 engine_model 是它自己的模型名（总管指定的）；GPT 用 Codex 自己配置的
+            s.engine, model, said_model = alt, None, None
+            s.model = engine_model if engines.get(alt).pick_model == "own" else None
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
-        why = "GPT · Codex" if s.engine == "codex" else ACP_ENGINES[s.engine]["name"] if is_acp(s.engine) else "你指定的" if model or said_model else KIND_CN.get(kind, "简单任务")
+        why = engines.get(s.engine).brand if alt else "你指定的" if model or said_model else KIND_CN.get(kind, "简单任务")
         effort = report.EFFORT_CN.get(s.effort or self.runner.default_effort, "默认")
         meta = f"文件夹：{where}{note}\n\n模型：{report.model_name(s.model)}（{why}）· 深度{effort}"
         if not text and not inc.image_codes and not inc.files:
@@ -1018,7 +1017,7 @@ class Bridge:
             self.registry.current = s.num
         s.hidden = False  # 点名找回收起的对话
         said_model, said_effort = inline_overrides(cmd.text)
-        if said_model in ENGINES_ALT or s.engine != "claude":
+        if not engines.can_switch_model(s.engine, said_model):
             said_model = None   # 对话中途换不了 Claude / GPT；话里提到“用 codex”多半是在说别的事
         if said_model or said_effort:
             s.model = said_model or s.model
@@ -1089,11 +1088,13 @@ class Bridge:
                     self.spend.snap(round(week[0] * 100, 1))   # 刚读到的本周额度 %，换算比例用
             except Exception:  # noqa: BLE001
                 log.debug("读 Claude 额度失败", exc_info=True)
-            if any(s.engine == "codex" for s in self.registry.visible()):
+            for eng in {engines.get(s.engine) for s in self.registry.visible()} - {engines.CLAUDE}:   # 别家：有对话在用、能查才查
+                if not eng.has_quota:
+                    continue
                 try:
-                    await self.runner.refresh_gpt_usage(force=True)
+                    await eng.refresh_quota(self.runner, force=True)
                 except Exception:  # noqa: BLE001
-                    log.debug("读 GPT 额度失败", exc_info=True)
+                    log.debug("读 %s 额度失败", eng.label, exc_info=True)
             await asyncio.sleep(600)
 
     async def _cleanup_loop(self) -> None:

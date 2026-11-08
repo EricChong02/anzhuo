@@ -87,8 +87,8 @@ def test_router_created_once(tmp_path):
 
 
 def test_deny_hook_blocks_router_tools():
-    r = Runner(None, None)
-    hook = r._deny({"Bash", "Write"}, "不亲自干活")
+    from remote_claude.engines import CLAUDE
+    hook = CLAUDE.deny({"Bash", "Write"}, "不亲自干活")
     out = asyncio.run(hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None))
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny" and "不亲自干活" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert asyncio.run(hook({"tool_name": "Read", "tool_input": {}}, None, None)) == {}
@@ -306,8 +306,10 @@ def test_must_report_nudges_once():
     t.sa_report = {"state": "ready", "summary": "x", "question": ""}
     assert superagent.must_report(t, False) == ""
     assert superagent.must_report(Turn(started=0, via="web"), False) == ""   # 你自己直接说的：不强求
+    from remote_claude.engines import CLAUDE
     r = Runner(None, None)
-    hook = r._stop_check(Turn(started=0, via="router"), superagent.must_report)
+    r.role = lambda s: {"on_stop": superagent.must_report}   # Stop 钩子问的是角色的 on_stop（引擎接口 unfinished）
+    hook = CLAUDE.stop_check(r, Session(num=1, name="w", cwd="/tmp"), Turn(started=0, via="router"))
     assert asyncio.run(hook({"stop_hook_active": False}, None, None))["decision"] == "block"
     assert asyncio.run(hook({"stop_hook_active": True}, None, None)) == {}
 
