@@ -122,7 +122,7 @@ class AcpEngine(Engine):
         conn = acp_conn.AcpConn(s.engine, s.cwd, on_update, on_permission, add_dirs=s.add_dirs)
         runner.live[s.num] = conn
         turn.model = name
-        turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000]})
+        turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")})
         rl = role(runner, s)
         try:
             await conn.start()

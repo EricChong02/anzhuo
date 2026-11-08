@@ -1013,13 +1013,17 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         assert result["decision"]["recommend"] == "A" and result["awaiting_kind"] == "decide"
         assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["内部摘要"]
         # 下一棒拿到摘要，聊天只呈现用户的选择；原始存档不修改。
-        wrapped = "（这是接力的新对话：内部摘要\n用户这次说：\n\nA"
-        w.save_turn(child.label, Turn(started=120, ended=121, request=wrapped, final_text="按红色继续"), str(tmp_path), "继续")
+        wrapped = "（这是接力的新对话：" + "长摘要" * 2000 + "\n用户这次说：\n\nA"
+        w.save_turn(child.label, Turn(started=120, ended=121, request="接力首句…", final_text="按红色继续",
+                                     timeline=[{"kind": "you", "text": wrapped}]), str(tmp_path), "继续")
+        w.bridge.outgoing[2] = [{"text": "A", "t": 119}]
         child.awaiting = ""
         result = json.loads((await w._api_thread(req)).text)
         assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计", "A"]
         assert result["decision"] is None
-        assert w._turn("2-120")["request"] == wrapped
+        assert not any(i.get("pending") for i in result["items"])
+        assert w.bridge.outgoing[2] == []
+        assert w._turn("2-120")["timeline"][0]["text"] == wrapped
         assert w._turn("1-110")["request"] == RELAY
     asyncio.run(go())
 

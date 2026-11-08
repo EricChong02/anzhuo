@@ -168,7 +168,7 @@ class CodexEngine(Engine):
         conn = codex_conn.CodexConn(s.cwd, on_event, on_request, **({"tools": specs} if specs else {}))   # 没有工具时调用和原来一样
         runner.live[s.num] = conn
         turn.model = "GPT（Codex）"
-        turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）")[:3000],
+        turn.timeline.append({"t": time.time(), "kind": "you", "text": (job.text or "（见图）"),
                               **({"imgs": [str(p) for p in job.images]} if job.images else {})})   # 记下图在哪，网页上才能把你发的图再显示出来
         try:
             await conn.start()

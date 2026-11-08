@@ -258,7 +258,7 @@ class Runner:
                 and turn.request != _request_title(Job(text=COMPACT))
                 and (steer := engines.get(s.engine).steer(self, s, turn, job)) is not None):
             turn.injected += 1
-            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text[:3000]})
+            turn.timeline.append({"t": time.time(), "kind": "you", "text": job.text})
             self._bg(steer)
             return -1
         q = self.queues.setdefault(s.num, asyncio.Queue())
