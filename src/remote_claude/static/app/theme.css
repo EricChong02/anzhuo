@@ -526,3 +526,41 @@ html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid 
 .main .md code,.main .md pre{background:rgba(232,238,244,.8)}
 .main .md pre code{background:none}
 }
+
+/* 控件减重：保留冷灰蓝玻璃，以细边界代替宽散阴影。 */
+html .side .find input:focus-visible{outline:none;box-shadow:none}
+.side .find{border-radius:12px}
+.side .find:focus-within{box-shadow:inset 0 0 0 1.5px var(--acc)}
+.confirm{border-radius:16px;padding:14px 16px}
+.confirm .q{line-height:1.55;margin-bottom:10px;overflow-wrap:anywhere}
+.confirm .cb{justify-content:flex-end;flex-wrap:wrap}
+.confirm .cb button{flex:0 1 auto;min-width:88px;height:36px;padding:0 18px;border-radius:9px;font-weight:500}
+.live{border-radius:16px;padding:14px 16px}
+.live .lsub{font-weight:400;color:var(--mute)}
+.mmenu{border-radius:16px;padding:8px}
+.mmenu .mo{border-radius:8px}
+.mmenu .lb{letter-spacing:0;font-weight:500}
+.mmenu .seg{gap:2px;margin:4px 4px 2px;padding:3px;border-radius:9px}
+.mmenu .seg button{border-radius:6px;background:transparent;box-shadow:none}
+@media (pointer:coarse){.confirm .cb button{min-height:44px;min-width:96px}}
+@media not (prefers-color-scheme:dark){
+.confirm,.live{background:rgba(239,245,249,.8);box-shadow:inset 0 0 0 1px rgba(62,88,112,.16)}
+.confirm .q,.live .lh,.live .lh .lt{color:#253747}
+.confirm .cb button{background:transparent;color:#344d64;box-shadow:inset 0 0 0 1px rgba(62,88,112,.22)}
+.confirm .cb .ok{background:#e0eaf3;color:#28496a;box-shadow:inset 0 0 0 1px rgba(47,78,111,.25)}
+.live .stop{background:rgba(218,228,237,.65);color:#344d64}
+.live .spin{border-color:rgba(47,78,111,.2);border-top-color:#355b80}
+.side .find{background:rgba(255,255,255,.55);box-shadow:inset 0 0 0 1px rgba(62,88,112,.14)}
+.side .find:focus-within{box-shadow:inset 0 0 0 1.5px rgba(47,78,111,.6)}
+.side .find input::placeholder{color:#596b7b;opacity:1}
+.mmenu{background:rgba(247,250,252,.97);box-shadow:0 0 0 1px rgba(62,88,112,.17),0 8px 24px -8px rgba(35,57,78,.2)}
+.mmenu .lb{color:#526577}
+.mmenu .mo.on{background:rgba(215,228,239,.65)}
+.mmenu .seg{background:#e8eef3}
+.mmenu .seg button{color:#42596e}
+.mmenu .seg button.on{background:#fff;color:#28496a;box-shadow:0 1px 3px rgba(35,57,78,.12)}
+.composer,.composer:focus-within{box-shadow:inset 0 0 0 1px rgba(62,88,112,.13),0 4px 14px -6px rgba(35,57,78,.16)}
+}
+
+/* 菜单收起入口不再铺一条白色按钮底，触屏仍保留 44px 点按区。 */
+html .mmenu .phone-menu-close{width:auto;margin-left:auto;min-width:64px;min-height:44px;padding:0 10px;background:transparent;border-radius:8px;box-shadow:none;font-size:14px}

@@ -33,7 +33,7 @@ function renderModel(st, onPick, isNew) {
   // 新对话“自动”又没动深度：模型和深度都照分工表，按钮上只写“自动”
   const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;
   el.innerHTML = `<button class="mp ${mpOpen ? 'open' : ''}" id="mp" title="模型和思考深度">${esc(head)}${ICON.chev}</button>`
-    + (mpOpen ? `<div class="mmenu"><button class="phone-menu-close" id="modelDone">完成</button>${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
+    + (mpOpen ? `<div class="mmenu"><button class="phone-menu-close" id="modelDone" aria-label="收起模型菜单">收起</button>${list}<div class="lb">思考深度</div><div class="seg">${EFFORT_OPTS.map(([k, t]) => `<button class="${k === st.effort ? 'on' : ''}" data-e="${k}">${t}</button>`).join('')}</div></div>` : '');
   fitModelMenu(el.querySelector('.mmenu'));
   if ($('#modelDone')) $('#modelDone').onclick = e => { e.stopPropagation(); mpOpen = false; renderModel(st, onPick, isNew); };
   $('#mp').onclick = e => { e.stopPropagation(); mpOpen = !mpOpen; renderModel(st, onPick, isNew); };

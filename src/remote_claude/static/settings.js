@@ -3,7 +3,7 @@
 // 只在打开“设置”页时才加载；用主页面的 esc / toast / api / sheet。
 (() => {
   const CSS = `
-.st{display:flex;flex-direction:column;gap:6px;padding-bottom:24px;max-width:680px;width:100%;margin:0 auto}
+#admCol > .st{display:flex;flex-direction:column;gap:6px;padding-bottom:24px;max-width:680px;width:100%;margin:0 auto}
 .st-note{font-size:var(--t2);color:var(--amber);background:var(--amber-soft);border-radius:var(--r2);padding:10px 14px;line-height:1.5}
 .st-gh{font-size:var(--t1);color:var(--faint);padding:14px 16px 6px;letter-spacing:.06em}
 .st-card{background:var(--card);box-shadow:var(--rim),var(--lift);border-radius:var(--r2);overflow:hidden}
