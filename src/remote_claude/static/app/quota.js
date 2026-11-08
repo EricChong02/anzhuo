@@ -13,14 +13,13 @@ function quotaResetLabel(l, now = Date.now()) {
   const day = d.toDateString() === new Date(now).toDateString() ? '今天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
   return `${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-// 按这速度何时用完（后端 quota.window 算好的 eta / pace）：重置前用得完 → {text, warn: true}；够用 → 一句定心话；算不出 → null
+// 按这速度何时用完（后端 quota.window 算好的 eta / level）：只在偏紧、告急且重置前会用完时才说一句，平时不说，免得每行都是预测
+const quotaTight = l => l.level === '偏紧' || l.level === '告急';
 function quotaPace(l, now = Date.now()) {
-  if (l.eta != null) {
-    const d = new Date(Number(l.eta) * 1000), tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-    const day = d.toDateString() === new Date(now).toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
-    return {text: `按这速度${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 用完`, warn: true};
-  }
-  return l.pace == null || l.pct == null || l.pct < 5 ? null : {text: `按这速度到重置约用到 ${Math.min(99, l.pace)}%，够用`, warn: false};
+  if (l.eta == null || !quotaTight(l)) return null;
+  const d = new Date(Number(l.eta) * 1000), tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const day = d.toDateString() === new Date(now).toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+  return {text: `按这速度${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 用完`, warn: true};
 }
 function qcell(l, hot = 80) {
   const reset = quotaResetLabel(l), pace = quotaPace(l);
@@ -70,7 +69,7 @@ function renderQuota() {
   const q = $('#quota'), groups = quotaGroups(); q.hidden = !groups.length;
   q.innerHTML = groups.length ? `<button class="quota-summary" aria-label="本周已用额度，点击查看详情"><span class="quota-caption">周已用</span>${groups.map(([who, ls]) => {
     const week = ls.find(l => l.name === '本周');
-    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 || week?.eta != null ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
+    return `<span class="quota-week"><span>${who}</span><b class="${week?.pct > 90 ? 'critical' : week?.pct >= 80 || (week && quotaPace(week)) ? 'hot' : ''}">${week?.pct == null ? '—' : week.pct + '%'}</b></span>`;
   }).join('')}${ICON.chev}</button>` : '';
   const button = q.querySelector('button'); if (button) button.onclick = openQuotaDetails;
   renderQuotaDetails();
