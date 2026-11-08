@@ -51,7 +51,7 @@ function openNew(fromPop, preset) {
         <div class="lsub">已送到</div></div></div>`;
       $('.newv').appendChild(el);
     });
-  if (!coarsePhone()) $('#ta').focus();
+  if (!coarsePhone() && !document.documentElement.classList.contains('ipad')) $('#ta').focus();
 }
 $('#newBtn').onclick = () => openNew();
 $('#fab').onclick = () => openNew();

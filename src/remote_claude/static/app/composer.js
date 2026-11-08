@@ -75,12 +75,12 @@ function wireComposer(sendFn, onSent, onOpening) {
   document.ondragleave = e => { if (hasFiles(e) && --depth <= 0) { depth = 0; box.classList.remove('drop'); } };
   document.ondrop = e => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; box.classList.remove('drop'); if (e.dataTransfer.files.length) add([...e.dataTransfer.files]); };
   const phone = coarsePhone();
-  ta.setAttribute('enterkeyhint', phone ? 'enter' : 'send');
+  ta.setAttribute('enterkeyhint', phone || document.documentElement.classList.contains('ipad') ? 'enter' : 'send');
   ta.onkeydown = e => {
     if (e.key === 'ArrowUp' && !ta.value && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && lastYou[num0]) {   // 输入框空着按 ↑：调出上一句，改一下重发
       e.preventDefault(); ta.value = lastYou[num0]; sync(); ta.setSelectionRange(ta.value.length, ta.value.length); return;
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229 && !phone && (!document.documentElement.classList.contains('command-send') || e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229 && (!phone || e.metaKey || e.ctrlKey) && (!document.documentElement.classList.contains('command-send') || e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }
   };
   async function go() {
     const originalText = state.text, text = originalText.trim();
@@ -125,12 +125,12 @@ function wireComposer(sendFn, onSent, onOpening) {
       if (e.message !== 'login') state.error = e.message === 'big' ? '服务器拒绝了这次上传，请稍后再试' : e.message === 'offline' ? '连接中断，附件已保留，请重试' : e.message || '没发出去，再试一次';
     } finally {
       state.sending = false; state.progress = ''; refreshComposer(key);
-      if (active() && !coarsePhone()) ta.focus();
+      if (active() && !coarsePhone() && !document.documentElement.classList.contains('ipad')) ta.focus();
       lastKey = ''; loadThread(); loadSessions();
     }
   }
   btn.onclick = go; paint();
-  if (active() && !coarsePhone()) ta.focus({preventScroll: true});
+  if (active() && !coarsePhone() && !document.documentElement.classList.contains('ipad')) ta.focus({preventScroll: true});
 }
 
 const WHERE_ICON = {

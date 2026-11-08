@@ -15,6 +15,10 @@ $('#moreBtn').onclick = () => {
     <button data-a="a"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>管理</button>
     <div class="sep"></div><button data-a="h"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>历史记录</button>` : '') + `
     <button data-a="d"><svg viewBox="0 0 24 24" style="width:18px;height:18px"><rect x="2" y="5" width="13" height="10" rx="1.5"/><path d="M5 19h7"/><rect x="17" y="8" width="5" height="11" rx="1.2"/></svg>登录的设备 · 退出登录</button>`);
+  if (document.documentElement.classList.contains('ipad')) {
+    const b = document.createElement('button'); b.textContent = 'iPad 使用与键盘设置';
+    el.querySelector('.box').prepend(b); b.onclick = () => { el.remove(); $('#workspaceHelp').click(); };
+  }
   if (admin) {
     el.querySelector('[data-a=s]').onclick = () => { el.remove(); openSchedules(); };
     el.querySelector('[data-a=a]').onclick = () => { el.remove(); openAdmin('usage'); };

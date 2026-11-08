@@ -38,7 +38,7 @@ const boot = async () => {
     }
     if (!(e.metaKey || e.ctrlKey) || e.altKey || e.isComposing || e.defaultPrevented || document.querySelector('.sheet,.amenu,.lightbox,[role=dialog]')) return;
     const k = e.key.toLowerCase();
-    if (k === 'k') { e.preventDefault(); if ($('#app').classList.contains('in') && matchMedia('(max-width:820px)').matches) goList(); $('#q').focus(); $('#q').select(); }
+    if (k === 'k') { e.preventDefault(); if ($('#app').classList.contains('in') && (matchMedia('(max-width:820px)').matches || (document.documentElement.classList.contains('ipad') && innerWidth < 1000))) goList(); $('#q').focus(); $('#q').select(); }
     else if (k === 'n' || (k === 'o' && e.shiftKey)) { e.preventDefault(); openNew(); }
     else if (k === 'arrowup' || k === 'arrowdown') {
       if (e.target.closest('input,textarea,select,[contenteditable]')) return;
@@ -53,16 +53,20 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 // 桌面工作区偏好只保存在当前浏览器。
 (() => {
   const root = document.documentElement, app = $('#app');
-  const desktop = () => matchMedia('(min-width:821px) and (pointer:fine)').matches && !root.classList.contains('ipad');
-  const read = k => { try { return localStorage.getItem('desktop.' + k); } catch (_) { return null; } };
-  const save = (k, v) => { try { localStorage.setItem('desktop.' + k, v); } catch (_) {} };
-  root.classList.toggle('command-send', read('commandSend') === 'true');
+  const tablet = root.classList.contains('ipad');
+  const prefPrefix = tablet ? 'ipad.' : 'desktop.';
+  const desktop = () => tablet || matchMedia('(min-width:821px) and (pointer:fine)').matches && !root.classList.contains('ipad');
+  const read = k => { try { return localStorage.getItem(prefPrefix + k); } catch (_) { return null; } };
+  const save = (k, v) => { try { localStorage.setItem(prefPrefix + k, v); } catch (_) {} };
+  root.classList.toggle('command-send', tablet ? read('commandSend') !== 'false' : read('commandSend') === 'true');
+  if (tablet) root.style.setProperty('--sidebar-width', '280px');
   const width = Number(read('sidebar'));
   if (width >= 240 && width <= 420) root.style.setProperty('--sidebar-width', width + 'px');
   const bar = document.createElement('div'); bar.className = 'desktop-tools';
   bar.innerHTML = '<button id="workspaceToggle" title="收起侧栏（⌘⇧L）" aria-label="收起侧栏" aria-expanded="true">☰</button><button id="workspaceHelp" title="桌面使用设置与快捷键" aria-label="桌面使用设置与快捷键">⌘</button>';
   app.appendChild(bar);
   const toggle = () => {
+    if (tablet && innerWidth < 1000) { if ($('#app').classList.contains('in')) $('#back')?.click(); return; }
     const hidden = app.classList.toggle('sidebar-hidden'), b = $('#workspaceToggle');
     b.setAttribute('aria-expanded', String(!hidden));
     b.title = (hidden ? '展开侧栏' : '收起侧栏') + '（⌘⇧L）'; b.setAttribute('aria-label', b.title);
@@ -73,7 +77,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     const previous = document.activeElement;
     const el = document.createElement('div'); el.className = 'sheet desktop-dialog'; el.id = 'desktopDialog';
     el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'desktopTitle');
-    el.innerHTML = `<div class="box"><h2 id="desktopTitle">桌面使用</h2><p>拖动侧栏右边缘调整宽度，双击恢复。文件和截图可拖进对话，截图也可直接粘贴。</p><label class="send-preference"><input type="checkbox" ${root.classList.contains('command-send') ? 'checked' : ''}>用 ⌘Enter 发送，Enter 换行</label><p>默认 Enter 发送，Shift Enter 换行。此设置只保存在当前浏览器。</p><dl><dt>搜索对话</dt><dd>⌘K</dd><dt>新建对话</dt><dd>⌘⇧O</dd><dt>收起 / 展开侧栏</dt><dd>⌘⇧L</dd><dt>上 / 下一个对话</dt><dd>⌘↑ / ⌘↓（输入框外）</dd><dt>回到输入框</dt><dd>⌘⇧I</dd><dt>桌面使用帮助</dt><dd>⌘/</dd></dl><button>关闭</button></div>`;
+    el.innerHTML = `<div class="box"><h2 id="desktopTitle">${tablet ? 'iPad 使用' : '桌面使用'}</h2><p>拖动侧栏右边缘调整宽度，双击恢复。文件和截图可拖进对话，截图也可直接粘贴。</p><label class="send-preference"><input type="checkbox" ${root.classList.contains('command-send') ? 'checked' : ''}>用 ⌘Enter 发送，Enter 换行</label><p>${tablet ? 'iPad 默认 Enter 换行，⌘Enter 发送；可在这里切换。窄窗口返回列表可保留草稿。' : '默认 Enter 发送，Shift Enter 换行。'}此设置只保存在当前浏览器。</p><dl><dt>搜索对话</dt><dd>⌘K</dd><dt>新建对话</dt><dd>⌘⇧O</dd><dt>收起 / 展开侧栏</dt><dd>⌘⇧L</dd><dt>上 / 下一个对话</dt><dd>⌘↑ / ⌘↓（输入框外）</dd><dt>回到输入框</dt><dd>⌘⇧I</dd><dt>桌面使用帮助</dt><dd>⌘/</dd></dl><button>关闭</button></div>`;
     document.body.appendChild(el);
     const close = () => { el.remove(); if (previous?.isConnected) previous.focus(); };
     el.querySelector('input').onchange = e => { root.classList.toggle('command-send', e.target.checked); save('commandSend', e.target.checked); };
@@ -90,15 +94,16 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     el.querySelector('input').focus();
   };
   $('#workspaceHelp').onclick = help;
+  if (tablet) { $('#workspaceHelp').title = 'iPad 使用与键盘设置'; $('#workspaceHelp').setAttribute('aria-label', 'iPad 使用与键盘设置'); }
   const grip = document.createElement('div'); grip.className = 'sidebar-grip'; grip.tabIndex = 0;
   grip.setAttribute('role', 'separator'); grip.setAttribute('aria-label', '调整侧栏宽度'); grip.setAttribute('aria-orientation', 'vertical');
   grip.setAttribute('aria-valuemin', '240'); grip.setAttribute('aria-valuemax', '420'); app.appendChild(grip);
   const resize = v => { const w = Math.max(240, Math.min(420, v)); root.style.setProperty('--sidebar-width', w + 'px'); grip.setAttribute('aria-valuenow', w); save('sidebar', w); };
-  grip.setAttribute('aria-valuenow', width >= 240 && width <= 420 ? width : 320);
+  grip.setAttribute('aria-valuenow', width >= 240 && width <= 420 ? width : (tablet ? 280 : 320));
   grip.onpointerdown = e => { if (e.button !== 0) return; e.preventDefault(); grip.setPointerCapture(e.pointerId); app.classList.add('sidebar-resizing'); };
   grip.onpointermove = e => { if (grip.hasPointerCapture(e.pointerId)) resize(e.clientX); };
   const stop = () => app.classList.remove('sidebar-resizing');
-  grip.onpointerup = stop; grip.onlostpointercapture = stop; grip.ondblclick = () => resize(320);
+  grip.onpointerup = stop; grip.onlostpointercapture = stop; grip.ondblclick = () => resize(tablet ? 280 : 320);
   grip.onkeydown = e => { if (['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); resize(parseInt(getComputedStyle(root).getPropertyValue('--sidebar-width') || '320') + (e.key === 'ArrowLeft' ? -16 : 16)); } };
   addEventListener('keydown', e => {
     if (!desktop() || e.isComposing || !(e.metaKey || e.ctrlKey) || e.altKey || document.querySelector('.sheet,.amenu,.lightbox,[role=dialog]')) return;

@@ -438,3 +438,41 @@ textarea:focus-visible,input:focus-visible,select:focus-visible,[contenteditable
 @media (pointer:coarse) and (max-height:500px){
   html:not(.ipad) .head,html:not(.ipad) .feed,html:not(.ipad) .dock{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
 }
+
+/* iPad 按可用窗口宽度切换布局，不把竖屏硬挤成双栏。 */
+html.ipad .icon-btn,html.ipad .send,html.ipad .ib,html.ipad .pill,html.ipad .jump,html.ipad .quick button,html.ipad .mo,html.ipad .seg button{min-height:44px;min-width:44px}
+html.ipad .composer textarea{font-size:18px;line-height:1.65}
+html.ipad .feed{overscroll-behavior-y:contain;padding-left:max(20px,env(safe-area-inset-left));padding-right:max(20px,env(safe-area-inset-right))}
+html.ipad .dock{transition:none;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+html.ipad.keyboard-open .phone-keyboard{display:grid}
+html.ipad.keyboard-open .dock{padding-top:8px;padding-bottom:8px}
+html.ipad .phone-menu-close{display:block;position:sticky;top:0;z-index:1;width:100%;min-height:44px;text-align:right;padding:0 12px;color:var(--acc);background:var(--panel);border-radius:var(--r1)}
+html.ipad .mmenu{position:fixed;top:auto!important;left:auto;right:max(16px,env(safe-area-inset-right));bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom));width:min(420px,calc(100vw - 32px));max-height:calc(var(--visible-height,100dvh) - 100px);overflow:auto;overscroll-behavior:contain}
+html.ipad .sheet,html.ipad .amenu{padding-bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom))}
+html.ipad .sheet .box,html.ipad .amenu .box{max-height:calc(var(--visible-height,100dvh) - 40px);overflow:auto;overscroll-behavior:contain}
+html.ipad .md{overflow-wrap:anywhere}html.ipad .md .tw{max-width:100%;overscroll-behavior-x:contain}
+html.ipad .file-row,html.ipad .file{min-width:0;max-width:100%}html.ipad .file .fn{min-width:0;overflow-wrap:anywhere}
+html.ipad .file-download{min-width:44px;min-height:44px;display:grid;place-items:center}
+html.ipad .ptog,html.ipad .more{min-height:44px}
+html.ipad :is(button,a,input,select,[tabindex]):focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (hover:none){html.ipad .yw .ibs{visibility:hidden}html.ipad .yw.show .ibs{visibility:visible}}
+@media (min-width:1000px){
+  html.ipad .app{grid-template-columns:var(--sidebar-width,280px) minmax(0,1fr)}
+  html.ipad .desktop-tools{display:flex;position:absolute;top:calc(16px + env(safe-area-inset-top));left:calc(var(--sidebar-width,280px) + 12px);gap:4px;z-index:12}
+  html.ipad .desktop-tools button{width:36px;height:44px;color:var(--mute);border-radius:8px}
+  html.ipad .head{padding-left:100px;min-height:76px}
+  html.ipad .sidebar-grip{display:block;position:absolute;left:calc(var(--sidebar-width,280px) - 6px);width:12px;top:0;bottom:0;z-index:14;touch-action:none;cursor:col-resize}
+  html.ipad .sidebar-grip:hover,html.ipad .sidebar-grip:focus-visible{background:var(--accsoft)}
+  html.ipad .app.sidebar-hidden{grid-template-columns:minmax(0,1fr)}
+  html.ipad .sidebar-hidden .side,html.ipad .sidebar-hidden .sidebar-grip{display:none}
+  html.ipad .sidebar-hidden .desktop-tools{left:12px}
+}
+@media (max-width:999px){
+  html.ipad .app{grid-template-columns:minmax(0,1fr)}
+  html.ipad .app.in .side,html.ipad .app:not(.in) .main{display:none}
+  html.ipad .back,html.ipad .phone-list,html.ipad .app:not(.in) .fab{display:grid}
+  html.ipad #newBtn{display:none}
+  html.ipad .col,html.ipad .composer,html.ipad .quick{max-width:720px}
+  html.ipad .head{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  html.ipad .composer .mp{max-width:calc(100vw - 224px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
