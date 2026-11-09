@@ -476,3 +476,8 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .process-time{flex:none;font-size:var(--t2);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 .process-summary.time-only{justify-content:flex-end}
 
+
+/* 看过程：只许上下滑；往上翻时出“回到底部”，点了就继续跟着最新 */
+.live .plist{overflow-x:hidden;overscroll-behavior:contain} .live .plist .pi{min-width:0} .live .plist .pt,.live .plist code.pd{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
+.pjump{display:none;position:sticky;bottom:2px;align-self:center;flex:none;border:0;border-radius:var(--rf,999px);padding:6px 14px;font-size:var(--t2);background:var(--acc);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer}
+.plist[data-reading="1"] .pjump{display:block}

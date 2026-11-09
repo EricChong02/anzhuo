@@ -66,7 +66,7 @@ function procHTML(list, pid, tid) {
     ? `<div class="pi ${e.k}">${e.k === 'think' ? ICON.bulb : ICON.say}<span class="pt wait">翻译中…</span></div>`
     : e.k === 'think' ? `<div class="pi think">${ICON.bulb}<span class="pt ${unclamp.has(ck(e.text)) ? '' : 'clamp'}" data-c="${ck(e.text)}">${esc(e.text)}</span></div>`
     : e.k === 'say' ? `<div class="pi say">${ICON.say}<div class="pt md">${md(e.text)}</div></div>`
-    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}</div>`;
+    : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}${pid === 'live' ? '<button class="pjump" type="button">↓ 回到底部</button>' : ''}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
 let limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;

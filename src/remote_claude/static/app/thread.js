@@ -118,6 +118,9 @@ function renderThread(d) {
     x.addEventListener('pointerdown', pause);
     x.addEventListener('pointerup', () => setTimeout(resume, 0));
     x.addEventListener('keyup', resume);
+    x.addEventListener('scroll', () => { const gap = x.scrollHeight - x.scrollTop - x.clientHeight; if (gap > 40) { x.dataset.reading = '1'; stick = false; } else if (gap < 4) delete x.dataset.reading; }, {passive: true});
+    const jb = x.querySelector('.pjump');
+    if (jb) jb.onclick = e => { e.stopPropagation(); delete x.dataset.reading; x.scrollTop = x.scrollHeight; };
     x.addEventListener('keydown', e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) pause(); });
   });
   document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {
