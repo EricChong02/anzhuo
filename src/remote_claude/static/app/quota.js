@@ -1,7 +1,24 @@
-// 2026-11-10 核对官方规则；活动按官方 PT 截止时间自动失效。
-function fableBilling() {
-  const promo = Date.now() < Date.parse('2026-11-17T07:59:59Z');
-  return `<details class="uh fable-billing"><summary>Fable 计费与限额 · 可能额外付费</summary><p>Fable 与总周额度共用额度：Max / Ultra 等符合条件的套餐最多可把总周额度的 50% 用于 Fable，并非额外赠送。Fable 一栏保留官方返回的已用百分比，不再乘除 50%；两栏不可相加，未返回读数时不推算。<br>Pro / Team 标准席位通常使用额外付费额度；${promo ? '发布活动期间，符合条件的账号至 11 月 17 日 15:59（台北时间）可在套餐内使用，最多占总周额度的 50%；之后恢复额外付费。' : '是否包含在套餐内以官方账号用量页为准。'}达到上限后可换其他模型，继续用 Fable 可能产生费用。<br>Fable 5.2 API 标价（美元 / 百万 token）：输入 $8、输出 $40、缓存读 $0.20，缓存写 5 分钟 $10 / 1 小时 $16；快速模式价格翻倍。标价折算用于估算，不是订阅实际账单。<br><a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">查看官方额度、额外付费与可用重置次数</a> · <a href="https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan" target="_blank" rel="noopener">计费规则</a> · <a href="https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers" target="_blank" rel="noopener">发布活动</a></p></details>`;
+// 2026-11-10 核对官方规则；活动按官方 PT 截止时间自动失效。图形面板：额度结构、谁能用、价格条，不写说明文字。
+const FABLE_PRICES = [['输入', 8], ['输出', 40], ['缓存读', .2], ['缓存写 5 分钟', 10], ['缓存写 1 小时', 16]];
+const FB_EXT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M10 6H6a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function fableBilling(open = false, now = Date.now()) {
+  const end = Date.parse('2026-11-17T07:59:59Z'), left = end - now, promo = left > 0;
+  const days = Math.max(1, Math.ceil(left / 86400000)), spent = Math.min(100, Math.max(0, left / (7 * 864e5) * 100));
+  const promoRow = promo ? `<div class="fb-who"><i class="fb-dot ok"></i><b>发布活动</b><span class="fb-tag ok">Pro / Team 套餐内 · 剩 ${days} 天</span></div>
+      <div class="fb-time" title="活动至 11 月 17 日 15:59（台北时间）"><i style="width:${spent.toFixed(0)}%"></i></div>` : '';
+  const prices = FABLE_PRICES.map(([n, v]) => `<div class="fb-p"><span>${n}</span><i><u style="width:${Math.max(1.5, v / 40 * 100)}%"></u></i><b>$${v}</b></div>`).join('');
+  return `<details class="fable-billing" ${open ? 'open' : ''}><summary><span class="fb-name">Fable 5.2</span><span class="fb-tag cap">套餐内 ≤ 50%</span><span class="fb-tag pay">超出 额外付费</span><span class="fb-sum">$8 入 · $40 出</span></summary>
+    <div class="fb-body">
+    <div class="fb-h">额度占比</div>
+    <div class="fb-cap"><span>总周额度</span><i class="all"></i><b>100%</b></div>
+    <div class="fb-cap"><span>Fable</span><i class="part"><u></u></i><b>≤ 50%</b></div>
+    <div class="fb-h">谁能用</div>
+    <div class="fb-who"><i class="fb-dot ok"></i><b>Max / Ultra</b><span class="fb-tag ok">套餐内</span></div>
+    <div class="fb-who"><i class="fb-dot pay"></i><b>Pro / Team</b><span class="fb-tag pay">额外付费</span></div>${promoRow}
+    <div class="fb-h">价格<small>美元 / 百万 token</small><em class="fb-fast">快速模式 ×2</em></div>
+    ${prices}
+    <div class="fb-foot"><a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">官方额度与重置${FB_EXT}</a><a href="https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan" target="_blank" rel="noopener">规则${FB_EXT}</a>${promo ? `<a href="https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers" target="_blank" rel="noopener">活动${FB_EXT}</a>` : ''}</div>
+    </div></details>`;
 }
 const modelLimits = (ls, model) => ls.filter(l => l.name !== '本周 Fable' || model === 'fable' || /^claude-fable-/.test(model || ''));
 // 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
@@ -58,7 +75,7 @@ function renderQuotaDetails() {
     return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 || pace?.warn ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
       <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
       <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div>${pace ? `<div class="quota-pace ${pace.warn ? 'warn' : ''}">${esc(pace.text)}</div>` : ''}</div>`;
-  }).join('')}${who === 'Claude' ? fableBilling() : ''}</section>`).join('');
+  }).join('')}${who === 'Claude' ? fableBilling(true) : ''}</section>`).join('');
 }
 function openQuotaDetails() {
   if ($('#quotaDetailBody')) return;
