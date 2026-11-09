@@ -9,7 +9,7 @@ from .claude import ClaudeEngine
 from .codex import CodexEngine
 from .deepseek import DeepSeekEngine
 
-MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"}
+MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-2"}
 HELPER_MODEL = MODELS["haiku"]   # 远窗自己的小活（起标题、分类、翻译、分派判断）用的模型
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 

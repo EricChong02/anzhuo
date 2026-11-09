@@ -468,7 +468,7 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
     assert opts["gpt"] == "GPT-6.1 Sol"
-    assert opts["fable"] == "Claude Fable 5.1"
+    assert opts["fable"] == "Claude Fable 5.2"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"

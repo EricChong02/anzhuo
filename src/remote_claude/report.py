@@ -50,7 +50,7 @@ class Turn:
 
 
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
-LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
+LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_fable": "本周 Fable", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
 
 
 def brief(text: str, limit: int = 20) -> str:
@@ -114,7 +114,10 @@ def status_line(turn: Turn, limits: dict[str, tuple[float, str | None]]) -> tupl
             warns.append(f"这个对话的上下文已用 {turn.context_pct:.0f}%，快满了，换件新事建议新开对话")
     if turn.compacted:
         warns.append("这一轮里对话自动压缩过一次，前面的细节它可能记得不准")
-    for key, short in (("five_hour", "5 小时"), ("seven_day", "本周")):
+    keys = [("five_hour", "5 小时"), ("seven_day", "本周")]
+    if "fable" in turn.model.lower():
+        keys.append(("seven_day_fable", "本周 Fable"))
+    for key, short in keys:
         if key in limits:
             util, resets = limits[key]
             rows.append((short, bar(util * 100)))

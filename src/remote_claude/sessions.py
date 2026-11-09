@@ -496,7 +496,8 @@ class Runner:
                 str(_cli_path()), "-p", "/usage", cwd=str(Path.home()),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             out, _ = await asyncio.wait_for(proc.communicate(), 60)
-            self.limits.update(parse_usage(out.decode(errors="replace")))
+            if got := parse_usage(out.decode(errors="replace")):
+                self.limits = got   # 成功读取后替换，避免已消失的窗口残留旧读数
         except Exception:  # noqa: BLE001 - 查不到额度不影响报告
             log.debug("查额度失败", exc_info=True)
 
@@ -573,7 +574,7 @@ def _reset_cn(text: str) -> str | None:
 
 
 def parse_usage(text: str) -> dict[str, tuple[float, str | None]]:
-    """解析 /usage 输出里的“Current session”（5 小时）和“Current week (all models)”（本周）。"""
+    """解析 /usage 的总额度与 Fable 专属周额度；百分比保持官方分母，不按总周额度推算。"""
     got = {}
     for line in text.splitlines():
         m = re.search(r"(\d+(?:\.\d+)?)% used", line)
@@ -583,6 +584,8 @@ def parse_usage(text: str) -> dict[str, tuple[float, str | None]]:
             got["five_hour"] = (float(m.group(1)) / 100, _reset_cn(line))
         elif line.strip().startswith("Current week (all models)"):
             got["seven_day"] = (float(m.group(1)) / 100, _reset_cn(line))
+        elif line.strip().startswith("Current week (Fable)"):
+            got["seven_day_fable"] = (float(m.group(1)) / 100, _reset_cn(line))
     return got
 
 

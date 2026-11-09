@@ -481,3 +481,9 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .live .plist{overflow-x:hidden;overscroll-behavior:contain} .live .plist .pi{min-width:0} .live .plist .pt,.live .plist code.pd{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
 .pjump{display:none;position:sticky;bottom:2px;align-self:center;flex:none;border:0;border-radius:var(--rf,999px);padding:6px 14px;font-size:var(--t2);background:var(--acc);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer}
 .plist[data-reading="1"] .pjump{display:block}
+
+.fable-billing{font-size:13px;line-height:1.6;color:var(--mute);overflow-wrap:anywhere}
+.fable-billing summary{cursor:pointer;color:var(--text)}
+.fable-billing p{margin:8px 0}
+.usage{max-height:calc(100dvh - 100px);overflow-y:auto}
+.mmenu .fable-billing{padding:8px 14px;max-width:340px}

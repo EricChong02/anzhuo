@@ -1,7 +1,13 @@
+// 2026-11-10 核对官方规则；活动按官方 PT 截止时间自动失效。
+function fableBilling() {
+  const promo = Date.now() < Date.parse('2026-11-17T07:59:59Z');
+  return `<details class="uh fable-billing"><summary>Fable 计费与限额 · 可能额外付费</summary><p>Fable 与总周额度共用额度：Max / Ultra 等符合条件的套餐最多可把总周额度的 50% 用于 Fable，并非额外赠送。Fable 一栏保留官方返回的已用百分比，不再乘除 50%；两栏不可相加，未返回读数时不推算。<br>Pro / Team 标准席位通常使用额外付费额度；${promo ? '发布活动期间，符合条件的账号至 11 月 17 日 15:59（台北时间）可在套餐内使用，最多占总周额度的 50%；之后恢复额外付费。' : '是否包含在套餐内以官方账号用量页为准。'}达到上限后可换其他模型，继续用 Fable 可能产生费用。<br>Fable 5.2 API 标价（美元 / 百万 token）：输入 $8、输出 $40、缓存读 $0.20，缓存写 5 分钟 $10 / 1 小时 $16；快速模式价格翻倍。标价折算用于估算，不是订阅实际账单。<br><a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">查看官方额度、额外付费与可用重置次数</a> · <a href="https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan" target="_blank" rel="noopener">计费规则</a> · <a href="https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers" target="_blank" rel="noopener">发布活动</a></p></details>`;
+}
+const modelLimits = (ls, model) => ls.filter(l => l.name !== '本周 Fable' || model === 'fable' || /^claude-fable-/.test(model || ''));
 // 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
 function quotaResetLabel(l, now = Date.now()) {
   if (l.name === '5 小时') return ((l.reset || '').match(/\b\d{1,2}:\d{2}\b/) || [''])[0];
-  if (l.name !== '本周') return l.reset || '';
+  if (!['本周', '本周 Fable'].includes(l.name)) return l.reset || '';
   let d = l.reset_at == null ? null : new Date(Number(l.reset_at) * 1000);
   if (!d || !Number.isFinite(d.getTime())) {
     const m = (l.reset || '').match(/^(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})$/);
@@ -52,7 +58,7 @@ function renderQuotaDetails() {
     return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 || pace?.warn ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
       <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
       <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div>${pace ? `<div class="quota-pace ${pace.warn ? 'warn' : ''}">${esc(pace.text)}</div>` : ''}</div>`;
-  }).join('')}</section>`).join('');
+  }).join('')}${who === 'Claude' ? fableBilling() : ''}</section>`).join('');
 }
 function openQuotaDetails() {
   if ($('#quotaDetailBody')) return;
@@ -127,7 +133,7 @@ function bindRelayAlts(root, num, go = false) {
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
-  const ls = u.mkey === 'gpt' ? limitsGpt : limits;
+  const ls = u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   const running = u.relay?.kind === 'running', canRelay = !u.busy && !running && usageRelay.num === sel;
@@ -139,7 +145,7 @@ function renderUsage(u) {
       ${u.tokens ? `<div class="uh">约 ${wan(u.tokens)} token，每说一句都要重读一遍。一段做完就接力，没做完嫌长就压缩。</div>` : ''}
       <div class="ua">${relayBtns}<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩' : u.compacting === 'queued' ? '已排队压缩' : '压缩上下文'}</button></div>
-      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}</div>` : '');
+      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}${u.mkey === 'fable' ? fableBilling() : ''}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); usageOpen = false; startRelay(sel); };
   bindRelayAlts(el, sel);

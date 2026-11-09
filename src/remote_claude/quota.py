@@ -12,8 +12,8 @@ import time
 
 from .usage import reset_epoch
 
-WINDOWS = {"five_hour": 5 * 3600, "seven_day": 7 * 86400}
-NAMES = {"five_hour": "5 小时", "seven_day": "本周"}
+WINDOWS = {"five_hour": 5 * 3600, "seven_day": 7 * 86400, "seven_day_fable": 7 * 86400}
+NAMES = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_fable": "本周 Fable"}
 LEVELS = ("充足", "偏紧", "告急", "撞线")   # 从好到坏
 TIGHT = ("偏紧", "告急", "撞线")
 SWITCH = ("告急", "撞线")   # 到这两档新开的活才换备选；偏紧只提示（质量优先，不为省额度降质量）
@@ -55,7 +55,7 @@ def window(key: str, v, now: float | None = None) -> dict | None:
 
 
 def forecast(limits: dict, now: float | None = None) -> dict[str, dict]:
-    return {k: w for k, v in (limits or {}).items() if (w := window(k, v, now))}
+    return {k: w for k, v in (limits or {}).items() if k != "seven_day_fable" and (w := window(k, v, now))}
 
 
 def level(limits: dict, now: float | None = None) -> str:
