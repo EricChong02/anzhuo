@@ -32,7 +32,7 @@ class ThreadsMixin:
                 r = json.loads(p.read_text())
                 fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
                        "url": f"{self.web_prefix}/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
-                out.append({"id": r["id"], "title": r.get("title", ""), "started": r.get("started"), "ended": r.get("ended"), "links": self.links_of(r), "files": fs,
+                out.append({"id": r["id"], "title": r.get("title", ""), "request": r.get("request", ""), "started": r.get("started"), "ended": r.get("ended"), "links": self.links_of(r), "files": fs,
                             "checkpoint_before": r.get("checkpoint_before", ""), "checkpoint_after": r.get("checkpoint_after", ""), "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
                             "images": [f"{self.px}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})

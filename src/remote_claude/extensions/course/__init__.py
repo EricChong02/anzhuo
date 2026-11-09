@@ -155,8 +155,17 @@ class Course(Extension):
     def _title(self, cdir: str) -> str:
         return next((d["title"] for d in self.drafts() if d["dir"] == cdir), cdir)
 
+    @staticmethod
+    def _manual_at(recs: list[dict], s) -> float:
+        """这个对话最近一次“你亲手说话”的时间。试课页自动交来的反馈不算，
+        否则反馈自己会把同一个对话越喂越新，你正在用的那个反而抢不过。"""
+        return max((float(r.get("ended") or r.get("started") or 0) for r in recs
+                    if not str(r.get("request") or "").startswith(("（试课反馈）", "（试课提问）"))),
+                   default=float(s.created or 0))
+
     def course_session(self, cdir: str, title: str):
-        """试课反馈交给谁：在课程根里、发过这门课试课链接的对话最准；其次看对话名和标题重合多少字。挑最近动过的。"""
+        """试课反馈交给谁：先看对话名和标题重合多少字；同名的对话里，交给你最近亲手在用的那个
+        （试课页自动交来的反馈不算）。发过这门课试课链接的再优先一点。"""
         root = self.root_path.resolve()
         pairs = lambda t: {t[i:i + 2] for i in range(len(t) - 1)}  # 两字片段，比如“淘宝”“数据”“工程”
         want = pairs(re.sub(r"\W", "", title))
@@ -168,13 +177,14 @@ class Course(Extension):
                 inside = False
             if not inside:
                 continue
+            recs = self.api.records(s.num)
             linked = any(x.get("ext") == self.name and f"/{cdir}/" in x.get("url", "")
-                         for r in self.api.records(s.num) for x in r.get("links", []))
+                         for r in recs for x in r.get("links", []))
             said = re.sub(r"\W", "", " ".join([s.name or "", s.last_summary or ""]))
             overlap = len(want & pairs(said)) + (5 if cdir in said else 0)
             if not linked and overlap < 3:
                 continue
-            key = (linked, overlap >= 3, s.updated)
+            key = (overlap >= 3, self._manual_at(recs, s), overlap, linked, s.updated)
             if best_key is None or key > best_key:
                 best, best_key = s, key
         return best

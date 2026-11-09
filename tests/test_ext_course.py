@@ -195,6 +195,23 @@ def test_report_link_and_old_records(tmp_path):
     assert t.links[1][0] == "试课：数据从哪来"
 
 
+def test_feedback_follows_recent_manual_work(tmp_path):
+    """同名对话里，反馈跟着你最近亲手在用的那个走；被试课反馈喂得再新的那个不算“最近在用”。"""
+    b, root = _bridge(tmp_path)
+    lesson = _course(root, "_drafts/c1", "淘宝 2003")
+    now = time.time()
+    old = b.registry.add(Session(num=b.registry.reserve_num(), name="做课：淘宝 2003", cwd=str(root), updated=now))
+    new = b.registry.add(Session(num=b.registry.reserve_num(), name="做课：淘宝 2003", cwd=str(root), updated=now - 60))
+    link = Turn(started=now - 3600, ended=now - 3500, request="封面改大", final_text="好了",
+                changed_files=[str(lesson / "fragments" / "s1.html")])
+    b.web.save_turn(old.label, link, old.cwd, "做完了")          # 老对话发过这门课的试课链接
+    b.web.save_turn(old.label, Turn(started=now - 20, ended=now - 10, request="（试课反馈）标题太小",
+                                    final_text="改好了"), old.cwd, "做完了")   # 最近只收到反馈
+    b.web.save_turn(new.label, Turn(started=now - 400, ended=now - 300, request="参考图留 9 幅",
+                                    final_text="好了"), new.cwd, "做完了")     # 你 5 分钟前亲手改过
+    assert b.exts[0].course_session("c1", "淘宝 2003") is new
+
+
 def test_feedback(tmp_path):
     """试课页反馈：带上课、节、屏，交给正在做这门课的对话；没有就在课程根新开；记下反馈的那一屏。"""
     async def go():
