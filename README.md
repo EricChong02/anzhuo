@@ -150,10 +150,4 @@ Codex 新轮次在执行前后记录工作文件快照，可勾选“同时恢�
 
 ## Fable 5.2（2026-11-10）
 
-`fable` 现指向 `claude-fable-5-2`；SDK 至少为 0.2.180（内置 Claude Code 2.1.321）。模型菜单、额度详情与管理页提供计费说明，`/usage` 返回的 Fable 专属周额度单列显示，沿用官方百分比分母，不由总周额度推算；专属额度告急不把其他 Claude 型号一并判为告急。
-
-Max / Ultra 等符合条件的套餐，Fable 最多使用总周额度的 50%，与其他型号共用总额度；Pro / Team 标准席位通常走额外付费，发布活动至 2026-11-16 23:59 PT（台北时间 11-17 15:59）另有一周套餐内使用。活动提示到期自动失效。额度、额外付费开关及赠送重置次数以官方账号页为准，远窗不自动使用重置或开启额外付费。
-
-Fable 5.2 每百万 token API 标价：输入 $8、输出 $40、缓存读 $0.20、5 分钟缓存写 $10、1 小时缓存写 $16；快速模式翻倍。管理页按标价换算的周额度是估算，不是实际账单。
-
-依据：[套餐规则](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan)、[发布活动](https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers)、[缓存价格](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。
+`fable` 现指向 `claude-fable-5-2`；SDK 至少为 0.2.180。模型菜单的 Fable 行和额度详情、管理页里单列“本周 Fable”额度（官方 `/usage` 的百分比，不与总周额度相加）；专属额度告急不把其他 Claude 型号判为告急。API 标价（美元/百万 token）：输入 8、输出 40、缓存读 0.2，用于管理页估算。

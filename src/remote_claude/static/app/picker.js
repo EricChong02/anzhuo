@@ -17,8 +17,9 @@ function renderModel(st, onPick, isNew) {
   const opt = k => (modelOpts.find(m => m[0] === k) || [, ''])[1];
   const label = k => k === 'auto' ? '自动' : (k === st.model && st.label ? st.label : opt(k) || k || '默认').replace(/^Claude /, '');
   const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
+  const fableUse = ls => { const l = ls.find(x => x.name === '本周 Fable'); return l && l.pct != null ? `<span class="mh${l.pct >= 80 ? '' : ' cool'}">本周已用 ${l.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
-  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(k === 'auto' ? '自动 · 按分工表' : label(k))}${k === 'fable' ? hot(limits.filter(l => l.name === '本周 Fable')) : ''}</b></span>${ok}</button>${k === 'fable' ? fableBilling() : ''}`;
+  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(k === 'auto' ? '自动 · 按分工表' : label(k))}${k === 'fable' ? fableUse(limits) : ''}</b></span>${ok}</button>`;
   // 别家助手（走 ACP 的 Kimi 等）：每家一组、一行；开对话时选，对话里不换
   const alt = modelOpts.map(m => m[0]).filter(k => !['opus', 'sonnet', 'haiku', 'fable', 'gpt'].includes(k));
   const altRows = ks => ks.length ? `<div class="lb">其他助手</div>${ks.map(row).join('')}` : '';

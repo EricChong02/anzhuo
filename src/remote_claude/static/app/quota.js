@@ -1,25 +1,3 @@
-// 2026-11-10 核对官方规则；活动按官方 PT 截止时间自动失效。图形面板：额度结构、谁能用、价格条，不写说明文字。
-const FABLE_PRICES = [['输入', 8], ['输出', 40], ['缓存读', .2], ['缓存写 5 分钟', 10], ['缓存写 1 小时', 16]];
-const FB_EXT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8M10 6H6a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-function fableBilling(open = false, now = Date.now()) {
-  const end = Date.parse('2026-11-17T07:59:59Z'), left = end - now, promo = left > 0;
-  const days = Math.max(1, Math.ceil(left / 86400000)), spent = Math.min(100, Math.max(0, left / (7 * 864e5) * 100));
-  const promoRow = promo ? `<div class="fb-who"><i class="fb-dot ok"></i><b>发布活动</b><span class="fb-tag ok">Pro / Team 套餐内 · 剩 ${days} 天</span></div>
-      <div class="fb-time" title="活动至 11 月 17 日 15:59（台北时间）"><i style="width:${spent.toFixed(0)}%"></i></div>` : '';
-  const prices = FABLE_PRICES.map(([n, v]) => `<div class="fb-p"><span>${n}</span><i><u style="width:${Math.max(1.5, v / 40 * 100)}%"></u></i><b>$${v}</b></div>`).join('');
-  return `<details class="fable-billing" ${open ? 'open' : ''}><summary><span class="fb-name">Fable 5.2</span><span class="fb-tag cap">套餐内 ≤ 50%</span><span class="fb-tag pay">超出 额外付费</span><span class="fb-sum">$8 入 · $40 出</span></summary>
-    <div class="fb-body">
-    <div class="fb-h">额度占比</div>
-    <div class="fb-cap"><span>总周额度</span><i class="all"></i><b>100%</b></div>
-    <div class="fb-cap"><span>Fable</span><i class="part"><u></u></i><b>≤ 50%</b></div>
-    <div class="fb-h">谁能用</div>
-    <div class="fb-who"><i class="fb-dot ok"></i><b>Max / Ultra</b><span class="fb-tag ok">套餐内</span></div>
-    <div class="fb-who"><i class="fb-dot pay"></i><b>Pro / Team</b><span class="fb-tag pay">额外付费</span></div>${promoRow}
-    <div class="fb-h">价格<small>美元 / 百万 token</small><em class="fb-fast">快速模式 ×2</em></div>
-    ${prices}
-    <div class="fb-foot"><a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">官方额度与重置${FB_EXT}</a><a href="https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan" target="_blank" rel="noopener">规则${FB_EXT}</a>${promo ? `<a href="https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers" target="_blank" rel="noopener">活动${FB_EXT}</a>` : ''}</div>
-    </div></details>`;
-}
 const modelLimits = (ls, model) => ls.filter(l => l.name !== '本周 Fable' || model === 'fable' || /^claude-fable-/.test(model || ''));
 // 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
 function quotaResetLabel(l, now = Date.now()) {
@@ -75,7 +53,7 @@ function renderQuotaDetails() {
     return `<div class="quota-detail-row ${l.pct > 90 ? 'critical' : l.pct >= 80 || pace?.warn ? 'hot' : ''}"><div class="quota-detail-top"><span>${esc(l.name)}</span><b class="${l.pct > 90 ? 'critical' : l.pct >= 80 ? 'hot' : ''}">已用 ${l.pct == null ? '—' : l.pct + '%'}</b></div>
       <div class="qb"><i style="width:${Math.max(0, Math.min(100, l.pct || 0))}%"></i></div>
       <div class="quota-reset"><span>${esc(when.relative)}</span>${when.absolute ? `<span>${esc(when.absolute)}</span>` : ''}</div>${pace ? `<div class="quota-pace ${pace.warn ? 'warn' : ''}">${esc(pace.text)}</div>` : ''}</div>`;
-  }).join('')}${who === 'Claude' ? fableBilling(true) : ''}</section>`).join('');
+  }).join('')}</section>`).join('');
 }
 function openQuotaDetails() {
   if ($('#quotaDetailBody')) return;
@@ -162,7 +140,7 @@ function renderUsage(u) {
       ${u.tokens ? `<div class="uh">约 ${wan(u.tokens)} token，每说一句都要重读一遍。一段做完就接力，没做完嫌长就压缩。</div>` : ''}
       <div class="ua">${relayBtns}<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩' : u.compacting === 'queued' ? '已排队压缩' : '压缩上下文'}</button></div>
-      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}${u.mkey === 'fable' ? fableBilling() : ''}</div>` : '');
+      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); usageOpen = false; startRelay(sel); };
   bindRelayAlts(el, sel);

@@ -89,7 +89,7 @@ function drawUsage(col, d) {
     return `<span><i class="sw" style="background:${ownerColor(d, o)}"></i>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></span>`; }).join('')}</div>` : '';
   const facts = [wk(u, u.total_cost) ? `估算周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
   const convs = u.conversations, shown = admAllConvs ? convs : convs.slice(0, 8);
-  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>${fableBilling(true)}
+  col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>
     <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
     ${d.period === 'week' && !d.week_available ? '<div class="ac-empty">本周数据暂不可用</div>' : ''}
     <div class="plate"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${facts.join(' · ')}</span></div>${legend}
