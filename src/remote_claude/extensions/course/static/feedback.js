@@ -30,6 +30,8 @@
 .xe-st{font-weight:500;color:#4a4a4f;max-width:46vw} .xe-st span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xe-st i{width:7px;height:7px;border-radius:50%;background:#2c4a74;flex:none;animation:xe-p 1.6s ease-in-out infinite} .xe-st.wait i{background:#b07a06;animation:none}
 .xe-st.done{background:#2c4a74;color:#fff;border-color:transparent;font-weight:600} .xe-st.done i{display:none}
+@media (max-width:600px),(max-height:500px){.xe-bar{left:calc(62px + env(safe-area-inset-left));bottom:calc(10px + env(safe-area-inset-bottom))} /* 让开左下角 44px 的返回钮 */
+  .xe-fb,.xe-st{height:44px} .xe-st{max-width:calc(100vw - 300px)}}
 @keyframes xe-p{50%{opacity:.35}} .xe-st[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.xe-st i{animation:none}}
 .xe-sh{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;
