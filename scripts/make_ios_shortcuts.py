@@ -61,6 +61,11 @@ def build(base, token, mode):
     def variable(name):
         return {'Type': 'Variable', 'VariableName': name}
 
+    def typed(value, item_class):
+        # 条件判断须明确输入类型，否则原生编辑器可能留下未填写的比较参数。
+        return {**value, 'Aggrandizements': [
+            {'Type': 'WFCoercionVariableAggrandizement', 'CoercionItemClass': item_class}]}
+
     def setvar(name, value):
         add('setvariable', WFVariableName=name, WFInput=attachment(value))
 
@@ -111,8 +116,8 @@ def build(base, token, mode):
     repeat = group()
     add('repeat.count', WFRepeatCount=20, WFControlFlowMode=0, GroupingIdentifier=repeat)
     condition = group()
-    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(variable('目标'))}, WFCondition=4,
-        WFConditionalActionString='新开对话', WFControlFlowMode=0, GroupingIdentifier=condition)
+    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(typed(variable('目标'), 'WFStringContentItem'))}, WFCondition=4,
+        WFConditionalActionString=plain_text('新开对话'), WFControlFlowMode=0, GroupingIdentifier=condition)
     setvar('模型说明', variable('模型'))
     add('conditional', WFControlFlowMode=1, GroupingIdentifier=condition)
     literal('模型说明', '沿用原对话模型')
@@ -137,7 +142,7 @@ def build(base, token, mode):
     message = getkey(result, 'message')
     ok = getkey(result, 'ok')
     condition = group()
-    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(ok)}, WFCondition=4,
+    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(typed(ok, 'WFNumberContentItem'))}, WFCondition=4,
         WFNumberValue=1, WFControlFlowMode=0, GroupingIdentifier=condition)
     url = getkey(result, 'url')
     receipt = group()
@@ -158,8 +163,8 @@ def build(base, token, mode):
     setvar('要求', edited)
     branch(menu, '更换模型')
     condition = group()
-    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(variable('目标'))}, WFCondition=4,
-        WFConditionalActionString='新开对话', WFControlFlowMode=0, GroupingIdentifier=condition)
+    add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(typed(variable('目标'), 'WFStringContentItem'))}, WFCondition=4,
+        WFConditionalActionString=plain_text('新开对话'), WFControlFlowMode=0, GroupingIdentifier=condition)
     model = choose(['自动选择', 'Claude Opus', 'Claude Sonnet', 'Claude Haiku', 'GPT'], '新对话使用哪个模型？')
     setvar('模型', model)
     add('conditional', WFControlFlowMode=1, GroupingIdentifier=condition)

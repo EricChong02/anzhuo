@@ -17,9 +17,20 @@ if (window.visualViewport) {
 }
 
 Object.assign(XE.lib, {$, esc, ICON, api, sheet, toast, openSession, openNew, ago, agoDays, WHERE_ICON, FOLDER_SAY});
+// 从快捷指令唤醒主屏幕 App 时，页面可能没有重载；新建指令也要在恢复前台时识别。
+let appReady = false;
+function openShortcutNew() {
+  if (!appReady || location.hash !== '#new' || document.querySelector('#main .newv')) return false;
+  openNew();
+  return true;
+}
+addEventListener('hashchange', openShortcutNew);
+addEventListener('pageshow', openShortcutNew);
+
 // 等扩展的脚本（排在这个脚本后面）都跑完再开始，它们才订阅得上第一次拿列表
 const boot = async () => {
   await loadSessions();
+  appReady = true;
   const m = location.hash.match(/^#s(\d+)/);
   if (await openFromNotice()) {} else if (m) { history.replaceState(null, '', location.pathname); openSession(+m[1]); } else if (location.hash === '#new') { history.replaceState(null, '', location.pathname); openNew(); }
   else if (location.hash === '#admin') { history.replaceState(null, '', location.pathname); openAdmin(); }
@@ -28,7 +39,7 @@ const boot = async () => {
   setInterval(() => { if (!document.hidden && (!esOk || Date.now() - lastPoll > 20000)) { lastPoll = Date.now(); loadSessions(); } }, 4000);
   setInterval(() => { if (!document.hidden && !esOk) loadThread(); }, 3000);
   setInterval(() => { if (!document.hidden && $('#adm')) loadAdmin(); }, 30000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) lastAct = Date.now(); presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); loadThread(); openFromNotice(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lastAct = Date.now(); presence(!document.hidden); if (!document.hidden) { connectEvents(); loadSessions(); if (!openShortcutNew()) { loadThread(); openFromNotice(); } } });
   // 键盘：⌘K 搜对话，⌘⇧O / ⌘N 新对话，⌘↑ ⌘↓ 上一个 / 下一个对话，Esc 回列表（手机上没键盘就用不到）
   addEventListener('keydown', e => {
     if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && !e.defaultPrevented && e.key.length === 1 && !coarsePhone()) {   // 焦点不在输入框时直接打字：落进输入框
