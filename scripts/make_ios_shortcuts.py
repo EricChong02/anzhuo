@@ -1,10 +1,11 @@
-"""生成私人 iOS 分享、语音和截图快捷指令；令牌只写入本地成品，不进源码。"""
+"""生成 iOS 远窗入口、私人分享和截图快捷指令；令牌只写入分享成品，不进源码。"""
 from __future__ import annotations
 import argparse
 import json
 import plistlib
 import uuid
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 
 def attachment(value):
@@ -20,7 +21,34 @@ def plain_text(value):
     return {"Value": {"string": value, "attachmentsByRange": {}}, "WFSerializationType": "WFTextTokenString"}
 
 
+def build_launcher(base):
+    """操作按钮只打开普通网页输入框，输入法语音由用户在键盘上启动。"""
+    identifier = str(uuid.uuid4()).upper()
+    target = urlsplit(base).path.rstrip('/') + '/_x/#new'
+    url = base.rstrip('/') + '/_x/login?next=' + quote(target, safe='')
+    return {
+        'WFWorkflowName': '交代远窗',
+        'WFWorkflowClientVersion': '3036.0.4.2',
+        'WFWorkflowMinimumClientVersion': 900,
+        'WFWorkflowMinimumClientVersionString': '900',
+        'WFWorkflowIcon': {'WFWorkflowIconStartColor': 4282601983, 'WFWorkflowIconGlyphNumber': 59511},
+        'WFWorkflowTypes': [],
+        'WFWorkflowInputContentItemClasses': [],
+        'WFWorkflowOutputContentItemClasses': [],
+        'WFWorkflowImportQuestions': [],
+        'WFWorkflowActions': [
+            {'WFWorkflowActionIdentifier': 'is.workflow.actions.url',
+             'WFWorkflowActionParameters': {'UUID': identifier, 'WFURLActionURL': url}},
+            {'WFWorkflowActionIdentifier': 'is.workflow.actions.openurl',
+             'WFWorkflowActionParameters': {'WFInput': attachment({'Type': 'ActionOutput',
+                 'OutputUUID': identifier, 'OutputName': 'URL'})}},
+        ],
+    }
+
+
 def build(base, token, mode):
+    if mode == "launch":
+        return build_launcher(base)
     actions = []
 
     def add(kind, **params):
@@ -157,7 +185,7 @@ def build(base, token, mode):
                 'WFWorkflowOutputContentItemClasses': [], 'WFWorkflowImportQuestions': [], 'WFWorkflowActions': actions}
     if mode == 'share':
         shortcut['WFWorkflowNoInputBehavior'] = {'Name': 'StopWithError', 'Parameters': {
-            'ErrorMessage': '请先选中文件或照片，再通过分享菜单运行“分享给远窗”。直接口述请用“语音交给远窗”。'}}
+            'ErrorMessage': '请先选中文件或照片，再通过分享菜单运行“分享给远窗”。直接交代任务请用“交代远窗”。'}}
     return shortcut
 
 
@@ -171,7 +199,7 @@ def main():
         parser.error('私人凭据只能通过 HTTPS 发送')
     token = json.loads(args.token_file.read_text())['token']
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    for mode in ['share', 'voice', 'screenshot']:
+    for mode in ['launch', 'share', 'screenshot']:
         data = build(args.base, token, mode)
         path = args.output_dir / (data['WFWorkflowName'] + '.unsigned.shortcut')
         path.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
