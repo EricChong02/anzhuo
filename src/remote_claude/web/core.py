@@ -399,6 +399,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{P}/api/search", self._api_search)
         app.router.add_post(f"{P}/api/send", self._api_send)
         app.router.add_post(f"{P}/q/{{token}}", self._api_quick)
+        app.router.add_get(f"{P}/q/{{token}}/options", self._api_quick_options)
+        app.router.add_get(f"{P}/share/{{num:\\d+}}", self._quick_open)
         app.router.add_get(f"{P}/api/schedules", self._api_schedules)
         app.router.add_post(f"{P}/api/schedules", self._api_schedules)
         app.router.add_post(f"{P}/api/settings/{{num}}", self._api_settings)
