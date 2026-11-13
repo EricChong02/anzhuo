@@ -27,6 +27,7 @@ EXCLUDE = [
     "scripts/cert_agent.py", "scripts/check_lan_gateway.py", "scripts/install_lan_gateway.py",
     "scripts/lan_gateway.py", "scripts/mac_local_hosts.py", "scripts/make_profile.py",
     "scripts/export_opensource.py",
+    "scripts/mail163.py", "docs/邮箱.md",     # 个人邮箱工具，带私人地址，不进开源版
     "remote-claude.cmd",
     "README.md", "AGENTS.md",                 # 开源版有自己的，在 KEEP 里
     "uv.lock",                                # 导出后在开源版里 uv lock 重新生成
