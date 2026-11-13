@@ -68,7 +68,7 @@ function aqRow(name, pct, reset) {
     <div class="qb"><i style="width:${Math.max(pct ? 2 : 0, Math.min(100, pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)}</div>` : ''}</div>`;
 }
 function quotaPlate(title, ls) {
-  const order = ['5 小时', '本周'], rows = order.map(n => ls.find(l => l.name === n)).filter(Boolean);
+  const order = ['5 小时', '本周', '本周 Fable'], rows = order.map(n => ls.find(l => l.name === n)).filter(Boolean);
   return `<div class="plate aq"><h3>${esc(title)}</h3>${rows.length ? rows.map(l => aqRow(l.name, l.pct, [quotaReset(l).relative, quotaPace(l)?.text].filter(Boolean).join(' · '))).join('')
     : `<div class="aq-row">${aqRow('本周', null, '')}</div>`}</div>`;
 }
@@ -87,7 +87,7 @@ function drawUsage(col, d) {
   const gptToks = u.days.reduce((s, x) => s + x.gpt_tokens, 0);
   const legend = many ? `<div class="au-legend">${os.map(o => { const r = u.owners.find(x => x.owner === o) || {cost: 0, tokens: 0};
     return `<span><i class="sw" style="background:${ownerColor(d, o)}"></i>${esc(ownerName(o))}<b class="num">${wk(u, r.cost) || tokn(r.tokens)}</b></span>`; }).join('')}</div>` : '';
-  const facts = [wk(u, u.total_cost) ? `周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
+  const facts = [wk(u, u.total_cost) ? `估算周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
   const convs = u.conversations, shown = admAllConvs ? convs : convs.slice(0, 8);
   col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>
     <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>

@@ -1,6 +1,12 @@
-// 主屏幕打开的远窗（没有浏览器的返回键）点文件：不跳走，在页面里盖一层看；右上角“完成”回来，左上角“分享 / 存储”交给 WPS、文件 App 等
+// 主屏幕打开的远窗（没有浏览器的返回键）点文件：不跳走，在页面里盖一层看；右上角“完成”回来，左上角“分享”交给 WPS、文件 App 等
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 document.addEventListener('click', e => {
+  const share = e.target.closest && e.target.closest('button.file-share');
+  if (share) {
+    e.preventDefault();
+    viewFile(share.dataset.fileUrl, share.dataset.fileName, true);
+    return;
+  }
   const a = e.target.closest && e.target.closest('a.file');
   if (!a || !standalone) return;
   // 原始 PDF 在独立浏览页打开，交给浏览器的完整 PDF 阅读器。
@@ -10,6 +16,7 @@ document.addEventListener('click', e => {
 // 取文件时报进度：大文件（几十 MB 的视频）经隧道要下好一阵，不能只显示一句“正在取文件…”
 async function fetchFile(url, onp, signal) {
   const r = await fetch(url, {signal}); if (!r.ok) throw new Error(r.status);
+  if (r.redirected && new URL(r.url, location.href).pathname.endsWith('/_x/login')) throw new Error('login');
   const total = +r.headers.get('content-length') || 0, type = r.headers.get('content-type') || '';
   if (!r.body || !r.body.getReader) return r.blob();
   const rd = r.body.getReader(), parts = []; let got = 0;
@@ -19,9 +26,24 @@ async function fetchFile(url, onp, signal) {
 const progressHTML = (got, total) => total
   ? `正在取文件… ${size(got)} / ${size(total)}（${Math.floor(got * 100 / total)}%）<div class="bar"><i style="width:${(got * 100 / total).toFixed(1)}%"></i></div>`
   : `正在取文件… 已取 ${size(got)}`;
-async function viewFile(url, name) {
+function canShareOriginal(file) {
+  try { return !!navigator.share && (!navigator.canShare || navigator.canShare({files: [file]})); }
+  catch (_) { return false; }
+}
+function bindOriginalShare(button, file) {
+  button.hidden = false;
+  button.textContent = '分享';
+  button.onclick = async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    try { await navigator.share({files: [file]}); }
+    catch (err) { if (err.name !== 'AbortError') toast('分享面板没打开，请再点一次“分享”。'); }
+    finally { button.disabled = false; }
+  };
+}
+async function viewFile(url, name, shareOnly = false) {
   const el = document.createElement('div'); el.className = 'lightbox fv';
-  el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享 / 存储</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
+  el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
   let u = '';
   const ac = new AbortController();
@@ -31,45 +53,55 @@ async function viewFile(url, name) {
   const ext = (name.split('.').pop() || '').toLowerCase();
   const pull = async () => {
     const blob = await fetchFile(url, (g, t) => { const tp = tipOf(); if (tp) tp.innerHTML = progressHTML(g, t); }, ac.signal);
-    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'}[ext] || blob.type);
+    const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', txt: 'text/plain', csv: 'text/csv', zip: 'application/zip', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'}[ext] || blob.type);
     return new File([blob], name, {type});
   };
-  // 视频：不先整个下完，直接边下边播（服务端支持 Range）；要存到手机再点“存到手机”下载，下载时有进度
-  if (/^(mp4|m4v|mov|webm)$/.test(ext)) {
-    tipOf().outerHTML = `<video controls playsinline preload="metadata" src="${esc(url)}#t=0.1"></video><div class="tip">点 ▶ 边下边播，不用等整个下完。<br>要存到手机，点左上角“存到手机”。</div>`;
+  // 视频：不先整个下完，直接边下边播（服务端支持 Range）；要分享或保存再点“分享”下载，下载时有进度
+  if (!shareOnly && /^(mp4|m4v|mov|webm)$/.test(ext)) {
+    tipOf().outerHTML = `<video controls playsinline preload="metadata" src="${esc(url)}#t=0.1"></video><div class="tip">点 ▶ 边下边播，不用等整个下完。<br>要发到微信或保存，点左上角“分享”。</div>`;
     const v = el.querySelector('video');
     v.onplay = () => speechPlayer.pause();
-    v.onerror = () => { const tp = tipOf(); if (tp) tp.textContent = '这个视频在这里放不了。点左上角“存到手机”，下完用相册或文件 App 打开。'; };
-    sh.textContent = '存到手机'; sh.hidden = false;
+    v.onerror = () => { const tp = tipOf(); if (tp) tp.textContent = '这个视频在这里放不了。点左上角“分享”，准备好后选微信、相册或文件 App。'; };
+    sh.textContent = '分享'; sh.hidden = false;
     sh.onclick = async () => {
       sh.onclick = null; sh.textContent = '下载中…';
       try {
         const file = await pull(); if (!el.isConnected) return;
         // iPhone 的分享面板要“刚点过”才肯弹出，下完要再点一下
-        sh.textContent = '点这里存';
-        tipOf().textContent = '下完了。点左上角“点这里存”，选“存储视频”或“存到文件”。';
-        sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
-        if (!(navigator.canShare && navigator.canShare({files: [file]}))) { sh.hidden = true; tipOf().textContent = '下完了，但这台设备不支持从这里存，回电脑上取吧。'; }
-      } catch (err) { if (!el.isConnected) return; sh.textContent = '存到手机'; sh.onclick = null; tipOf().textContent = '没下完，点“完成”回去再试一次。'; }
+        sh.textContent = '分享';
+        tipOf().textContent = '文件已准备好。点左上角“分享”，选择微信或保存到手机。';
+        bindOriginalShare(sh, file);
+        if (!canShareOriginal(file)) { sh.hidden = true; tipOf().textContent = '下完了，但这台设备不支持从这里存，回电脑上取吧。'; }
+      } catch (err) { if (!el.isConnected) return; sh.textContent = '分享'; sh.onclick = null; tipOf().textContent = '没下完，点“完成”回去再试一次。'; }
     };
     return;
   }
   try {
     const file = await pull(); if (!el.isConnected) return;
+    if (shareOnly) {
+      if (!canShareOriginal(file)) {
+        tipOf().textContent = '这个浏览器暂不支持分享此文件。请点“完成”返回，使用文件旁的“下载”。';
+        return;
+      }
+      bindOriginalShare(sh, file);
+      tipOf().textContent = '文件已准备好。点左上角“分享”，在系统面板中选择微信或其他应用。';
+      // 快速取到文件时可沿用这次点击；大文件准备完后由用户再点，保留 iOS 所需的手势。
+      if (navigator.userActivation && navigator.userActivation.isActive) sh.onclick();
+      return;
+    }
     const type = file.type;
     u = URL.createObjectURL(file);
     const tip = tipOf();
     if (/^image\//.test(type)) tip.outerHTML = `<img src="${u}">`;
     else if (/^audio\//.test(type)) tip.outerHTML = `<audio controls preload="metadata" src="${u}" style="width:calc(100% - 40px);margin:40px 20px"></audio>`;
     else if (type === 'application/pdf' || /^text\//.test(type)) tip.outerHTML = `<iframe src="${u}"></iframe>`;
-    else tip.textContent = '这种文件在这里看不了预览。点左上角“分享 / 存储”，用 WPS 打开或存到“文件”里。';
+    else tip.textContent = '这种文件在这里看不了预览。点左上角“分享”，发送到微信或用其他应用打开。';
     const previewAudio = el.querySelector('audio');
     if (previewAudio) previewAudio.onplay = () => speechPlayer.pause();
-    if (navigator.canShare && navigator.canShare({files: [file]})) {
-      sh.hidden = false;
-      sh.onclick = () => navigator.share({files: [file]}).catch(() => {});
+    if (canShareOriginal(file)) {
+      bindOriginalShare(sh, file);
     } else if (!/^image\/|^audio\/|pdf|^text\//.test(type)) tip.textContent = '这种文件在这里看不了预览，回电脑上打开吧。';
-  } catch (err) { const t = tipOf(); if (t) t.textContent = '文件没取到，点“完成”回去再试一次。'; }
+  } catch (err) { const t = tipOf(); if (t) t.textContent = err.message === 'login' ? '登录已过期，请返回远窗重新登录后再分享。' : '文件没取到，点“完成”回去再试一次。'; }
 }
 
 // 看大图：在页面里盖一层（主屏幕 app 里没有浏览器的返回键，不能跳走）。两指捏合放大、双击放大/还原、放大后单指拖动；

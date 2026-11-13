@@ -468,7 +468,7 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
     assert opts["gpt"] == "GPT-6.1 Sol"
-    assert opts["fable"] == "Claude Fable 5.1"
+    assert opts["fable"] == "Claude Fable 5.2"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"
@@ -1083,3 +1083,63 @@ def test_codex_legacy_truncated_relay_recovers_said(tmp_path):
     assert you[0]["text"] == said and you[0]["imgs"] == ["1-100/0"]
     assert _said_has(you[0]["text"], said)
     assert you[1]["text"] == "再看一下状态灯"
+
+
+def test_shortcut_upload_without_login(tmp_path, monkeypatch):
+    """iOS 快捷指令：不带登录 Cookie，凭令牌上传，文件进收件箱并开一个对话；多文件同一批合成一条。"""
+    from types import SimpleNamespace as NS
+    from aiohttp import FormData
+    from anzhuo.web import quick
+
+    created = []
+
+    class Bridge:
+        user_id = "me"
+        registry = NS(next_num=3, get=lambda n: None)
+
+        def record(self, *a, **k):
+            pass
+
+        async def new_session(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
+            created.append({"tokens": tokens, "text": text, "images": list(inc.local_images), "note": note})
+
+    async def go():
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = Bridge()
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            token = w._shortcut_token()
+            assert token and w._shortcut_token() == token          # 生成一次，之后读到同一个
+            assert (await c.post("/_x/q/bad-token", data=b"x")).status == 404
+            assert (await c.post(f"/_x/q/{token}", data=b"")).status == 400
+            form = FormData()
+            form.add_field("text", "把这张图做成封面")
+            form.add_field("file", b"\x89PNG", filename="封面 1.png", content_type="image/png")
+            d = await (await c.post(f"/_x/q/{token}", data=form)).json()
+            assert d["ok"] and len(created) == 1
+            one = created[0]
+            assert one["text"].startswith("把这张图做成封面") and "封面 1.png" in one["text"]
+            assert one["images"] and one["images"][0].endswith("封面 1.png")
+            assert Path(one["images"][0]).exists()
+
+            # 一次分享多张：同一个 batch，等齐了只开一个对话
+            monkeypatch.setattr(quick, "QUIET", 0.05)
+            created.clear()
+            for name in ("a.jpg", "b.jpg", "c.jpg"):
+                f = FormData()
+                f.add_field("text", "这三张拼一起")
+                f.add_field("file", b"x", filename=name, content_type="image/jpeg")
+                assert (await (await c.post(f"/_x/q/{token}?batch=xyz", data=f)).json())["queued"]
+            await asyncio.sleep(0.3)
+            assert len(created) == 1 and created[0]["text"].count("附件已存到") == 3
+            assert "a.jpg" in created[0]["text"] and "c.jpg" in created[0]["text"]
+
+            # 直接 POST 文件体（不带表单）：文件名从地址参数来
+            created.clear()
+            r = await c.post(f"/_x/q/{token}?name=%E7%AC%94%E8%AE%B0.txt", data=b"hello")
+            assert (await r.json())["ok"] and "笔记.txt" in created[0]["text"]
+        finally:
+            await c.close()
+
+    asyncio.run(go())

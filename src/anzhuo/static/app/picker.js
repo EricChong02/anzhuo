@@ -6,7 +6,7 @@ function composerHTML(ph) {
 }
 
 // 选模型和思考深度：和 Claude 一样放在输入框里、发送键左边。新对话多一个“自动”：按管理 · 设置里的分工表挑（定方案、开发、简单任务各交给谁）
-let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['fable', 'Claude Fable'], ['gpt', 'GPT']];
+let modelOpts = [['opus', 'Claude Opus'], ['sonnet', 'Claude Sonnet'], ['haiku', 'Claude Haiku'], ['fable', 'Claude Fable 5.2'], ['gpt', 'GPT']];
 const EFFORT_OPTS = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '很高'], ['max', '最高']];
 let mpOpen = false, mpRedraw = null;
 // 模型按钮只写型号和深度（“Opus 5.5 · 高”）；菜单按 Claude / GPT 分组，哪家额度快用完了就在组名旁标出来。
@@ -17,18 +17,19 @@ function renderModel(st, onPick, isNew) {
   const opt = k => (modelOpts.find(m => m[0] === k) || [, ''])[1];
   const label = k => k === 'auto' ? '自动' : (k === st.model && st.label ? st.label : opt(k) || k || '默认').replace(/^Claude /, '');
   const hot = ls => { const h = ls.filter(l => l.pct >= 80).sort((a, b) => b.pct - a.pct)[0]; return h ? `<span class="mh">${esc(h.name)}已用 ${h.pct}%</span>` : ''; };
+  const fableUse = ls => { const l = ls.find(x => x.name === '本周 Fable'); return l && l.pct != null ? `<span class="mh${l.pct >= 80 ? '' : ' cool'}">本周已用 ${l.pct}%</span>` : ''; };
   const ok = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10" stroke="currentColor" fill="none" stroke-width="2.2"/></svg>';
-  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(k === 'auto' ? '自动 · 按分工表' : label(k))}</b></span>${ok}</button>`;
+  const row = k => `<button class="mo ${k === st.model ? 'on' : ''}" data-m="${esc(k)}"><span class="tx"><b>${esc(k === 'auto' ? '自动 · 按分工表' : label(k))}${k === 'fable' ? fableUse(limits) : ''}</b></span>${ok}</button>`;
   // 别家助手（走 ACP 的 Kimi 等）：每家一组、一行；开对话时选，对话里不换
   const alt = modelOpts.map(m => m[0]).filter(k => !['opus', 'sonnet', 'haiku', 'fable', 'gpt'].includes(k));
   const altRows = ks => ks.length ? `<div class="lb">其他助手</div>${ks.map(row).join('')}` : '';
   const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt' && !alt.includes(k));
   if (!isNew && st.model && st.model !== 'gpt' && !alt.includes(st.model) && !claude.includes(st.model)) claude.push(st.model);
   const gptChat = !isNew && st.model === 'gpt', altChat = !isNew && alt.includes(st.model);
-  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` + altRows(alt)
+  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(modelLimits(limits, 'opus'))}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` + altRows(alt)
     : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
     : altChat ? altRows([st.model])
-    : `<div class="lb">Claude${hot(limits)}</div>${claude.map(row).join('')}`;
+    : `<div class="lb">Claude${hot(modelLimits(limits, 'opus'))}</div>${claude.map(row).join('')}`;
   const ename = (EFFORT_OPTS.find(e => e[0] === st.effort) || [, st.effort === '' ? '默认' : '中'])[1];
   // 新对话“自动”又没动深度：模型和深度都照分工表，按钮上只写“自动”
   const head = st.model === 'auto' && !st.effort ? '自动' : `${label(st.model)} · ${ename}`;

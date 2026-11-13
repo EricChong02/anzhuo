@@ -98,7 +98,7 @@ def test_parse_usage():
 Current week (all models): 20% used · resets Oct 31 at 4am (Asia/Taipei)
 Current week (Fable): 0% used · resets Oct 31 at 4am (Asia/Taipei)"""
     got = parse_usage(text)
-    assert got == {"five_hour": (0.15, "10月25日 17:10"), "seven_day": (0.2, "10月31日 04:00")}
+    assert got == {"five_hour": (0.15, "10月25日 17:10"), "seven_day": (0.2, "10月31日 04:00"), "seven_day_fable": (0, "10月31日 04:00")}
 
 
 def test_is_reply():
@@ -503,3 +503,26 @@ def test_waiting_cleared_when_cancelled(tmp_path):
         assert 1 not in r.waiting and not r.busy(1)
 
     asyncio.run(go())
+
+
+def test_fable_quota_is_separate_from_other_claude_models():
+    from anzhuo import quota
+    from anzhuo.sessions import parse_usage
+    limits = parse_usage('Current week (all models): 20% used\nCurrent week (Fable): 95% used')
+    assert limits['seven_day_fable'] == (.95, None)
+    assert quota.level(limits) == '充足'  # 其他型号仍可用
+    assert quota.window('seven_day_fable', limits['seven_day_fable'])['level'] == '告急'
+    lines, warns = report.status_line(report.Turn(started=0, model='claude-fable-5-2'), limits)
+    assert '本周 Fable' in '\n'.join(lines) and any('本周 Fable' in w for w in warns)
+    lines, warns = report.status_line(report.Turn(started=0, model='claude-opus-5-5'), limits)
+    assert 'Fable' not in '\n'.join(lines + warns)
+
+
+def test_fable_52_list_cost_cache_and_fast_mode():
+    import pytest
+    from anzhuo.localspend import cost
+    usage = dict(input_tokens=1_000_000, output_tokens=1_000_000, cache_read_input_tokens=1_000_000,
+                 cache_creation={'ephemeral_5m_input_tokens': 1_000_000, 'ephemeral_1h_input_tokens': 1_000_000})
+    assert cost('claude-fable-5-2', usage) == pytest.approx(74.2)
+    assert cost('claude-fable-5-2', dict(usage, speed='fast')) == pytest.approx(148.4)
+    assert cost('claude-fable-5-1', usage) == pytest.approx(92.75)

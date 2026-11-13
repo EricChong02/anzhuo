@@ -57,7 +57,7 @@ function renderThread(d) {
       ...(it.links || []).map(x => linkPill(x, it, d))].join('');
     const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
+    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><button class="file-download file-share" data-file-url="${esc(f.url)}" data-file-name="${esc(f.name)}" aria-label="分享 ${esc(f.name)}"${navigator.share ? '' : ' hidden'}>分享</button><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
     const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
@@ -118,6 +118,9 @@ function renderThread(d) {
     x.addEventListener('pointerdown', pause);
     x.addEventListener('pointerup', () => setTimeout(resume, 0));
     x.addEventListener('keyup', resume);
+    x.addEventListener('scroll', () => { const gap = x.scrollHeight - x.scrollTop - x.clientHeight; if (gap > 40) { x.dataset.reading = '1'; stick = false; } else if (gap < 4) delete x.dataset.reading; }, {passive: true});
+    const jb = x.querySelector('.pjump');
+    if (jb) jb.onclick = e => { e.stopPropagation(); delete x.dataset.reading; x.scrollTop = x.scrollHeight; };
     x.addEventListener('keydown', e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) pause(); });
   });
   document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {

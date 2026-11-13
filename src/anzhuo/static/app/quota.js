@@ -1,7 +1,8 @@
+const modelLimits = (ls, model) => ls.filter(l => l.name !== '本周 Fable' || model === 'fable' || /^claude-fable-/.test(model || ''));
 // 额度的一格：有重置时间就显示；用量过线（默认八成）时变琥珀色
 function quotaResetLabel(l, now = Date.now()) {
   if (l.name === '5 小时') return ((l.reset || '').match(/\b\d{1,2}:\d{2}\b/) || [''])[0];
-  if (l.name !== '本周') return l.reset || '';
+  if (!['本周', '本周 Fable'].includes(l.name)) return l.reset || '';
   let d = l.reset_at == null ? null : new Date(Number(l.reset_at) * 1000);
   if (!d || !Number.isFinite(d.getTime())) {
     const m = (l.reset || '').match(/^(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})$/);
@@ -127,7 +128,7 @@ function bindRelayAlts(root, num, go = false) {
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
-  const ls = u.mkey === 'gpt' ? limitsGpt : limits;
+  const ls = u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   const running = u.relay?.kind === 'running', canRelay = !u.busy && !running && usageRelay.num === sel;

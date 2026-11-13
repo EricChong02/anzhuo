@@ -31,11 +31,12 @@ from .listing import ListingMixin
 from .actions import ActionsMixin
 from .rewind import RewindMixin
 from .admin import AdminMixin
+from .quick import QuickMixin
 
 log = logging.getLogger(__name__)
 
 
-class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, ActionsMixin, RewindMixin, AdminMixin):
+class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, ActionsMixin, RewindMixin, AdminMixin, QuickMixin):
     def __init__(self, base: str, port: int, data_dir: Path,
                  user: str = "", pw_hash: str = "", watch_host: str = "", accounts: dict[str, dict] | None = None,
                  save_hash=None, web_prefix: str = ""):
@@ -89,6 +90,7 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         self._zh_failed: set[str] = set()
         self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
         self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
+        self._quick_pending: dict[str, dict] = {}  # 快捷指令一次分享多个文件时先攒着
 
     def watching(self, num: int) -> bool:
         """你正开着这个对话、页面在前台（网页每 15 秒报一次）：做完就不再弹通知、不发钉钉。"""
@@ -343,6 +345,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
     async def _guard(self, request: web.Request, handler):
         if request.path in self.public:
             return await handler(request)
+        if request.path.startswith(f"{self.px}/q/"):   # 快捷指令上传：令牌就是凭据，不走登录
+            return await handler(request)
         if not self._logged_in(request):
             return self._denied(request)
         if "acct" not in request:   # 测试里直接放行登录的：当作 admin
@@ -394,6 +398,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         app.router.add_get(f"{P}/audio/{{key}}.mp3", self._audio)
         app.router.add_get(f"{P}/api/search", self._api_search)
         app.router.add_post(f"{P}/api/send", self._api_send)
+        app.router.add_post(f"{P}/q/{{token}}", self._api_quick)
+        app.router.add_get(f"{P}/q/{{token}}/options", self._api_quick_options)
+        app.router.add_get(f"{P}/share/{{num:\\d+}}", self._quick_open)
         app.router.add_get(f"{P}/api/schedules", self._api_schedules)
         app.router.add_post(f"{P}/api/schedules", self._api_schedules)
         app.router.add_post(f"{P}/api/settings/{{num}}", self._api_settings)

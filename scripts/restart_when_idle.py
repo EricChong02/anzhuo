@@ -28,6 +28,8 @@ def busy(path: Path) -> bool:
         sessions = json.loads(path.read_text()).get("sessions", {})
     except (OSError, json.JSONDecodeError):
         return True
+    # 已经接力走的旧段可能残留“在做”，它不会再跑，别让它一直挡住重启
+    sessions = {k: s for k, s in sessions.items() if not s.get("relay_to")}
     return any(s.get("status") in ("running", "queued") for s in sessions.values())
 
 

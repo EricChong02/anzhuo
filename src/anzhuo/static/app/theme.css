@@ -135,7 +135,7 @@ svg{stroke-width:1.6}
 .blank .mk{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;overflow:hidden;box-shadow:0 8px 24px rgba(24,44,64,.14),inset 0 0 0 .5px rgba(255,255,255,.5)}
 .blank b{font-family:var(--fd);font-weight:300;font-size:28px;letter-spacing:.28em;margin:0 0 8px .28em}
 .newv h1{font-family:var(--fd);font-weight:300;font-size:var(--t6);letter-spacing:.06em;margin-bottom:24px}
-.opening{background:transparent}
+.opening{background:var(--sky) var(--bg);background-attachment:fixed}  /* 要盖住底下的新对话表单，不能透明，否则发出瞬间两层字叠在一起 */
 
 /* ── 正文 ── */
 .cl .md{line-height:1.85}

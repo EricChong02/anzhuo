@@ -156,6 +156,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .imgs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px} .imgs img{max-width:min(100%,360px);max-height:300px;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .file{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--panel);margin-top:8px;color:var(--ink);max-width:440px}
 .file-row{display:flex;align-items:center;gap:12px;max-width:520px}.file-row .file{flex:1;min-width:0}.file-download{flex:none;font-size:var(--t2);padding:12px 4px;margin-top:8px}
+.file-share{color:var(--acc);background:none;border:0;cursor:pointer;min-width:44px;min-height:44px}
 .file:hover{border-color:var(--acc)} .file .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .file .fs{color:var(--mute);font-size:var(--t2);flex:none}
 .file svg{color:var(--acc)}
 .chipf{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 10px;border-radius:var(--r1);background:var(--bg);border:1px solid var(--line);font-size:var(--t2);max-width:220px;position:relative}
@@ -476,3 +477,11 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .process-time{flex:none;font-size:var(--t2);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 .process-summary.time-only{justify-content:flex-end}
 
+
+/* 看过程：只许上下滑；往上翻时出“回到底部”，点了就继续跟着最新 */
+.live .plist{overflow-x:hidden;overscroll-behavior:contain} .live .plist .pi{min-width:0} .live .plist .pt,.live .plist code.pd{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
+.pjump{display:none;position:sticky;bottom:2px;align-self:center;flex:none;border:0;border-radius:var(--rf,999px);padding:6px 14px;font-size:var(--t2);background:var(--acc);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer}
+.plist[data-reading="1"] .pjump{display:block}
+
+.usage{max-height:calc(100dvh - 100px);overflow-y:auto}
+.mmenu .mo .mh{margin-left:8px;font-weight:400} .mmenu .mh.cool{color:var(--faint)}
