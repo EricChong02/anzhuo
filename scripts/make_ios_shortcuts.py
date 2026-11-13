@@ -5,7 +5,7 @@ import json
 import plistlib
 import uuid
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 
 def attachment(value):
@@ -21,11 +21,17 @@ def plain_text(value):
     return {"Value": {"string": value, "attachmentsByRange": {}}, "WFSerializationType": "WFTextTokenString"}
 
 
+def desktop_url(base, fragment=''):
+    """只唤起已安装的主屏幕远窗；HTTPS 留给后台请求，不作 Safari 降级。"""
+    parts = urlsplit(base)
+    path = parts.path.rstrip('/') + '/_x/'
+    return 'webapp://' + parts.netloc + path + ('#' + fragment if fragment else '')
+
+
 def build_launcher(base):
-    """操作按钮只打开普通网页输入框，输入法语音由用户在键盘上启动。"""
+    """操作按钮唤起主屏幕远窗，并请求打开新任务页。"""
     identifier = str(uuid.uuid4()).upper()
-    target = urlsplit(base).path.rstrip('/') + '/_x/#new'
-    url = base.rstrip('/') + '/_x/login?next=' + quote(target, safe='')
+    url = desktop_url(base, 'new')
     return {
         'WFWorkflowName': '交代远窗',
         'WFWorkflowClientVersion': '3036.0.4.2',
@@ -144,7 +150,8 @@ def build(base, token, mode):
     condition = group()
     add('conditional', WFInput={'Type': 'Variable', 'Variable': attachment(typed(ok, 'WFNumberContentItem'))}, WFCondition=4,
         WFNumberValue=1, WFControlFlowMode=0, GroupingIdentifier=condition)
-    url = getkey(result, 'url')
+    num = getkey(result, 'num')
+    url = add('url', WFURLActionURL=composed([desktop_url(base, 's'), num]))
     receipt = group()
     add('choosefrommenu', WFMenuPrompt=token_text(message), WFMenuItems=['查看对话', '完成'],
         WFControlFlowMode=0, GroupingIdentifier=receipt)

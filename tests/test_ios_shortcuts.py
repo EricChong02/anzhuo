@@ -25,3 +25,34 @@ def test_condition_operands_use_native_parameter_format(mode):
             expected = "WFNumberContentItem"
         value = item["WFInput"]["Variable"]["Value"]
         assert value["Aggrandizements"][0]["CoercionItemClass"] == expected
+
+
+@pytest.mark.parametrize("mode", ["launch", "share", "screenshot", "voice"])
+def test_shortcuts_open_installed_app_not_safari(mode):
+    path = Path(__file__).resolve().parents[1] / "scripts/make_ios_shortcuts.py"
+    spec = importlib.util.spec_from_file_location("ios_desktop_generator", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    data = mod.build("https://example.test", "test-only-token", mode)
+    actions = data["WFWorkflowActions"]
+    by_id = {x["WFWorkflowActionParameters"].get("UUID"): x for x in actions}
+    opens = [x for x in actions if x["WFWorkflowActionIdentifier"].endswith(".openurl")]
+    assert len(opens) == 1
+    ref = opens[0]["WFWorkflowActionParameters"]["WFInput"]["Value"]["OutputUUID"]
+    source = by_id[ref]
+    assert source["WFWorkflowActionIdentifier"] == "is.workflow.actions.url"
+    url = source["WFWorkflowActionParameters"]["WFURLActionURL"]
+    if mode == "launch":
+        assert url == "webapp://example.test/_x/#new"
+    else:
+        assert url["WFSerializationType"] == "WFTextTokenString"
+        value = url["Value"]
+        assert value["string"] == "webapp://example.test/_x/#s\ufffc"
+        attachment = next(iter(value["attachmentsByRange"].values()))
+        source = by_id[attachment["OutputUUID"]]
+        assert source["WFWorkflowActionParameters"]["WFDictionaryKey"] == "num"
+        assert all(x["WFWorkflowActionParameters"].get("WFDictionaryKey") != "url" for x in actions)
+    for action in actions:
+        if action["WFWorkflowActionIdentifier"].endswith(".downloadurl"):
+            assert action["WFWorkflowActionParameters"]["WFURL"].startswith("https://example.test/_x/q/")
+    assert mod.desktop_url("https://example.test/prefix", "new") == "webapp://example.test/prefix/_x/#new"
