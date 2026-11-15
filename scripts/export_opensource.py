@@ -27,7 +27,7 @@ EXCLUDE = [
     "scripts/cert_agent.py", "scripts/check_lan_gateway.py", "scripts/install_lan_gateway.py",
     "scripts/lan_gateway.py", "scripts/mac_local_hosts.py", "scripts/make_profile.py",
     "scripts/export_opensource.py",
-    "scripts/mail163.py", "docs/邮箱.md",     # 个人邮箱工具，带私人地址，不进开源版
+    "scripts/mail163.py", "docs/邮箱.md", "tests/test_mail163.py",     # 个人邮箱工具，带私人地址，不进开源版
     "remote-claude.cmd",
     "README.md", "AGENTS.md",                 # 开源版有自己的，在 KEEP 里
     "uv.lock",                                # 导出后在开源版里 uv lock 重新生成
@@ -86,7 +86,7 @@ FILE_SUBS = {
     ],
     # 分派员不进开源版：档位只按文件夹定，也没有 auto_route
     "config.example.toml": [
-        (r"新开对话没指定模型时，分派员（Haiku）先判断这件事是哪一档，再照下表交给谁",
+        (r"新开对话没指定模型时，分派员（Haiku）先判断这件事是哪一(?:档|类)，再照下表交给谁",
          "新开对话没指定模型时，代码仓里按开发档、别处按简单任务档，照下表交给谁"),
         (r"# auto_route = true .*\n", ""),
     ],
