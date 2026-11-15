@@ -82,14 +82,13 @@ function connectEvents() {
 }
 function showPartial() {
   const live = document.querySelector('.live'), feed = $('#feed');
-  let el = document.querySelector('.live .partial');
+  let el = document.querySelector('#col .live-draft');
   if (!live || !partialText) { if (el) el.remove(); return; }
   const near = feed && stick;
-  if (!el) { el = document.createElement('div'); el.className = 'partial'; live.appendChild(el); el.onclick = () => { partialOpen = !partialOpen; showPartial(); }; }
-  // 正在写的这段：默认只露最后一句（多半是“我先看看…”这类过程话），点开看全文；写完的回复会整段出现在下面
-  const lastLine = partialText.trim().split('\n').filter(Boolean).pop() || '';
-  el.classList.toggle('open', partialOpen);
-  el.innerHTML = partialOpen ? md(partialText) + '<i class="caret"></i>' : `<span class="pl">正在写：</span>${esc(lastLine.replace(/[*`#>]/g, '').slice(-80))}<i class="caret"></i>`;
+  if (!el) { el = document.createElement('div'); el.className = 'cl live-draft';
+    (document.querySelector('#col .live-answer') || live).insertAdjacentElement('afterend', el); }
+  // 流式正文也放聊天区，完整显示；写完后由归档正文接替。
+  el.innerHTML = `<div class="md">${md(partialText)}<i class="caret"></i></div>`;
   if (near) feed.scrollTop = feed.scrollHeight;
 }
 

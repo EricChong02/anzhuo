@@ -38,7 +38,8 @@ class TurnsMixin:
         rec = {
             "id": tid, "label": label, "title": title, "request": turn.request, "said": turn.said, "cwd": cwd,
             "started": turn.started, "ended": turn.ended, "schedule_id": turn.schedule_id, "schedule_run_id": turn.schedule_run_id, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
-            "final_text": turn.final_text, "error": turn.error, "timeline": turn.timeline,
+            "final_text": turn.final_text, "original_text": turn.original_text or turn.final_text,
+            "error": turn.error, "timeline": turn.timeline,
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "links": self._turn_links(files, turn), "translated": turn.translated,
         }

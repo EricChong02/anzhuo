@@ -9,17 +9,16 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
 
 from .commands import HELP
 from .folders import display
 from .sessions import Session
 from . import deepseek_api, split
-from .engines import HELPER_MODEL
+from . import helpers
 
 log = logging.getLogger(__name__)
 
-ROUTER_MODEL = HELPER_MODEL
+ROUTER_MODEL = helpers.ROUTER_MODEL
 KINDS = tuple(split.KINDS)  # 任务类别；各交给谁见分工表（split.py，配置 [split]）
 ROUTER_EFFORT = "low"  # 小E 自己的判断只用低档思考；干活的对话另按配置（默认中）
 
@@ -127,53 +126,26 @@ async def route(text: str, sessions: list[Session], current: int | None, shortna
                 timeout: float = 25, chat: list[tuple[str, str]] | None = None,
                 busy: set[int] | None = None) -> Route | None:
     """返回判断结果；出错、超时、答非所问时返回 None，由调用方按老规矩交给当前对话。"""
-    options = ClaudeAgentOptions(
-        model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=SYSTEM + "\n\n你叫远窗（原名案头、小E），是用户钉钉里的助手，背后是用户 Mac 上的 Claude Code。称呼用户时用“你”。用法说明：\n" + HELP,
-        tools=[], max_turns=1,
-        setting_sources=[], cwd=str(Path.home()),
-        extra_args={"no-session-persistence": None},  # 不落盘，免得混进“最近的对话”
-    )
-    out = []
-
-    async def run():
-        async for msg in query(prompt=_context(text, sessions, current, shortnames, chat, busy), options=options):
-            if isinstance(msg, AssistantMessage):
-                out.extend(b.text for b in msg.content if isinstance(b, TextBlock))
-
     try:
-        await asyncio.wait_for(run(), timeout)
-    except Exception:  # noqa: BLE001 - 判断失败就退回老规矩
-        log.warning("自动判断失败", exc_info=True)
+        raw = await helpers.gpt_text(SYSTEM + "\n\n用法说明：\n" + HELP,
+            _context(text, sessions, current, shortnames, chat, busy),
+            purpose='route', model=ROUTER_MODEL, timeout=timeout)
+        r = _parse(raw, {s.num for s in sessions})
+    except Exception as exc:
+        log.warning('自动判断失败，保留原分派规则：%s', type(exc).__name__)
         return None
-    r = _parse("".join(out), {s.num for s in sessions})
     log.info("自动判断：%s", r)
     return r
 
 
 async def classify_kind(text: str, timeout: float = 15) -> str | None:
-    """只判断这件事属于设计前端、工作文档、开发还是简单任务，挑模型用；出错、超时返回 None，由调用方按老规矩。
-    先问 DeepSeek（约 1 秒、不占 Claude 额度；2026-11-08 拿 109 条真实消息对比，和 Haiku 一样准），没密钥或出错再问 Haiku。
-    分派（route）仍用 Haiku：同样对比下 DeepSeek 爱凭记忆直接答、爱塞给当前对话，不如 Haiku。"""
+    """DeepSeek 判断类别；失败返回 None，沿用本地选型规则，不调用 Claude。"""
     if key := await asyncio.to_thread(deepseek_api.key):
         try:
-            word = await asyncio.to_thread(deepseek_api.chat, KIND_SYSTEM, text[:1500], key, timeout=timeout, temperature=0)
+            word = await asyncio.to_thread(deepseek_api.chat, KIND_SYSTEM, text[:1500], key,
+                timeout=timeout, temperature=0, max_tokens=32, purpose='classify_kind')
             if (word := word.strip().lower()) in KINDS:
                 return word
-        except Exception as e:  # noqa: BLE001
-            log.warning("DeepSeek 判断任务轻重失败，改用 Haiku：%s", type(e).__name__)
-    options = ClaudeAgentOptions(model=ROUTER_MODEL, effort=ROUTER_EFFORT, system_prompt=KIND_SYSTEM, tools=[], max_turns=1,
-                                 setting_sources=[], cwd=str(Path.home()), extra_args={"no-session-persistence": None})
-    out = []
-
-    async def run():
-        async for msg in query(prompt=text[:1500], options=options):
-            if isinstance(msg, AssistantMessage):
-                out.extend(b.text for b in msg.content if isinstance(b, TextBlock))
-
-    try:
-        await asyncio.wait_for(run(), timeout)
-    except Exception:  # noqa: BLE001
-        log.warning("判断任务轻重失败", exc_info=True)
-        return None
-    word = "".join(out).strip().lower()
-    return word if word in KINDS else None
+        except Exception as exc:
+            log.warning('判断任务类别失败，沿用本地规则：%s', type(exc).__name__)
+    return None

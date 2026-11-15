@@ -17,7 +17,7 @@ from ..sessions import COMPACT
 from ..cards import parse_decision
 from ..engines.claude import NOISE
 from ..folders import display
-from ..report import EFFORT_CN, live_agents
+from ..report import EFFORT_CN, live_agents, live_answer
 from ..relay import RELAY, display_items, relay_hint
 from .common import _said_has, display_model, model_options
 
@@ -69,7 +69,7 @@ class ThreadsMixin:
             else:
                 items += [{"who": "you", "text": t} for t in said if t]
             proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {}), **({"sub": e["sub"]} if e.get("sub") else {})}
-                    for e in tl if e.get("kind") in ("think", "say", "do")]
+                    for e in tl if e.get("kind") in ("think", "say", "do") and e.get('phase') != 'final_answer']
             if proc and proc[-1]["k"] == "say" and proc[-1]["text"] == (r.get("final_text") or "")[:1500]:
                 proc.pop()
             items.append({"who": "claude", "end": r["id"], "ts": r.get("ended") or r.get("started"), "text": r.get("final_text") or r.get("error") or "（没有回复）",
@@ -225,8 +225,9 @@ class ThreadsMixin:
             b.registry.save()
         live = None
         if turn and turn.request != RELAY:
+            answer, timeline = live_answer(turn)
             proc = [{"k": e["kind"], "text": str(e.get("text", "")), "detail": str(e.get("detail") or ""), "sub": e.get("sub", "")}
-                    for e in turn.timeline if e["kind"] in ("think", "say", "do")]
+                    for e in timeline if e["kind"] in ("think", "say", "do")]
             for e in proc:
                 if e["k"] in ("think", "say"):
                     e.update(self._zh_proc(e))
@@ -236,7 +237,8 @@ class ThreadsMixin:
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
                     "compact": b.runner.compacting(num) == "running",
                     "plan": turn.plan,
-                    "agents": live_agents(turn)}
+                    "agents": live_agents(turn),
+                    "answer": '' if any(it.get('who') == 'claude' and it.get('text') == answer for it in items) else answer}
         # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not it.get("historical") and not NOISE.match(it["text"] or "")), "")
         if not last and not any(it["who"] == "you" and not it.get("historical") for it in items):
@@ -264,7 +266,7 @@ class ThreadsMixin:
             b.registry.save()
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": eng.key if eng.pick_model != "menu" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
-                 "ekey": eff or "",
+                 "ekey": eff or "", "has_quota": eng.has_quota,
                  "context": round(s.context_pct) if s.context_pct is not None else None,
                  "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
@@ -287,7 +289,9 @@ class ThreadsMixin:
             return text
         key = hashlib.sha1(text.encode()).hexdigest()
         if key in self._zh:
-            return self._zh[key]
+            if not translate.is_service_error(self._zh[key]):
+                return self._zh[key]
+            self._zh.pop(key, None)
         if key not in self._zh_busy and key not in self._zh_failed and len(self._zh_busy) < 6:
             self._zh_busy.add(key)
             asyncio.create_task(self._translate(key, text))
@@ -301,14 +305,17 @@ class ThreadsMixin:
         return dict(e, text=text)
 
     async def _translate(self, key: str, text: str) -> None:
-        """网页里显示的英文回复后台译成中文（和钉钉同一套：DeepSeek，Haiku 兜底），译好存起来，下次刷新就是中文。"""
+        """后台翻译仅用 DeepSeek；失败照常显示原文，不影响正文。"""
         try:
             if done := await translate.to_chinese(text):
                 self._zh[key] = done[0]
             else:
                 self._zh_failed.add(key)
-                self._zh = dict(list(self._zh.items())[-2000:])
-                self._zh_path.write_text(json.dumps(self._zh, ensure_ascii=False))
+            self._zh = dict(list(self._zh.items())[-2000:])
+            self._zh_path.write_text(json.dumps(self._zh, ensure_ascii=False))
+        except Exception as exc:
+            self._zh_failed.add(key)
+            log.warning('网页翻译失败，保留原文：%s', type(exc).__name__)
         finally:
             self._zh_busy.discard(key)
 

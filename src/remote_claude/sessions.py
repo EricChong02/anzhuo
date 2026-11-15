@@ -473,6 +473,8 @@ class Runner:
     async def _auto_title(self, s: Session, asked: str, answer: str) -> None:
         """头一轮做完，按“你要做的事 + 它的回复”起个短名字（原来是你第一句话的开头，长、看不出在做什么）。"""
         from .naming import short_title
+        if s.root or engines.DEEPSEEK.refuses(self.cfg, [s.cwd, *s.add_dirs]):
+            return  # 受限账号和禁区资料不因辅助起名而发给 DeepSeek
         if (t := await short_title(asked, answer)) and not s.renamed:
             s.name, s.titled = t, True
             self.registry.save()

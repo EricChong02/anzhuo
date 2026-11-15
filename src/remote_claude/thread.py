@@ -109,17 +109,19 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
     reply, steps, process = "", 0, []
     ts = 0.0  # 回复那段话的时间
     end = ""  # 这一轮最后一条记录的编号：“回到这里”从它接着
+    reply_entries = []
+    continuing = False
 
     def flush():
-        nonlocal reply, steps, process
+        nonlocal reply, steps, process, reply_entries, continuing
         if reply and reply.strip() not in _SKIP_REPLY:
             # 最后那段话是回复本身，不算进过程
-            if process and process[-1]["k"] == "say" and process[-1]["text"] == reply[:1500]:
-                process.pop()
+            process = [e for e in process if not any(e is part for part in reply_entries)]
             items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:], **({"end": end} if end else {})})
             if times is not None:
                 items[-1]["ts"] = ts
         reply, steps, process = "", 0, []
+        reply_entries, continuing = [], False
 
     for m in messages:
         msg = m.message if isinstance(m.message, dict) else {}
@@ -145,16 +147,29 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                 if times is not None:
                     items[-1]["ts"] = (times or {}).get(m.uuid, 0.0)
         elif m.type == "assistant" and isinstance(content, list):
+            if getattr(m, 'parent_tool_use_id', None):
+                continue
             end = getattr(m, "uuid", "") or end
+            texts = [b['text'] for b in content if isinstance(b, dict) and b.get('type') == 'text' and b.get('text', '').strip()]
+            if texts:
+                text = '\n\n'.join(texts)
+                reply = reply + '\n\n' + text if continuing else text
+                if not continuing:
+                    reply_entries = []
+                ts = (times or {}).get(getattr(m, 'uuid', ''), 0.0)
+                entry = {'k': 'say', 'text': text}
+                reply_entries.append(entry)
+                continuing = True
+            text_added = False
             for b in content:
                 kind = b.get("type") if isinstance(b, dict) else None
                 if kind == "thinking" and (b.get("thinking") or "").strip():
                     process.append({"k": "think", "text": b["thinking"][:1500]})
-                elif kind == "text" and b.get("text", "").strip():
-                    reply = b["text"]
-                    ts = (times or {}).get(getattr(m, "uuid", ""), 0.0)
-                    process.append({"k": "say", "text": b["text"][:1500]})
+                elif kind == 'text' and b.get('text', '').strip() and not text_added:
+                    process.append(entry)
+                    text_added = True
                 elif kind == "tool_use":
+                    continuing = False
                     steps += 1
                     label = step_label(b.get("name", ""), b.get("input") or {})
                     if label:
@@ -198,8 +213,11 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         it["images"] = rec.get("images", [])
         it["files"] = rec.get("files", [])
         it["nfiles"], it["ncmds"] = rec.get("nfiles", 0), rec.get("ncmds", 0)
-        if rec.get("final_text") and rec.get("translated"):
-            it["text"] = rec["final_text"]  # 钉钉里发的是译好的中文，网页也用它
+        if rec.get("final_text"):
+            from .translate import is_service_error
+            # 兼容旧记录：翻译报错曾覆盖正文，不能再用这类“译文”替换完整历史。
+            if not (rec.get('translated') and is_service_error(rec['final_text'])):
+                it["text"] = rec["final_text"]
     return items
 
 

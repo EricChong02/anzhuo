@@ -392,6 +392,7 @@ class ClaudeEngine(Engine):
         last_text = ""
         results: list[str] = []
         seen_injected = 0
+        continuing = False
         after_result = False
         wait_more = 4
         stream = client.receive_messages().__aiter__()
@@ -415,11 +416,14 @@ class ClaudeEngine(Engine):
                 ev = msg.event or {}
                 if msg.parent_tool_use_id is None:
                     if ev.get("type") == "content_block_start":
-                        turn.partial = ""
+                        if (ev.get('content_block') or {}).get('type') == 'text' and not continuing:
+                            turn.partial = ""
                     elif ev.get("type") == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
-                        turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
+                        turn.partial += ev["delta"].get("text", "")
             elif isinstance(msg, AssistantMessage):
-                turn.partial = ""
+                main = msg.parent_tool_use_id is None
+                if main:
+                    turn.partial = ""
                 if msg.model and msg.parent_tool_use_id is None:
                     turn.model = msg.model
                 elif msg.model:
@@ -428,14 +432,21 @@ class ClaudeEngine(Engine):
                             agent.update(model=msg.model, model_source="observed")
                 for b in msg.content:
                     if isinstance(b, ThinkingBlock) and b.thinking.strip():
-                        turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
+                        turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000],
+                                              **({'sub': sub_name(turn, msg.parent_tool_use_id)} if not main else {})})
+                sub = sub_name(turn, msg.parent_tool_use_id)
                 texts = [b.text for b in msg.content if isinstance(b, TextBlock) and b.text.strip()]
                 if texts:
-                    last_text = "\n".join(texts)
-                    turn.timeline.append({"t": time.time(), "kind": "say", "text": last_text[:6000]})
-                sub = sub_name(turn, msg.parent_tool_use_id)
+                    text = "\n\n".join(texts)
+                    if main:
+                        last_text = last_text + '\n\n' + text if continuing else text
+                        continuing = True
+                    turn.timeline.append({"t": time.time(), "kind": "say", "text": text,
+                                          **({'sub': sub} if sub else {})})
                 for b in msg.content:
                     if isinstance(b, ToolUseBlock):
+                        if main:
+                            continuing = False
                         remember_agent_tool(turn, b, self.model_for(s) if self.key == "deepseek" else subagent_model or turn.model or s.model)
                         if label := step_label(b.name, b.input or {}):
                             turn.steps.append(label)
@@ -471,8 +482,10 @@ class ClaudeEngine(Engine):
                     turn.is_error = True
                     turn.error = (msg.result or "; ".join(msg.errors or []) or msg.subtype or "未知错误")[:300]
                 elif msg.result:
-                    last_text = msg.result
-                    results.append(msg.result)
+                    if not continuing or not last_text:
+                        last_text = msg.result
+                    results.append(last_text)
+                    continuing = False
                 if turn.injected > seen_injected and not turn.interrupted:
                     seen_injected = turn.injected
                     after_result = True

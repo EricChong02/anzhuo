@@ -94,6 +94,7 @@ function renderThread(d) {
       ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process, 'live') : ''}` : ''}</div>`;
     }
   }
+  if (d.live?.answer) h += `<div class="cl live-answer"><div class="md">${md(d.live.answer)}</div></div>`;
   const restQ = (d.queue || []).filter(q => !shownQ.has(q));
   if (restQ.length) h += `<div class="queue">接下来：${restQ.map(esc).join('；')}</div>`;
   if (d.live && d.live.confirm) h += `<div class="confirm"><div class="q">等你确认：${esc(d.live.confirm.what)}</div>

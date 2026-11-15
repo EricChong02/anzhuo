@@ -1,18 +1,15 @@
-"""给对话起短名字：头一轮做完后，按你要做的事和它的回复，用最便宜的模型起一个十几个字的名字。"""
+"""给对话起短名字：头一轮做完后，按你要做的事和它的回复，用 DeepSeek 起一个短名字，失败保留原名。"""
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
-
-from .engines import HELPER_MODEL
+from . import deepseek_api
 
 log = logging.getLogger(__name__)
 
-MODEL = HELPER_MODEL
+MODEL = deepseek_api.MODEL
 SYSTEM = """给一段工作对话起名字，让人在列表里一眼看出在做什么。只输出名字本身，不要引号、标点结尾或解释。
 简体中文，4 到 10 个字，手机列表一行要能显示完；说清对象和在做的事，比如“大数据第二节磨课”“厦门天气”“讲座课件制作”“远窗列表改版”。
 不用标点、引号和“·”，不要“关于”“讨论”“对话”这类空词。"""
@@ -36,21 +33,15 @@ def valid(name: str) -> bool:
 
 
 async def short_title(asked: str, answer: str, timeout: float = 60) -> str:
-    prompt = f"用户交代的事：\n{asked[:1500]}\n\n助手的回复（节选）：\n{answer[:1500]}"
-    options = ClaudeAgentOptions(model=MODEL, effort="low", system_prompt=SYSTEM, tools=[], max_turns=1,
-                                 setting_sources=[], cwd=str(Path.home()),
-                                 extra_args={"no-session-persistence": None})
-    out: list[str] = []
-
-    async def run():
-        async for msg in query(prompt=prompt, options=options):
-            if isinstance(msg, AssistantMessage):
-                out.extend(b.text for b in msg.content if isinstance(b, TextBlock))
-
-    try:
-        await asyncio.wait_for(run(), timeout)
-    except Exception:  # noqa: BLE001 - 起不了名就留原来的
-        log.warning("自动起名失败", exc_info=True)
+    key = await asyncio.to_thread(deepseek_api.key)
+    if not key:
         return ""
-    t = _clean("".join(out))
+    prompt = f"用户交代的事：\n{asked[:400]}\n\n助手的回复（节选）：\n{answer[:400]}"
+    try:
+        raw = await asyncio.wait_for(asyncio.to_thread(deepseek_api.chat, SYSTEM, prompt, key,
+            timeout=timeout, max_tokens=128, purpose='naming'), timeout)
+    except Exception as exc:
+        log.warning('自动起名失败，保留原名：%s', type(exc).__name__)
+        return ""
+    t = _clean(raw)
     return t if valid(t) else ""

@@ -48,7 +48,7 @@ class Config:
     relay_cold: int = 80_000  # 隔了一个多小时（缓存过期）再回来、上下文又有这么长，先提示接力
     reply_language: str = "简体中文"  # 让每个对话用什么语言回复；写成空字符串 = 不指定
     extra_instructions: str = ""  # 你自己追加给每个对话的固定要求（比如“做完小任务直接提交，不要问”）
-    translate_english: bool = False  # 默认关闭。打开后，回复里有大段英文时译成中文再给你看：有 DeepSeek 密钥就用它，没有就用 Haiku
+    translate_english: bool = False  # 默认关闭。打开后，回复里有大段英文时译成中文再给你看：只用 DeepSeek，失败保留原文
     # ---- 安全与整理 ----
     auto_review: bool = False  # 危险命令交给 AI 审核员判断；false = 都等你点“允许”（默认）
     review_policy: str = ""  # 你额外授权审核员放行的事（比如“推送到我自己仓库的 dev 分支可以放行”）

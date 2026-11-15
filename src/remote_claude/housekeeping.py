@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from . import folders
 from .dingtalk import Incoming
-from .engines import MODELS
 
 if TYPE_CHECKING:
     from .app import Bridge
@@ -65,7 +64,7 @@ async def monthly_checkup(b: Bridge) -> None:
     num = b.registry.reserve_num()
     inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=CHECKUP)
     await b.start_session(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
-                          model=MODELS["sonnet"], effort="low")
+                          model='gpt', engine_model='gpt-6.1-sol', effort="low")
     if s := b.registry.get(num):
         s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
         b.registry.save()

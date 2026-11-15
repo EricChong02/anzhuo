@@ -193,7 +193,8 @@ class Bridge:
             if self.web.enabled and turn.via != "dingtalk":
                 return   # 网页里点的压缩，网页上看得到结果
             return await self.say("压缩好了", f"{s.label} 压缩好了：上下文 {span}。之前聊过的要点都还记得。")
-        if translate.needs_translation(turn.final_text):
+        turn.original_text = turn.original_text or turn.final_text
+        if not turn.is_error and translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self._limits(s))

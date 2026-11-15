@@ -4,18 +4,15 @@
 在配置里写 review_policy 明说（见 docs/配置参考.md；小E 的写法见本机配置）。"""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
-from pathlib import Path
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
+from . import helpers
 
 log = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-5-5"
-EFFORT = "low"
+MODEL = helpers.REVIEW_MODEL
 
 SYSTEM = """你是一位谨慎的审核员。用户（这台电脑的主人）不在电脑前，让 AI 助手在他的电脑上干活，
 并授权由你代替他审核助手要执行的危险命令。你只输出一个 JSON 对象，不要任何别的文字：
@@ -69,21 +66,12 @@ def _parse(raw: str) -> tuple[bool, str] | None:
 async def review(what: str, cmd: str, cwd: str, request: str, recent: list[str],
                  timeout: float = 90, policy: str = "") -> tuple[bool, str] | None:
     """返回 (放不放行, 理由)；出错、超时、答非所问返回 None，由调用方退回来问用户。"""
-    options = ClaudeAgentOptions(model=MODEL, effort=EFFORT, system_prompt=system_prompt(policy), tools=[], max_turns=1,
-                                 setting_sources=[], cwd=str(Path.home()),
-                                 extra_args={"no-session-persistence": None})
-    out: list[str] = []
-
-    async def run():
-        async for msg in query(prompt=_context(what, cmd, cwd, request, recent), options=options):
-            if isinstance(msg, AssistantMessage):
-                out.extend(b.text for b in msg.content if isinstance(b, TextBlock))
-
     try:
-        await asyncio.wait_for(run(), timeout)
-    except Exception:  # noqa: BLE001 - 审核员出问题就退回来问你
-        log.warning("审核员判断失败", exc_info=True)
+        raw = await helpers.gpt_text(system_prompt(policy), _context(what, cmd, cwd, request, recent),
+            purpose='review', model=MODEL, timeout=timeout)
+    except Exception as exc:
+        log.warning('审核员判断失败，交回用户：%s', type(exc).__name__)
         return None
-    r = _parse("".join(out))
+    r = _parse(raw)
     log.info("审核员：%s → %s", what, r)
     return r

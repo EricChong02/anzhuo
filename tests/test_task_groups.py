@@ -18,15 +18,11 @@ def test_group_parser_rejects_missing_duplicate_foreign_and_html():
             task_groups.parse(json.dumps({'groups':groups}),{1,2})
 
 
-def test_group_model_fallback_has_no_tools(monkeypatch):
+def test_group_failure_never_falls_back_to_claude(monkeypatch):
     monkeypatch.setattr(task_groups.deepseek_api, 'key', lambda:'secret-not-logged')
     monkeypatch.setattr(task_groups, '_deepseek', lambda *args:'invalid json')
-    async def query(*, prompt, options):
-        assert options.tools == [] and options.setting_sources == [] and options.max_turns == 1
-        yield AssistantMessage(content=[TextBlock(text='{"groups":[{"name":"远窗","nums":[1]}]}')],model='haiku')
-    monkeypatch.setattr(task_groups,'query',query)
-    result, model = asyncio.run(task_groups.classify([{'num':1,'title':'远窗界面'}],[]))
-    assert result == {1:'远窗'} and model == 'Haiku'
+    with pytest.raises(json.JSONDecodeError):
+        asyncio.run(task_groups.classify([{'num':1,'title':'远窗界面'}],[]))
 
 
 def test_user_group_rules_follow_builtin():

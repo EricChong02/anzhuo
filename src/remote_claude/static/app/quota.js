@@ -128,7 +128,7 @@ function bindRelayAlts(root, num, go = false) {
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
-  const ls = u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
+  const ls = u.has_quota === false ? [] : u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   const running = u.relay?.kind === 'running', canRelay = !u.busy && !running && usageRelay.num === sel;
@@ -140,7 +140,7 @@ function renderUsage(u) {
       ${u.tokens ? `<div class="uh">约 ${wan(u.tokens)} token，每说一句都要重读一遍。一段做完就接力，没做完嫌长就压缩。</div>` : ''}
       <div class="ua">${relayBtns}<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
         u.compacting === 'running' ? '<i class="spin"></i>正在压缩' : u.compacting === 'queued' ? '已排队压缩' : '压缩上下文'}</button></div>
-      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}</div>` : '');
+      ${u.has_quota === false ? '<div class="uh">按量计费，不使用 Claude 的订阅额度。</div>' : `<div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}`}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); usageOpen = false; startRelay(sel); };
   bindRelayAlts(el, sel);

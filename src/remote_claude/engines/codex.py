@@ -84,6 +84,7 @@ class CodexEngine(Engine):
                 log.warning("#%s 文件快照未建立", s.num)
         effort = s.effort or runner.default_effort or "medium"
         texts: list[str] = []
+        finals: list[str] = []
         started_cmds: set[str] = set()
 
         def on_event(method: str, prm: dict) -> None:
@@ -91,7 +92,7 @@ class CodexEngine(Engine):
             item = prm.get("item") or {}
             kind = item.get("type")
             if method == "item/agentMessage/delta":
-                turn.partial = (turn.partial + str(prm.get("delta") or ""))[-6000:]
+                turn.partial += str(prm.get("delta") or "")
             elif method == "item/started" and kind == "commandExecution":
                 cmd = str(item.get("command") or "")
                 cmd = re.sub(r"^/bin/(?:zsh|bash) -lc ", "", cmd).strip("'\"")
@@ -103,7 +104,10 @@ class CodexEngine(Engine):
             elif method == "item/completed" and kind == "agentMessage" and (item.get("text") or "").strip():
                 turn.partial = ""
                 texts.append(item["text"].strip())
-                turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"][:6000]})
+                if item.get('phase') == 'final_answer':
+                    finals.append(item['text'])
+                turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"],
+                                      **({'phase': item['phase']} if item.get('phase') else {})})
             elif method == "item/completed" and kind == "reasoning":
                 summ = item.get("summary") or []
                 text = "\n".join(x if isinstance(x, str) else str(x.get("text", "")) for x in summ).strip()
@@ -201,12 +205,14 @@ class CodexEngine(Engine):
                 # Codex 没有 Stop 钩子：做完再看一眼（unfinished），该汇报没汇报就接着补一轮；回复仍用补之前那段
                 if conn.turn_status == "completed" and not turn.interrupted and (why := self.unfinished(runner, s, turn, False)):
                     kept = list(texts)
+                    kept_finals = list(finals)
                     conn.done.clear()
                     conn.turn_status = ""
                     turn.codex_turn_id = await conn.start_turn(why, [], effort, s.model or None)
                     await conn.done.wait()
                     if kept:
                         texts[:] = kept
+                        finals[:] = kept_finals
         except codex_conn.CodexError as e:
             turn.is_error = True
             turn.error = str(e)[:300]
@@ -227,7 +233,7 @@ class CodexEngine(Engine):
             turn.error = ("Codex 中途退出了：" + conn.stderr_tail())[:300]
         turn.partial = ""
         if job.text != COMPACT:
-            turn.final_text = texts[-1] if texts else ""
+            turn.final_text = '\n\n'.join(finals) if finals else (texts[-1] if texts else "")
         turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
         turn.images += imgs
         turn.files += files

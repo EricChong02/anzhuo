@@ -132,18 +132,13 @@ def test_router_parse():
 
 
 def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
-    """判断档位先问 DeepSeek；它出错或答非所问再问 Haiku。"""
+    """判断档位只问 DeepSeek；失败沿用本地规则，不偷偷调用 Claude。"""
     import asyncio
     import requests
-    from claude_agent_sdk import AssistantMessage, TextBlock
     from remote_claude import deepseek_api
     router = pytest.importorskip("remote_claude.router")
     asked = []
 
-    async def haiku(*, prompt, options):
-        asked.append(prompt)
-        yield AssistantMessage(content=[TextBlock(text="dev")], model="haiku")
-    monkeypatch.setattr(router, "query", haiku)
     monkeypatch.setattr(deepseek_api, "key", lambda: "k")
     monkeypatch.setattr(deepseek_api, "chat", lambda *a, **k: " Design\n")
     assert asyncio.run(real_classify_kind("设计一节课")) == "design" and not asked
@@ -152,8 +147,8 @@ def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
         raise requests.Timeout()
     for bad in (down, lambda *a, **k: "我觉得是开发"):
         monkeypatch.setattr(deepseek_api, "chat", bad)
-        assert asyncio.run(real_classify_kind("加个功能")) == "dev"
-    assert len(asked) == 2
+        assert asyncio.run(real_classify_kind("加个功能")) is None
+    assert not asked
 
 
 def test_needs_translation(monkeypatch):

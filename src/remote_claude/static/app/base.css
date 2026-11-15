@@ -86,6 +86,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
   max-width:min(92vw,440px);padding:10px 16px;border-radius:var(--r2);background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
   border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t3);transition:transform .25s ease,opacity .25s,visibility .25s;cursor:pointer;visibility:hidden}
 .notice.on{transform:translate(-50%,0);opacity:1;visibility:visible} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notice[hidden]{display:none}
 .usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:14px 16px;width:260px;display:flex;flex-direction:column;gap:12px}
 .usage .qh{margin:0} .usage .w{font-size:var(--t2);color:var(--amber);line-height:1.5} .usage .pill{margin-top:2px}
 @keyframes pulse{50%{opacity:.35}}

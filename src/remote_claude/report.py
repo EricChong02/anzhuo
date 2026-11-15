@@ -32,6 +32,7 @@ class Turn:
     images: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)  # 交给你的文件（PDF、文档等，原样）
     final_text: str = ""
+    original_text: str = ""  # 模型原始完整答案；翻译只能修改显示版本
     is_error: bool = False
     error: str = ""
     interrupted: bool = False
@@ -53,6 +54,20 @@ class Turn:
 
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
 LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_fable": "本周 Fable", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
+
+
+def live_answer(turn: Turn) -> tuple[str, list[dict]]:
+    """末尾的主答案放聊天区；工具前的说明和助手消息仍留在过程里。"""
+    entries = []
+    for entry in reversed(turn.timeline):
+        if entry.get('sub'):
+            continue
+        if entry.get('kind') != 'say' or entry.get('phase') == 'commentary':
+            break
+        entries.append(entry)
+    entries.reverse()
+    answer = '\n\n'.join(e.get('text', '') for e in entries)
+    return answer, [e for e in turn.timeline if not any(e is x for x in entries)]
 
 
 def brief(text: str, limit: int = 20) -> str:

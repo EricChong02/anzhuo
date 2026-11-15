@@ -79,7 +79,7 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         self._group_busy: set[str] = set()
         self._group_attempt: dict[str, float] = {}
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
-        self._zh_path = data_dir / "translations.json"
+        self._zh_path = data_dir / "translations-v2.json"  # 旧缓存可能被错误提示或不完整译文污染
         try:
             self._zh: dict[str, str] = json.loads(self._zh_path.read_text())
         except (OSError, json.JSONDecodeError):
