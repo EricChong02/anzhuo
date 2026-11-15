@@ -90,7 +90,7 @@ function drawUsage(col, d) {
   const facts = [wk(u, u.total_cost) ? `估算周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
   const convs = u.conversations, shown = admAllConvs ? convs : convs.slice(0, 8);
   col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>
-    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
+    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 14, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
     ${d.period === 'week' && !d.week_available ? '<div class="ac-empty">本周数据暂不可用</div>' : ''}
     <div class="plate"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${facts.join(' · ')}</span></div>${legend}
       <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
@@ -104,6 +104,7 @@ function drawUsage(col, d) {
         <span class="st">${esc([...new Set(bits)].join(' · '))}</span><span class="pc num">${p == null ? 'tokens' : tokn(c.tokens)}</span>
         <span class="bar"><i style="width:${p == null ? 0 : Math.max(1, Math.min(100, p))}%;background:${ownerColor(d, c.owner)}"></i></span></button>`;
     }).join('') + (convs.length > shown.length ? `<button class="ac-more" id="acMore">显示全部 ${convs.length} 个</button>` : '') : '<div class="ac-empty">还没有记录</div>'}</div>`;
+  if (d.collaboration) col.insertAdjacentHTML('beforeend', collaborationHTML(d.collaboration));
   $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = b.dataset.d === 'week' ? 'week' : +b.dataset.d; loadAdmin(); };
   if ($('#acMore')) $('#acMore').onclick = () => { admAllConvs = true; drawUsage(col, d); };
   col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
@@ -202,3 +203,11 @@ function pwSheet(account) {
   el.querySelector('#pwNo').onclick = () => el.remove();
 }
 
+
+function collaborationHTML(c) {
+  const tokens = attempt => { const t=attempt.tokens, value=t && (t.total_tokens ?? t.totalTokens); return Number.isFinite(value) ? tokn(value) : '未报告'; };
+  return `<div class="adm-h"><span>跨模型协作试点</span></div><div class="plate"><p>${c.jobs} 次委派 · ${c.first_passed} 次首轮报告通过 · ${c.accepted} 次报告验收通过 · ${c.rejected} 次不通过 · ${c.unreviewed} 次待验收 · ${c.corrections} 次修正</p>
+  <details><summary>查看委派及主任务消耗</summary>${c.tasks.map(t=>`<p>#${t.parent_num} · ${esc(t.model || t.backend)} · ${esc(t.kind || '后端')} · ${esc(t.state)} · ${t.accepted === true ? '主任务报告通过' : t.accepted === false ? '未通过' : '未验收'}<br>各次 token：${t.attempts.map(tokens).join(' / ') || '未报告'}${t.backend === 'deepseek' ? '<br>各次费用估算（元）：' + t.attempts.map(a=>a.estimated_cny_range ? a.estimated_cny_range.join('—') : '未报告').join(' / ') : ''}</p>`).join('')}
+  ${(c.helpers || []).map(h=>`<p>后台辅助 · ${esc(h.model)} · ${esc(h.purpose)} · ${h.calls} 次 · 已报告 token ${tokn(h.total_tokens)}（${h.token_reports}/${h.calls} 次有用量）</p>`).join('')}
+  ${c.main_usage.map(t=>`<p>${esc(t.turn_id)} 主任务 · ${esc(t.engine)} · token ${esc(JSON.stringify(t.tokens || '未报告'))} · API 标价估算 USD ${t.cost_estimate_usd ?? '未报告'}</p>`).join('')}</details><p>${esc(c.note)}</p></div>`;
+}

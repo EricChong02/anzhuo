@@ -32,7 +32,7 @@ def key() -> str | None:
 
 
 def chat(system: str, user: str, api_key: str, *, timeout: float, temperature: float = 0.2,
-         purpose: str = 'other', **extra) -> str:
+         purpose: str = 'other', usage_sink: dict | None = None, **extra) -> str:
     """一问一答，不开思考；extra 原样放进请求（如 response_format、max_tokens）。出错直接抛。"""
     started, tokens = time.monotonic(), {}
     try:
@@ -43,6 +43,9 @@ def chat(system: str, user: str, api_key: str, *, timeout: float, temperature: f
         r.raise_for_status()
         data = r.json()
         tokens = data.get('usage') or {}
+        if usage_sink is not None:
+            usage_sink.update(tokens)
+            usage_sink['_model'] = data.get('model') or MODEL
         choice = data['choices'][0]
         if choice.get('finish_reason') != 'stop':
             raise ValueError('DeepSeek 未完整完成回复')

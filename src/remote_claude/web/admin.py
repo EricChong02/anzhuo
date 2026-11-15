@@ -47,7 +47,9 @@ class AdminMixin:
         start = cycle_start if cycle_start is not None else now - usage.WEEK
         rate = usage.rate(usage.load(self.usage_path, start - 3 * usage.WEEK), start - 3 * usage.WEEK,
                           getattr(b, "spend", None)) or self.store.get("rate2")
-        return web.json_response({"accounts": accts, "usage": usage.summary(rows, names, days, now=now, rate=rate,
+        from ..collaboration import summary as collaboration_summary
+        collab_since=((cycle_start if cycle_start is not None else now) if current_week else now-days*86400)
+        return web.json_response({"collaboration": collaboration_summary(self.usage_path.parent, collab_since, usage.load(self.usage_path, collab_since)), "accounts": accts, "usage": usage.summary(rows, names, days, now=now, rate=rate,
                                                                             since=(cycle_start if cycle_start is not None else now) if current_week else None,
                                                                             groups=usage.relay_groups(b.registry.sessions)),
                                   "limits": self._limits(b.runner.limits),

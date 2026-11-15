@@ -584,7 +584,7 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
             codex_pending_hidden=["1-200"]))
         calls = []
         class Conn:
-            def __init__(self, *args):
+            def __init__(self, *args, **kwargs):
                 self.done = asyncio.Event()
                 self.model = "gpt-6.1-sol"
                 self.turn_status = "completed"

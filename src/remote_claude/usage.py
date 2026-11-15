@@ -44,7 +44,7 @@ def row(s, turn, limits: dict, now: float | None = None, last: dict | None = Non
     last：这个对话上一条记录的累计值（{"cost", "tok", "models"}），对话里还没存累计值时（小E 刚升级）拿它当起点。"""
     u = turn.usage or {}
     base = {"t": round(now or turn.ended or time.time(), 1), "owner": s.owner, "num": s.num, "name": s.name,
-            "engine": s.engine, "request": (turn.request or "")[:60]}
+            "engine": s.engine, "turn_id": f"{s.num}-{int(turn.started)}", "seconds": max(0, (turn.ended or time.time()) - turn.started), "request": (turn.request or "")[:60]}
     if "codex" in u:
         total = int(u["codex"].get("total") or 0)
         used = max(0, total - (s.codex_tokens or 0))   # Codex 报的是会话累计

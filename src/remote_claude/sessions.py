@@ -504,7 +504,7 @@ class Runner:
             log.debug("查额度失败", exc_info=True)
 
     async def _delegate_code(self, s: Session, turn: Turn, args: dict) -> dict:
-        if s.root or engines.get(s.engine) is not engines.CLAUDE or turn.interrupted:
+        if s.root or s.engine not in ('claude', 'deepseek') or turn.interrupted:
             return {'state': 'skipped', 'error': '当前对话不能委派代码'}
         from .code_delegate import CodeDelegator
         if not hasattr(self, 'code_delegate'):
@@ -513,13 +513,13 @@ class Runner:
         def progress(job_id, state, text):
             turn.last_at = time.time()
             agent = turn.agents.setdefault('code:' + job_id,
-                {'name': 'GPT 代码助手', 'kind': 'agent', 'model': 'GPT-6.1 Sol', 'model_source': 'configured', 't0': time.time(), 't1': 0})
+                {'name': 'GPT 代码助手', 'kind': '助手', 'model': 'gpt-6.1-sol', 'model_source': 'configured', 't0': time.time(), 't1': 0})
             agent.update(status='running' if state in ('queued', 'running') else state, last=text)
             if state not in ('queued', 'running'):
                 agent['t1'] = time.time()
             turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
 
-        task = asyncio.create_task(self.code_delegate.run(cwd=s.cwd, parent_num=s.num, args=args, progress=progress))
+        task = asyncio.create_task(self.code_delegate.run(cwd=s.cwd, parent_num=s.num, args={**args, '_parent_turn': f'{s.num}-{int(turn.started)}'}, progress=progress))
         # 与生图共用父任务的取消和异常结束回收机制。
         tasks = self.image_tasks.setdefault(s.num, set())
         tasks.add(task)

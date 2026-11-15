@@ -91,7 +91,7 @@ def test_codex_uses_all_final_blocks_even_if_commentary_follows(tmp_path, monkey
     from remote_claude.engines import codex as engine
     class Conn:
         model, turn_status, turn_error = 'fixture', 'completed', ''
-        def __init__(self, cwd, event, on_request):
+        def __init__(self, cwd, event, on_request, **kwargs):
             self.event, self.done = event, asyncio.Event()
         async def start(self): pass
         async def open_thread(self, *a): return 'fixture-thread'

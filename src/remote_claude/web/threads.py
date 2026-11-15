@@ -225,6 +225,8 @@ class ThreadsMixin:
             b.registry.save()
         live = None
         if turn and turn.request != RELAY:
+            from ..agent_models import refresh as refresh_agent_models
+            await asyncio.to_thread(refresh_agent_models, s, turn)
             answer, timeline = live_answer(turn)
             proc = [{"k": e["kind"], "text": str(e.get("text", "")), "detail": str(e.get("detail") or ""), "sub": e.get("sub", "")}
                     for e in timeline if e["kind"] in ("think", "say", "do")]

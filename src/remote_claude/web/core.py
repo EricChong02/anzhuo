@@ -300,7 +300,9 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         cc_mtime = self._cc_mtime(s)
         return json.dumps([s.updated if s else 0, s.relay_to if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
-                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime])
+                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime,
+                           [(k,a.get('status'),a.get('model'),a.get('last')) for k,a in t.agents.items()] if t else [],
+                           int(time.monotonic()//5) if t and any(a.get('status')=='running' and a.get('model_source')!='observed' for a in t.agents.values()) else 0])
 
     async def _api_events(self, request: web.Request) -> web.StreamResponse:
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。

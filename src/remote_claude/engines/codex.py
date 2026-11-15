@@ -165,7 +165,10 @@ class CodexEngine(Engine):
             return None
 
         # 特殊角色（总管派出去的对话）的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
-        rl = role(runner, s)
+        rl = dict(role(runner, s))
+        from ..collaboration import tools as collaboration_tools, RULES as collaboration_rules
+        rl["tools"] = [*(rl.get("tools") or []), *collaboration_tools(runner, s, turn)]
+        rl["append"] = rl.get("append", "") + collaboration_rules
         handlers = {t.name: t.handler for t in rl.get("tools") or []}
         specs = [{"type": "function", "name": t.name, "description": t.description, "inputSchema": t.input_schema}
                  for t in rl.get("tools") or []]
