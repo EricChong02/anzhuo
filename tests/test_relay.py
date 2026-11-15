@@ -132,8 +132,8 @@ def test_note_hits_limit_falls_back_to_handoff(tmp_path, monkeypatch, codex_ok):
     asyncio.run(go())
 
 
-def test_router_worker_hits_limit_switches(tmp_path, monkeypatch, codex_ok):
-    """总管派的活撞线、要等很久：自动换另一家接力接着做，新对话照样回报总管；总管收到一条说明。"""
+def test_router_worker_hits_limit_waits(tmp_path, monkeypatch, codex_ok):
+    """总管派的活额度耗尽也只报告等待，不自动转给 GPT。"""
     runs = []
 
     async def fake_run(self, s, job, turn):
@@ -164,7 +164,28 @@ def test_router_worker_hits_limit_switches(tmp_path, monkeypatch, codex_ok):
             if any(r[0] == boss.num for r in runs):
                 break
         new = b.registry.get(w.relay_to)
-        assert new and new.engine == "codex" and new.boss == boss.num
+        assert new is None and w.engine == "claude" and w.limit_until > time.time()
         told = [r for r in runs if r[0] == boss.num]
-        assert told and "接力到了" in told[0][3] and any(r[0] == new.num and r[1] == "codex" for r in runs)
+        assert told and "额度" in told[0][3]
+        assert not any(r[1] == "codex" for r in runs)
+    asyncio.run(go())
+
+
+def test_claude_limit_only_schedules_resume(codex_ok, tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    async def go():
+        b = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "d")
+        s = _old(b, tmp_path)
+        resume = AsyncMock()
+        relay_start = AsyncMock()
+        monkeypatch.setattr(b.quota, "auto_resume", resume)
+        monkeypatch.setattr(b.relays, "start", relay_start)
+        until = time.time() + 600
+        await b.quota.hit_limit(s, until)
+        await asyncio.sleep(0)
+        assert s.limit_until == until and s.auto_resume and not s.relay_to
+        assert b.quota_levels["claude"] == "撞线"
+        resume.assert_awaited_once_with(s.num, until)
+        relay_start.assert_not_awaited()
     asyncio.run(go())

@@ -34,9 +34,12 @@
 #   backup 备选：首选没装、没密钥、受限账号不能用、文件夹在 deepseek_block 里时换它；
 #          首选那家额度告急或撞线、备选那家更宽裕时也换它（偏紧不换，质量优先）；不写就退回 Claude Sonnet
 # 老写法 design_model / dev_model / simple_model 仍然认（没写对应的 [split.xxx] 时）。
-# [split.design]               # 拿主意定方案（设计、梳理想法、写方案、架构设计、验收）
+# [split.design]               # 前端代码、页面、交互、视觉设计和审美
 # use = "opus"
-# [split.dev]                  # 照清楚的要求动手开发（写代码、做功能、改 bug）
+# [split.work]                 # 工作、文档、汇报、通知、论文、安排和进度跟踪
+# use = "gpt"
+# backup = "deepseek"           # 自动 GPT 任一额度窗口实际已用达 80% 转 DeepSeek
+# [split.dev]                  # 后端、脚本、算法等不涉及前端设计的开发
 # use = "sonnet"
 # [split.simple]               # 简单任务（查资料、整理文件、问答、小改动）
 # use = "sonnet"

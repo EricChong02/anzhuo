@@ -1,8 +1,8 @@
-"""分工表：什么活交给谁。新事分三档（router.KINDS：design 定方案 / dev 开发 / simple 其余），每档写
+"""分工表：什么活交给谁。新事分为设计、工作文档、开发、简单任务，每档写
 首选（Claude 的型号 opus / sonnet …，或别家引擎 gpt / deepseek / kimi）、别家的具体型号、深度，和首选用不了时的备选。
 
 新开对话、定时任务没点名模型时照它选；首选这家没装、没密钥、受限账号不能用、文件夹不许发给它（DeepSeek 禁区）时换备选，
-备选也不行就退回 Claude Sonnet。质量优先（2026-11-08 定：不为省额度降质量）：首选这家额度只是偏紧照用首选；
+备选也不行就退回 Claude Sonnet。2026-11-15：工作文档默认 GPT，自动选 GPT 时任一窗口已用达 80% 转 DeepSeek；明确点名优先。其他额度策略：首选这家额度只是偏紧照用首选；
 告急或撞线（quota.py 按用量和速度分档，快干不了活了）才换备选，且备选那家要更宽裕（或同是 Claude、换成更省的型号）。配置写法见 config.example.toml 的 [split]；老写法 design_model / dev_model / simple_model 也认。"""
 from __future__ import annotations
 
@@ -12,11 +12,13 @@ from pathlib import Path
 from . import engines, quota
 from .engines import EFFORTS, MODELS
 
-KINDS = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
-HELP = {"design": "做设计、梳理想法、写方案、架构设计、验收", "dev": "照清楚的要求写代码、做功能、改 bug",
+KINDS = {"design": "设计与前端", "work": "工作与文档", "dev": "开发", "simple": "简单任务"}
+HELP = {"design": "前端代码、页面、交互、视觉设计、排版和审美", "work": "学校工作、文档、汇报、通知、工作安排与进度跟踪",
+        "dev": "后端、脚本、算法等不涉及界面设计的开发",
         "simple": "查资料、整理文件、问答、小改动"}
 FIELDS = ("use", "model", "effort", "backup")
-DEFAULT = {"design": {"use": "opus"}, "dev": {"use": "sonnet"}, "simple": {"use": "sonnet"}}
+DEFAULT = {"design": {"use": "opus"}, "work": {"use": "gpt", "backup": "deepseek"},
+           "dev": {"use": "sonnet"}, "simple": {"use": "sonnet"}}
 LEGACY = {"design": "design_model", "dev": "dev_model", "simple": "simple_model"}   # 老写法的键
 FALLBACK = "sonnet"
 WEIGHT = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}   # Claude 各型号多耗额度（额度紧时同家换更省的）
@@ -35,7 +37,8 @@ def normalize(raw: dict | None, legacy: dict | None = None) -> dict[str, dict]:
         if isinstance(r, str):   # [split] dev = "gpt" 这种简写
             r = {"use": r}
         if not isinstance(r, dict):
-            r = {"use": legacy[LEGACY[kind]]} if legacy.get(LEGACY[kind]) else DEFAULT[kind]
+            old = LEGACY.get(kind)
+            r = {"use": legacy[old]} if old and legacy.get(old) else DEFAULT[kind]
         out[kind] = row(**{k: str(r.get(k) or "").strip() for k in FIELDS})
         out[kind]["use"] = out[kind]["use"] or DEFAULT[kind]["use"]
     return out
@@ -136,33 +139,72 @@ def _roomier(use: str, backup: str, levels: dict) -> bool:
 
 
 def choose(cfg, kind: str | None, paths: list[Path | str] = (), fenced: bool = False, engine: str | None = None,
-           levels: dict | None = None) -> Choice:
+           levels: dict | None = None, limits_gpt: dict | None = None) -> Choice:
     """按分工表给这一档挑：首选能用就首选，不行换备选，再不行 Claude Sonnet。
-    engine = 已经点名了哪家（总管写了 engine=claude 却没写型号）：只在这家里挑，不看额度。
+    engine = 用户明确点名了哪家：只在这家里挑，不看额度。
     levels = 各家额度现在在哪一档（Bridge.quota_levels）：首选这家告急 / 撞线时，备选更宽裕就换备选（偏紧不换，质量优先）。"""
     table = getattr(cfg, "split", None) or normalize(None)
     r = table.get(kind or "simple") or table["simple"]
+    levels = levels or {}
+    # 明确点名的引擎优先，不因额度改成别家。
     if engine == engines.CLAUDE.key:
         return Choice(next((x for x in (r["use"], r["backup"]) if x in MODELS), FALLBACK), "", r["effort"])
     if engine:
         return Choice(engine, r["model"] if r["use"] == engine else "", r["effort"])
-    levels = levels or {}
+
+    def automatic(c: Choice) -> Choice:
+        used = max((w["used"] for w in quota.forecast(limits_gpt or {}).values()), default=0)
+        if (c.pick == "gpt" and (used >= .8 or (not limits_gpt and levels.get("gpt") == "撞线"))
+                and not usable("deepseek", list(paths), fenced, cfg)):
+            return Choice("deepseek", effort=c.effort,
+                          note=f"GPT 额度已用 {used:.0%}，自动转给 DeepSeek" if used >= .8 else "GPT 额度用完，自动转给 DeepSeek")
+        return c
+
+    if (family(r["use"]) == engines.CLAUDE.key and levels.get("claude") == "撞线"
+            and levels.get("gpt") != "撞线" and not usable("gpt", list(paths), fenced, cfg)):
+        return automatic(Choice("gpt", note="Claude 额度用完，自动转给 GPT"))
     why = usable(r["use"], list(paths), fenced, cfg)
     backup_ok = bool(r["backup"]) and not usable(r["backup"], list(paths), fenced, cfg)
     if not why:
+        primary = Choice(r["use"], "" if r["use"] in MODELS else r["model"], r["effort"])
+        adjusted = automatic(primary)
+        if adjusted.pick != primary.pick:
+            return adjusted
         lv = levels.get(family(r["use"]), "充足")
-        if lv in quota.SWITCH and backup_ok and _roomier(r["use"], r["backup"], levels):
-            return Choice(r["backup"], "", r["effort"], note=f"{_label(r['use'])} 额度{lv}，换备选")
+        # GPT → DeepSeek 按实际 80% 门槛，不因速度预测在低用量时提前切换。
+        exact_gpt = r["use"] == "gpt" and r["backup"] == "deepseek"
+        if not exact_gpt and lv in quota.SWITCH and backup_ok and _roomier(r["use"], r["backup"], levels):
+            return automatic(Choice(r["backup"], "", r["effort"], note=f"{_label(r['use'])} 额度{lv}，换备选"))
         if lv == "撞线" and not backup_ok and family(r["use"]) != family(FALLBACK) and levels.get(family(FALLBACK)) != "撞线":
             return Choice(FALLBACK, "", r["effort"], note=f"{_label(r['use'])} 额度撞线")
-        return Choice(r["use"], "" if r["use"] in MODELS else r["model"], r["effort"])
+        return primary
     if backup_ok:
-        return Choice(r["backup"], "", r["effort"], note=f"首选 {_label(r['use'])} 用不了（{why}），换备选")
+        return automatic(Choice(r["backup"], "", r["effort"], note=f"首选 {_label(r['use'])} 用不了（{why}），换备选"))
     return Choice(FALLBACK, "", r["effort"], note=f"首选 {_label(r['use'])} 用不了（{why}）")
 
 
+async def auto_choose(bridge, kind: str | None, paths=(), fenced: bool = False, engine: str | None = None) -> Choice:
+    """自动分流前刷新 GPT 额度（沿用两分钟缓存）；明确指定引擎不查询、不降级。"""
+    def pick():
+        return choose(bridge.cfg, kind, paths, fenced=fenced, engine=engine, levels=bridge.quota_levels,
+                      limits_gpt=getattr(bridge.runner, "limits_gpt", {}))
+
+    c = pick()
+    r = bridge.cfg.split.get(kind or "simple", bridge.cfg.split["simple"])
+    may_use_gpt = (c.pick == "gpt" or "gpt" in (r["use"], r["backup"])
+                   or (family(r["use"]) == "claude" and bridge.quota_levels.get("claude") == "撞线"))
+    if not engine and not fenced and may_use_gpt and engines.CODEX.available():
+        try:
+            await bridge.runner.refresh_gpt_usage()
+        except Exception:  # 读不到时沿用已有读数，不编造额度。
+            import logging
+            logging.getLogger(__name__).warning("自动分流前读取 GPT 额度失败", exc_info=True)
+        c = pick()
+    return c
+
+
 def describe(cfg) -> str:
-    """一行说清分工表（给总管看）：定方案用 opus，开发用 gpt（备选 sonnet），其余用 sonnet。"""
+    """一行说清分工表（给总管看）：设计与前端用 opus，工作与文档用 gpt（备选 deepseek），开发用 sonnet。"""
     table = getattr(cfg, "split", None) or normalize(None)
     parts = []
     for kind, name in KINDS.items():

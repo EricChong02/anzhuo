@@ -306,12 +306,12 @@ class Bridge:
         if kind is None:
             kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
             if router and text and not model and not inline_overrides(text)[0]:
-                kind = await router.classify_kind(text) or kind   # 不在代码仓也要判断：梳理想法、写方案这类定方案的活照分工表的 design 档
+                kind = await router.classify_kind(text) or kind   # 按内容区分工作文档、前端设计与其他开发
         s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root, boss=boss)
         said_model, said_effort = inline_overrides(text)
         chosen = None
         if not (model or said_model):   # 没指定时照分工表挑（首选用不了换备选）
-            chosen = split.choose(self.cfg, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine, levels=self.quota_levels)
+            chosen = await split.auto_choose(self, kind, [cwd, *add_dirs], fenced=bool(root), engine=engine)
             model, engine_model = MODELS.get(chosen.pick, chosen.pick), engine_model or chosen.model or None
             effort = effort or chosen.effort or None
         alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号

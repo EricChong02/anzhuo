@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from dataclasses import dataclass, field
 
 from .folders import display
@@ -42,6 +43,7 @@ class Turn:
     partial: str = ""  # 正在写的那段回复（边写边给网页看；写完进 timeline 后清空）
     reviews: list = field(default_factory=list)  # 审核员替你判断过的危险命令：{"allow", "what", "why", "cmd"}
     plan: list = field(default_factory=list)  # 这件事拆成的几步：{text, status: pending/doing/done}
+    agent_tools: dict = field(default_factory=dict)  # tool_use_id → 助手名称、模型或命令类型
     agents: dict = field(default_factory=dict)  # 派出去的助手（子代理、后台命令）：task_id → {name, t0, t1, status, last}
     confirm: dict | None = None  # 正在等你确认的危险操作：{"what": 人话, "cmd": 命令, "fut": 等你点的结果}
     last_at: float = 0.0  # 最近一次有动静（新的一步、一段话、助手进展）：网页据此提示“好一会儿没动静了”
@@ -223,3 +225,12 @@ def build(label: str, turn: Turn, cwd: str, limits: dict | None = None) -> tuple
     body.append("\n\n".join(tail))
     body += [f"**注意**：{w}" for w in warns]
     return f"{title or '回复'} · {what}", to_md("\n\n".join(body))
+
+
+def live_agents(turn: Turn) -> list[dict]:
+    """运行项完整列表；助手与后台命令保留类型，避免截断后漏掉还在跑的助手。"""
+    now = time.time()
+    return [{"name": a["name"], "kind": a.get("kind", "助手"), "status": a["status"],
+             "model": model_name(a.get("model", "")), "model_source": a.get("model_source", ""),
+             "last": a.get("last", ""), "secs": max(0, int((a.get("t1") or now) - a["t0"]))}
+            for a in turn.agents.values() if a.get("status") == "running"]

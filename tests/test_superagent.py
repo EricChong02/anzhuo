@@ -447,3 +447,30 @@ def test_new_session_engine_and_model(tmp_path, monkeypatch):
         assert (await t["new_session"]({"task": "x", "engine": "claude", "model": "gpt-4"}))["isError"]
 
     asyncio.run(go())
+
+
+def test_automatic_worker_uses_work_split_and_quota(tmp_path, monkeypatch):
+    import pytest
+    router = pytest.importorskip("anzhuo.router")
+    from anzhuo.engines import CODEX, DEEPSEEK
+
+    async def classify(text, timeout=15):
+        return 'work'
+    monkeypatch.setattr(router, 'classify_kind', classify)
+    monkeypatch.setattr(type(CODEX), 'available', lambda self: True)
+    monkeypatch.setattr(type(DEEPSEEK), 'available', lambda self: True)
+
+    async def go():
+        b = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path/'data')
+        b.runner.limits_gpt = {'five_hour': (.8, None)}
+        submitted = []
+
+        async def submit(s, text, inc, opening=''):
+            submitted.append(s)
+        monkeypatch.setattr(b, 'submit', submit)
+        _, t = _tools(b)
+        await t['new_session']({'task': '写工作总结'})
+        assert submitted[-1].engine == 'deepseek'
+        await t['new_session']({'task': '写工作总结', 'engine': 'gpt'})
+        assert submitted[-1].engine == 'codex'
+    asyncio.run(go())

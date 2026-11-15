@@ -50,16 +50,19 @@ function planHTML(list, compact) {
   const rest = compact && list.length > 3 ? list.length - at - shown.length : 0;
   return `<div class="plan" data-p="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步</div>${shown.map(([x, i]) => row(x, i)).join('')}${rest > 0 ? `<div class="ps more"><span class="n">…</span><span class="an">还有 ${rest} 步</span></div>` : ''}</div>`;
 }
-// 派出去的助手（子代理、后台命令）：一行一个，在跑的转圈、做完打勾
+// 助手与后台命令分开计数，运行项全部显示；名称、模型和当前动作分开。
 function agentsHTML(list) {
-  if (!list.length) return '';
-  const run = list.filter(a => a.status === 'running').length;
-  const mark = {running: '<i class="spin"></i>', done: '<span class="ok">✓</span>', failed: '<span class="bad">✕</span>', stopped: '<span class="bad">■</span>'};
-  if (!run) return '';   // 都做完了就不占地方
-  list = list.filter(a => a.status === 'running').slice(-3);
-  return `<div class="agents"><div class="ah">${run} 个助手在跑</div>${list.map(a =>
-    `<div class="ag ${a.status}">${mark[a.status] || ''}<span class="an">${esc(a.name)}</span><span class="am">${a.status === 'running' && a.last ? esc(a.last) + ' · ' : ''}${dur(a.secs)}</span></div>`).join('')}</div>`;
+  const active = list.filter(a => a.status === 'running');
+  const agents = active.filter(a => a.kind !== '命令');
+  const commands = active.filter(a => a.kind === '命令');
+  const rows = items => items.map(a => {
+    const model = a.kind === '命令' ? '后台命令' : (a.model || '模型未报告') + (a.model_source === 'configured' ? '（配置）' : '');
+    return `<div class="ag ${a.status}"><i class="spin"></i><span class="an" style="white-space:normal;overflow-wrap:anywhere"><b>${esc(a.name)}</b><small style="display:block;color:var(--mute)">${esc(model)}${a.last ? ' · ' + esc(a.last) : ''}</small></span><span class="am">${dur(a.secs)}</span></div>`;
+  }).join('');
+  return (agents.length ? `<div class="agents"><div class="ah">${agents.length} 个助手在跑</div>${rows(agents)}</div>` : '')
+    + (commands.length ? `<details class="agents"><summary class="ah">${commands.length} 条后台命令在运行</summary>${rows(commands)}</details>` : '');
 }
+
 function procHTML(list, pid, tid) {
   const ck = t => esc(String(t).slice(0, 80));
   return `<div class="plist" data-pid="${esc(pid)}">${list.map(e => e.wait

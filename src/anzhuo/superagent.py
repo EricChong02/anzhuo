@@ -41,7 +41,6 @@ STATE_CN = {"ready": "做完了", "waiting": "这轮做完，等后续", "blocke
             "progress": "在做", "stopped": "被停下了", "error": "出错了", "asked": "在等用户定"}
 NOTES_MAX = 20   # 总管下次开口前要看的“期间的情况”最多攒几条
 REPORT_MAX = 4000   # 回报正文最多带多少字；再长总管用 session_status 看
-LIMIT_WAIT = 3600   # 派出去的活撞了额度：一小时内恢复就等它自动接着做，再久就换另一家接力接着做
 TAGS = ("【回报】", "【退回】", "【要用户定】", "【重启】")   # 给总管的消息；网页里折成卡片
 
 RULES = """
@@ -49,10 +48,10 @@ RULES = """
 - 你只路由，不亲自干活：不改文件、不跑命令、不上网查、不替对话设计方案或拆步骤，也不凭自己的知识回答用户的问题（知识问答、写东西、出主意都是活）。真正的活都交给对话去做，按分派规则选引擎。你自己只回答关于对话本身的问题：哪些对话在做什么、做到哪了、结果在哪。
 - 派活时把用户的原话原样交出去（可以在前面加一句不超过 30 字的背景，比如“接着 #12 的结果”），不要改写成你自己的计划。
 - 先用 list_sessions 看看有没有正在做同一件事的对话：用户明确指着某个对话（说了编号、说“刚才那个”且只对得上一个）就用 send_to_session 交给它；只是话题相近，算新的事，用 new_session 新开。
-- 选引擎和模型：用户点名就照办；没点名就照下面“用户定的分派规则”；规则没写到就都不填（用默认）。派活后告诉用户用的是哪个引擎、哪个模型。
+- 选引擎和模型：用户点名就照办；没点名就照下面“用户定的分派规则”；自动分流时 engine、model 都不填，由任务分类和分工表落实额度规则；只有用户点名时才填。派活后告诉用户用的是哪个引擎、哪个模型。
 - 派完就结束这一轮，用一句话告诉用户交给了谁（#编号）。不要等、不要反复查状态：对话做完、要用户定、出错时会自动给你发消息。
 - 【回报】：做完了就用一两句话告诉用户结论和去哪看全文（#编号），不要整段复述、不要重新排版它的列表；卡住或做不成就说清楚卡在哪、要用户做什么。同一件事已经说过的进展不要重复说。
-- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；离恢复很久时系统会自动换另一家接力（会告诉你新编号）。用户要求换家、或对话太长时，用 relay_session。
+- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；不得因为额度耗尽自行换家接力；只有用户明确要求换家时，才用 relay_session。对话太长的接力仍按原规则。
 - 【要用户定】：把对话的问题原样转给用户（选项、推荐都带上），一次只问一个。
 - 【退回】：某个对话说这句话不属于它那件事。重新判断：另开新对话、交给别的对话，或者问用户；不要再交回给退回它的那个对话。
 - 【期间的情况】：你上次说话之后发生的事（用户直接跟某个对话说了什么、对话的进展）。只当背景，已经告诉过用户的不要再说。
@@ -70,7 +69,7 @@ WORKER_RULES = """
 
 # 总管不亲自干活：改文件、跑命令、上网查、派子助手都不行（读文件、找文件夹还可以）
 DISALLOWED = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "BashOutput", "Task", "Agent", "WebSearch", "WebFetch",
-              "mcp__anzhuo__generate_images", "mcp__anzhuo__send_files", "mcp__anzhuo__send_images"]
+              "mcp__anzhuo__generate_images", "mcp__anzhuo__delegate_code", "mcp__anzhuo__send_files", "mcp__anzhuo__send_images"]
 BUILTIN = ["Read", "Glob", "Grep"]   # 总管能看到的内置工具：只能读、找
 DENY_REASON = "你是总管，不亲自干活。用 new_session 开个对话去做，或用 send_to_session 交给已有的对话。"
 RECOVER = ("（远窗重启了，打断了你上一轮。先看看工作文件夹、git 状态和你已经做过的外部操作（提交、推送、发消息），"
@@ -214,6 +213,7 @@ def engine_hint(bridge: "Bridge") -> str:
         lines.append(f"  - engine={k}（{v['name']}）：{models}；不填 model 时：{v['default']}")
     rules = (bridge.cfg.super_agent_routing or "").strip()
     return ("- 这台电脑上能用的引擎和模型（new_session 的 engine / model 只能从这里选）：\n" + "\n".join(lines) + "\n"
+            + f"- 默认分工表：{split.describe(bridge.cfg)}。自动选 GPT 时任一额度窗口已用达 80% 转 DeepSeek；明确点名不覆盖。\n"
             + (f"- 用户定的分派规则（没点名时照这个选引擎和模型）：\n{rules}\n" if rules else "- 用户没定分派规则：没点名就都不填。\n"))
 
 
@@ -278,7 +278,7 @@ def tools(bridge: "Bridge", router: Session) -> list:
 
     @tool("new_session", "开一个新对话去做一件事，立刻开工。task 写用户的原话（可加一句背景）；"
           "folder 可写文件夹短名、完整路径或文件夹名里的几个字，不写就用临时文件夹；"
-          "engine、model 按用户点名或用户定的分派规则填（只能从系统提示里列出的能用的引擎和模型里选），都没有就不填。",
+          "engine、model 只有用户明确点名时才填；自动分流时都不填，由系统按任务内容和额度选择。",
           {"type": "object", "properties": {"task": {"type": "string"}, "folder": {"type": "string"},
                                             "engine": {"type": "string", "enum": [e.key for e in engines.known()]},
                                             "model": {"type": "string"}}, "required": ["task"]})
@@ -485,8 +485,6 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
             router.__dict__.setdefault("_handed", {}).setdefault(said[:80], set()).add(s.num)
             await tell(bridge, router, f"【退回】#{s.num} {s.name}：{back}\n\n这句话：{said}")
             return True
-        if turn.via == VIA and _limit_switch(bridge, router, s):
-            return True   # 撞线又要等很久：换另一家接力，换好告诉总管
         if turn.via != VIA:   # 你直接在这个对话里说的：照旧直接告诉你；给总管记一笔
             note(router, f"#{s.num} {s.name}（用户直接说的）{STATE_CN.get(s.ticket, s.ticket)}：{(rep or {}).get('summary') or turn.final_text[:120]}")
             bridge.registry.save()
@@ -501,28 +499,6 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
         log.exception("回报给总管失败 #%s", s.num)
         return False
     return True
-
-
-_tasks: set = set()
-
-
-def _limit_switch(bridge: "Bridge", router: Session, s: Session) -> bool:
-    """总管派的活撞了额度、离恢复超过 LIMIT_WAIT：换到另一家（不紧的）接力接着做。返回 True = 换了，这一轮不再回报。"""
-    wait = s.limit_until - time.time()
-    alts = [t for t in bridge.relays.targets(s) if t["level"] in ("充足", "偏紧")]
-    if wait <= LIMIT_WAIT or not alts:
-        return False
-    task = asyncio.create_task(_switch(bridge, router, s, alts[0]))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
-    return True
-
-
-async def _switch(bridge: "Bridge", router: Session, s: Session, to: dict) -> None:
-    at = time.strftime("%H:%M", time.localtime(s.limit_until))
-    msg = await bridge.relays.start(s.num, via=VIA, to=to["to"], go=True, wait_idle=30)
-    await tell(bridge, router, f"【回报】#{s.num} {s.name}：卡在{engines.get(s.engine).label}额度，{at} 才恢复，"
-                               f"按规则换 {to['label']} 接力接着做。{msg}")
 
 
 # ---------- 远窗重启 ----------

@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 # 给每个对话追加的固定要求。这几条是远窗与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
 # 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
 RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
+代码协作：只有可独立拆清、交接成本值得的成块后端、算法、数据处理或性能任务，才调用 delegate_code 委派 GPT；先定接口、允许改动的相对路径、测试和验收标准并说明委派理由。前端、视觉、文案、整体拆解与最终验收自己做；一两行修补、普通问答、强依赖当前上下文的小任务自己完成，不因 GPT 有额度就派活。工具会检查 GPT 最新额度，额度未知或不足就自己处理。子任务在隔离副本执行；等待期间不要修改同一范围。返回后必须读补丁和报告，审查后用 git apply --check 检查原项目冲突再整合，自己跑测试，不凭 GPT 自述当作验收。仅有明确问题才带 job_id 追加修正，最多三轮，通过即停止。Claude 中途额度耗尽不得让 GPT 自动接管。
 做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
@@ -50,7 +51,7 @@ def build_instructions(language: str = "简体中文", extra: str = "") -> str:
 def build_user_instructions(root: str, language: str = "简体中文", extra: str = "") -> str:
     """受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提远窗自己怎么重启。"""
     text = build_instructions(language, extra)
-    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "anzhuo" not in ln) + (
+    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "anzhuo" not in ln) + (
         f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
 
 
@@ -293,8 +294,22 @@ class ClaudeEngine(Engine):
                     result = {"state": "failed", "images": [], "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
+        @tool("delegate_code", "将值得独立交接的成块后端、算法、数据或性能工作委派 GPT。必须明确理由、接口、范围、验收；小修补自己做。额度确认充足才派，返回隔离补丁供你审查测试，原项目不自动修改。job_id 仅用于同任务最多三轮追加修正。",
+              {"type": "object", "properties": {
+                  "kind": {"type": "string", "enum": ["backend", "algorithm", "data", "performance"]},
+                  "task": {"type": "string"}, "why": {"type": "string"},
+                  "paths": {"type": "array", "items": {"type": "string"}},
+                  "acceptance": {"type": "string"}, "job_id": {"type": "string"}},
+               "required": ["kind", "task", "why", "paths", "acceptance"]})
+        async def delegate_code(args):
+            try:
+                result = await runner._delegate_code(session, turn, args) if session else {"state": "skipped", "error": "没有工作对话"}
+            except (ValueError, OSError) as exc:
+                result = {"state": "failed", "error": str(exc)[:500]}
+            return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
+
         extra = role(runner, session).get("tools", []) if session else []
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images]) + extra)
+        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images, delegate_code]) + extra)
 
     # ---------- 跑一轮 ----------
     # ---------- 换后端的引擎（DeepSeek 等，同样是 Claude Code）改这几处 ----------
@@ -353,7 +368,7 @@ class ClaudeEngine(Engine):
         async with ClaudeSDKClient(options=options) as client:
             runner.live[s.num] = client
             try:
-                last_text, results = await self._read(client, s, job, turn)
+                last_text, results = await self._read(client, s, job, turn, runner.subagent_model)
                 try:
                     usage = await client.get_context_usage()
                     s.context_tokens = int(usage.get("totalTokens") or 0) or None
@@ -371,7 +386,7 @@ class ClaudeEngine(Engine):
             return min(100.0, 100.0 * used / self.context_window)
         return float(usage["percentage"])
 
-    async def _read(self, client: ClaudeSDKClient, s: "Session", job: "Job", turn: "Turn") -> tuple[str, list[str]]:
+    async def _read(self, client: ClaudeSDKClient, s: "Session", job: "Job", turn: "Turn", subagent_model: str = "") -> tuple[str, list[str]]:
         """把你的话送进去，逐条读事件翻成步骤、说明、回复，直到这一轮真正结束。返回 (最后一段话, 各次结果)。"""
         await client.query(self.prompt(job))
         last_text = ""
@@ -405,8 +420,12 @@ class ClaudeEngine(Engine):
                         turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
             elif isinstance(msg, AssistantMessage):
                 turn.partial = ""
-                if msg.model:
+                if msg.model and msg.parent_tool_use_id is None:
                     turn.model = msg.model
+                elif msg.model:
+                    for agent in turn.agents.values():
+                        if agent.get("tool") == msg.parent_tool_use_id:
+                            agent.update(model=msg.model, model_source="observed")
                 for b in msg.content:
                     if isinstance(b, ThinkingBlock) and b.thinking.strip():
                         turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
@@ -417,6 +436,7 @@ class ClaudeEngine(Engine):
                 sub = sub_name(turn, msg.parent_tool_use_id)
                 for b in msg.content:
                     if isinstance(b, ToolUseBlock):
+                        remember_agent_tool(turn, b, self.model_for(s) if self.key == "deepseek" else subagent_model or turn.model or s.model)
                         if label := step_label(b.name, b.input or {}):
                             turn.steps.append(label)
                             e = {"t": time.time(), "kind": "do", "text": label, "detail": _tool_detail(b.name, b.input or {})}
@@ -461,13 +481,35 @@ class ClaudeEngine(Engine):
         return last_text, results
 
 
+def remember_agent_tool(turn, block, default_model="") -> None:
+    """先记工具调用元数据，task_started 用 tool_use_id 对应，不能把命令冒充助手。"""
+    if block.name not in ("Agent", "Task", "Bash"):
+        return
+    from . import MODELS
+    inp = block.input or {}
+    if block.name == "Bash":
+        meta = {"kind": "命令", "name": inp.get("description") or "后台命令"}
+    else:
+        model = inp.get("model") or default_model or ""
+        if model == "inherit":
+            model = default_model or ""
+        meta = {"kind": "助手", "name": inp.get("name") or inp.get("description") or "助手",
+                "model": MODELS.get(model, model), "model_source": "configured" if model else ""}
+    turn.agent_tools[block.id] = meta
+    for agent in turn.agents.values():
+        if agent.get("tool") == block.id:
+            agent.update(meta)
+
+
 def track_agent(turn, msg) -> None:
     """记下派出去的助手：开始、做到哪一步、结束。网页“在做”卡片和过程里按这个显示。"""
     a = turn.agents.get(msg.task_id)
     if isinstance(msg, TaskStartedMessage):
-        kind = "命令" if "bash" in (msg.task_type or "") else "助手"
-        turn.agents[msg.task_id] = {"name": _short_desc(msg.description), "kind": kind, "t0": time.time(), "t1": 0,
-                                    "status": "running", "last": "", "tool": msg.tool_use_id}
+        meta = turn.agent_tools.get(msg.tool_use_id, {})
+        kind = meta.get("kind") or ("命令" if any(x in (msg.task_type or "").lower() for x in ("bash", "command", "shell")) else "助手")
+        turn.agents[msg.task_id] = {"name": meta.get("name") or msg.description or "助手", "kind": kind,
+                                    "model": meta.get("model", ""), "model_source": meta.get("model_source", ""),
+                                    "t0": time.time(), "t1": 0, "status": "running", "last": "", "tool": msg.tool_use_id}
         return
     if a is None:
         return

@@ -141,7 +141,7 @@ def schema() -> list[dict]:
              "adv": f.adv, "when": f.when}
         if f.kind == "int":
             d["range"] = list(f.rng)
-        if f.kind == "split":   # 分工表：三档 × 首选 / 型号 / 深度 / 备选
+        if f.kind == "split":   # 分工表：任务类别 × 首选 / 型号 / 深度 / 备选
             d["rows"] = [[k, name, split.HELP[k]] for k, name in split.KINDS.items()]
             d["picks"] = [list(o) for o in split.picks()]
             d["efforts"] = [list(o) for o in split.efforts()]
