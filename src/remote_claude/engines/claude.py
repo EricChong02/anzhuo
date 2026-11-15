@@ -40,7 +40,7 @@ RULES = COLLABORATION_RULES + """需要AI生图或改图时，调用 generate_im
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
 动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__xiaoe__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
-这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
+耗时验收、上线和长命令调用 run_command 托管并等真实结果；工具执行期间用户能看见任务状态，日志、心跳和退出码独立保存。不要用 Bash 的 run_in_background、nohup 或 & 启动这些活再结束回复；启动不代表完成。run_command 返回后检查 exit_code 与日志，失败、中断、超时都不能算通过。用 command_status 可查当前对话先前的托管任务，不自动重复运行。长期预览服务与 Monitor 不作为验收结果。
 """
 
 
@@ -53,7 +53,7 @@ def build_instructions(language: str = "简体中文", extra: str = "") -> str:
 def build_user_instructions(root: str, language: str = "简体中文", extra: str = "") -> str:
     """受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提小E 自己怎么重启。"""
     text = build_instructions(language, extra).replace(COLLABORATION_RULES, "")
-    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "remote-claude" not in ln) + (
+    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "run_command" not in ln and "remote-claude" not in ln) + (
         f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
 
 
@@ -147,6 +147,9 @@ class ClaudeEngine(Engine):
     def guard(runner: "Runner", s: "Session", turn: "Turn"):
         """Bash 跑之前：危险的交给 policy 问人；同意就明确放行，不同意就拒并告诉它别绕过去。"""
         async def hook(data, tool_use_id, context):
+            if (data.get('tool_input') or {}).get('run_in_background'):
+                return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                        'permissionDecisionReason': '普通后台命令会在回复结束时被清理。长验收请调用 run_command 等结果；受限账号使用前台 Bash。'}}
             cmd = str((data.get("tool_input") or {}).get("command") or "")
             allow = await policy.approve(runner, s, turn, policy.EXECUTE, cmd)
             if allow is None:
@@ -310,9 +313,77 @@ class ClaudeEngine(Engine):
                 result = {"state": "failed", "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
+        from ..command_jobs import CommandJobs
+
+        def jobs():
+            return CommandJobs(runner.registry.path.parent / 'command_jobs')
+
+        @tool('run_command', '托管耗时命令并等待真实退出结果。保存独立日志、心跳和退出码，页面持续显示运行状态。不能用来启动永久服务，不能用后台 &；最长一小时。危险操作仍经审核。',
+              {'type': 'object', 'properties': {'command': {'type': 'string'}, 'title': {'type': 'string'},
+               'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 3600}}, 'required': ['command', 'title']})
+        async def run_command(args):
+            def progress(data):
+                state = data['state']
+                last = {'running': '运行中', 'completed': '命令通过', 'failed': '命令失败',
+                        'timeout': '超时', 'interrupted': '已中断'}.get(state, state)
+                a = turn.agents.setdefault('command:' + data['job_id'], dict(name=data['title'], kind='命令',
+                                          t0=data['started'], t1=0))
+                a.update(status='running' if state == 'running' else 'done' if state == 'completed' else 'failed',
+                         last=last + (' · ' + data.get('tail', '').strip().split('\n')[-1][:160] if data.get('tail', '').strip() else ''),
+                         job_id=data['job_id'], log=data['log'], exit_code=data.get('exit_code'))
+                if state != 'running':
+                    a['t1'] = data.get('ended', time.time())
+                if a.get('_state') != state:
+                    a['_state'] = state
+                    turn.timeline.append(dict(t=time.time(), kind='do', text=data['title'] + '：' + last,
+                                              detail=f"任务 {data['job_id']}；退出码 {data.get('exit_code')}；日志 {data['log']}"))
+
+            try:
+                if not session or session.root or turn.interrupted:
+                    raise ValueError('当前对话不能运行托管命令')
+                command = str(args.get('command') or '')
+                if not command.strip() or len(command) > 64000:
+                    raise ValueError('命令为空或过长')
+                if role(runner, session).get('disallowed'):
+                    raise ValueError('当前角色不能亲自执行命令')
+                if await policy.approve(runner, session, turn, policy.EXECUTE, command) is False:
+                    raise ValueError('命令未通过审核，不得改写后绕过')
+                turn.commands.append(command[:200])
+                task = asyncio.create_task(jobs().run(session.num, session.cwd, command, str(args.get('title') or '托管命令'),
+                                          max(1, min(3600, int(args.get('timeout', 3600)))), progress))
+                # 复用生图/代码委派的父任务取消机制，手机的“停止”也能停掉命令。
+                tasks = runner.image_tasks.setdefault(session.num, set())
+                tasks.add(task)
+                try:
+                    result = await task
+                except asyncio.CancelledError:
+                    if not turn.interrupted:
+                        raise
+                    result = {'state': 'interrupted', 'error': '用户已停止托管命令'}
+                finally:
+                    tasks.discard(task)
+                    if not tasks:
+                        runner.image_tasks.pop(session.num, None)
+            except (ValueError, OSError) as exc:
+                result = {'state': 'failed', 'error': str(exc)[:300]}
+            return {'content': [{'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}],
+                    'isError': result['state'] != 'completed'}
+
+        @tool('command_status', '读取当前对话托管任务的真实状态。传 job_id 可查末尾日志；不传则列最近十条，不重跑任务。',
+              {'type': 'object', 'properties': {'job_id': {'type': 'string'}}})
+        async def command_status(args):
+            try:
+                if not session or session.root:
+                    raise ValueError('当前对话不能读取托管命令')
+                result = (jobs().status(session.num, str(args['job_id'])) if args.get('job_id')
+                          else {'jobs': jobs().recent(session.num)})
+            except (ValueError, OSError) as exc:
+                result = {'state': 'failed', 'error': str(exc)[:300]}
+            return {'content': [{'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}]}
+
         from ..collaboration import tools as collaboration_tools
         extra = (role(runner, session).get("tools", []) if session else []) + collaboration_tools(runner, session, turn)
-        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images, delegate_code]) + extra)
+        return create_sdk_mcp_server("xiaoe", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images, delegate_code, run_command, command_status]) + extra)
 
     # ---------- 跑一轮 ----------
     # ---------- 换后端的引擎（DeepSeek 等，同样是 Claude Code）改这几处 ----------
@@ -380,6 +451,11 @@ class ClaudeEngine(Engine):
                     log.debug("取上下文用量失败", exc_info=True)
             finally:
                 runner.live.pop(s.num, None)
+                for a in turn.agents.values():
+                    if a.get('kind') == '命令' and a.get('status') == 'running':
+                        a.update(status='stopped', t1=time.time(), last='连接已结束，未取得完整退出结果')
+                        turn.is_error = True
+                        turn.error = '后台命令中断，没有完整验收结果'
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or runner.default_effort
 

@@ -54,13 +54,13 @@ function planHTML(list, compact) {
 function agentsHTML(list) {
   const active = list.filter(a => a.status === 'running');
   const agents = active.filter(a => a.kind !== '命令');
-  const commands = active.filter(a => a.kind === '命令');
+  const commands = list.filter(a => a.kind === '命令');
   const rows = items => items.map(a => {
     const model = a.kind === '命令' ? '后台命令' : (a.model || '模型未报告') + (a.model_source === 'configured' ? '（配置）' : '');
-    return `<div class="ag ${a.status}"><i class="spin"></i><span class="an" style="white-space:normal;overflow-wrap:anywhere"><b>${esc(a.name)}</b><small style="display:block;color:var(--mute)">${esc(model)}${a.last ? ' · ' + esc(a.last) : ''}</small></span><span class="am">${dur(a.secs)}</span></div>`;
+    return `<div class="ag ${a.status}">${a.status === 'running' ? '<i class="spin"></i>' : ICON.step}<span class="an" style="white-space:normal;overflow-wrap:anywhere"><b>${esc(a.name)}</b><small style="display:block;color:var(--mute)">${esc(model)}${a.last ? ' · ' + esc(a.last) : ''}</small></span><span class="am">${dur(a.secs)}</span></div>`;
   }).join('');
   return (agents.length ? `<div class="agents"><div class="ah">${agents.length} 个助手在跑</div>${rows(agents)}</div>` : '')
-    + (commands.length ? `<details class="agents"><summary class="ah">${commands.length} 条后台命令在运行</summary>${rows(commands)}</details>` : '');
+    + (commands.length ? `<details class="agents" open><summary class="ah">${commands.filter(a => a.status === 'running').length} 条后台命令在运行${commands.some(a => a.status !== 'running') ? ' · 含已结束任务' : ''}</summary>${rows(commands)}</details>` : '');
 }
 
 function procHTML(list, pid, tid) {

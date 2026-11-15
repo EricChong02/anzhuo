@@ -39,7 +39,7 @@ class TurnsMixin:
             "id": tid, "label": label, "title": title, "request": turn.request, "said": turn.said, "cwd": cwd,
             "started": turn.started, "ended": turn.ended, "schedule_id": turn.schedule_id, "schedule_run_id": turn.schedule_run_id, "checkpoint_before": turn.checkpoint_before, "checkpoint_after": turn.checkpoint_after, "codex_turn_id": turn.codex_turn_id, "model": turn.model, "effort": turn.effort,
             "final_text": turn.final_text, "original_text": turn.original_text or turn.final_text,
-            "error": turn.error, "timeline": turn.timeline,
+            "error": turn.error, "timeline": turn.timeline, "command_jobs": [a for a in turn.agents.values() if a.get('job_id')],
             "changed_files": files, "commands": turn.commands, "images": kept_images, "files": kept_files,
             "links": self._turn_links(files, turn), "translated": turn.translated,
         }
@@ -131,6 +131,19 @@ class TurnsMixin:
                                        + (f'：{html.escape(x["title"])}' if x.get("title") else "") + "</a>" for x in links) + "</p>")
         if r.get("error"):
             out.append(f"<div class='card'><b>出错原因</b>：{html.escape(r['error'])}</div>")
+        if r.get('command_jobs'):
+            from ..command_jobs import CommandJobs
+            jobs = CommandJobs(self.store_path.parent / 'command_jobs')
+            states = {'running': '运行中', 'completed': '命令通过', 'failed': '命令失败', 'timeout': '超时', 'interrupted': '已中断'}
+            rows = []
+            for a in r['command_jobs']:
+                try:
+                    data = jobs.status(int(r['id'].split('-')[0]), a['job_id'])
+                    text = f"{data['title']}：{states.get(data['state'], '状态未知')}；退出码 {data.get('exit_code')}"
+                except (ValueError, OSError, KeyError):
+                    text = f"{a.get('name', '命令')}：任务记录不可读，不能确认结果"
+                rows.append('<p>' + html.escape(text) + '</p>')
+            out.append("<h2>托管命令实际状态</h2><div class='card'>" + ''.join(rows) + '</div>')
         if r.get("final_text"):
             out.append(f"<h2>结果</h2><div class='card say'>{_md(r['final_text'])}</div>")
         if r.get("images"):

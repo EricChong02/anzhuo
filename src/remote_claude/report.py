@@ -248,4 +248,4 @@ def live_agents(turn: Turn) -> list[dict]:
     return [{"name": a["name"], "kind": a.get("kind", "助手"), "status": a["status"],
              "model": model_name(a.get("model", "")), "model_source": a.get("model_source", ""),
              "last": a.get("last", ""), "secs": max(0, int((a.get("t1") or now) - a["t0"]))}
-            for a in turn.agents.values() if a.get("status") == "running"]
+            for a in turn.agents.values() if a.get("status") == "running" or a.get('job_id')]
