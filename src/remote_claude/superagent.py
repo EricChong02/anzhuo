@@ -41,7 +41,6 @@ STATE_CN = {"ready": "做完了", "waiting": "这轮做完，等后续", "blocke
             "progress": "在做", "stopped": "被停下了", "error": "出错了", "asked": "在等用户定"}
 NOTES_MAX = 20   # 总管下次开口前要看的“期间的情况”最多攒几条
 REPORT_MAX = 4000   # 回报正文最多带多少字；再长总管用 session_status 看
-LIMIT_WAIT = 3600   # 派出去的活撞了额度：一小时内恢复就等它自动接着做，再久就换另一家接力接着做
 TAGS = ("【回报】", "【退回】", "【要用户定】", "【重启】")   # 给总管的消息；网页里折成卡片
 
 RULES = """
@@ -52,7 +51,7 @@ RULES = """
 - 选引擎和模型：用户点名就照办；没点名就照下面“用户定的分派规则”；规则没写到就都不填（用默认）。派活后告诉用户用的是哪个引擎、哪个模型。
 - 派完就结束这一轮，用一句话告诉用户交给了谁（#编号）。不要等、不要反复查状态：对话做完、要用户定、出错时会自动给你发消息。
 - 【回报】：做完了就用一两句话告诉用户结论和去哪看全文（#编号），不要整段复述、不要重新排版它的列表；卡住或做不成就说清楚卡在哪、要用户做什么。同一件事已经说过的进展不要重复说。
-- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；离恢复很久时系统会自动换另一家接力（会告诉你新编号）。用户要求换家、或对话太长时，用 relay_session。
+- 回报说“卡在额度”：到点它会自动接着做，告诉用户几点恢复就行；不得因为额度耗尽自行换家接力；只有用户明确要求换家时，才用 relay_session。对话太长的接力仍按原规则。
 - 【要用户定】：把对话的问题原样转给用户（选项、推荐都带上），一次只问一个。
 - 【退回】：某个对话说这句话不属于它那件事。重新判断：另开新对话、交给别的对话，或者问用户；不要再交回给退回它的那个对话。
 - 【期间的情况】：你上次说话之后发生的事（用户直接跟某个对话说了什么、对话的进展）。只当背景，已经告诉过用户的不要再说。
@@ -485,8 +484,6 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
             router.__dict__.setdefault("_handed", {}).setdefault(said[:80], set()).add(s.num)
             await tell(bridge, router, f"【退回】#{s.num} {s.name}：{back}\n\n这句话：{said}")
             return True
-        if turn.via == VIA and _limit_switch(bridge, router, s):
-            return True   # 撞线又要等很久：换另一家接力，换好告诉总管
         if turn.via != VIA:   # 你直接在这个对话里说的：照旧直接告诉你；给总管记一笔
             note(router, f"#{s.num} {s.name}（用户直接说的）{STATE_CN.get(s.ticket, s.ticket)}：{(rep or {}).get('summary') or turn.final_text[:120]}")
             bridge.registry.save()
@@ -501,28 +498,6 @@ async def on_turn_done(bridge: "Bridge", s: Session, turn) -> bool:
         log.exception("回报给总管失败 #%s", s.num)
         return False
     return True
-
-
-_tasks: set = set()
-
-
-def _limit_switch(bridge: "Bridge", router: Session, s: Session) -> bool:
-    """总管派的活撞了额度、离恢复超过 LIMIT_WAIT：换到另一家（不紧的）接力接着做。返回 True = 换了，这一轮不再回报。"""
-    wait = s.limit_until - time.time()
-    alts = [t for t in bridge.relays.targets(s) if t["level"] in ("充足", "偏紧")]
-    if wait <= LIMIT_WAIT or not alts:
-        return False
-    task = asyncio.create_task(_switch(bridge, router, s, alts[0]))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
-    return True
-
-
-async def _switch(bridge: "Bridge", router: Session, s: Session, to: dict) -> None:
-    at = time.strftime("%H:%M", time.localtime(s.limit_until))
-    msg = await bridge.relays.start(s.num, via=VIA, to=to["to"], go=True, wait_idle=30)
-    await tell(bridge, router, f"【回报】#{s.num} {s.name}：卡在{engines.get(s.engine).label}额度，{at} 才恢复，"
-                               f"按规则换 {to['label']} 接力接着做。{msg}")
 
 
 # ---------- 远窗重启 ----------
