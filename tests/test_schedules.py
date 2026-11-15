@@ -173,3 +173,29 @@ def test_dispatch_through_real_runner_and_mock_model(tmp_path,monkeypatch):
         assert task['state']=='completed' and not task['enabled'] and len(dt.sent)==1
         assert b.runner.last[task['target']].schedule_id==task['id']
     asyncio.run(go())
+
+
+def test_scheduled_work_uses_classifier_and_quota(tmp_path, monkeypatch):
+    router = pytest.importorskip("remote_claude.router")
+    from remote_claude.app import Bridge
+    from remote_claude.config import Config
+    from remote_claude.engines import CODEX, DEEPSEEK
+    from test_bridge import FakeDT
+
+    async def classify(text, timeout=15):
+        return 'work'
+    monkeypatch.setattr(router, 'classify_kind', classify)
+    monkeypatch.setattr(type(CODEX), 'available', lambda self: True)
+    monkeypatch.setattr(type(DEEPSEEK), 'available', lambda self: True)
+
+    async def go():
+        b = Bridge(Config(scratch_root=str(tmp_path/'scratch')), FakeDT(), tmp_path/'data')
+        b.runner.limits_gpt = {'seven_day': (.8, None)}
+        submitted = []
+        monkeypatch.setattr(b.runner, 'submit', lambda s, j: submitted.append(s))
+        for model, expected in [('auto', 'deepseek'), ('gpt', 'codex'), ('opus', 'claude')]:
+            t = b.jobs.create(later(prompt='汇报工作进度', model=model))
+            t['run_id'] = model
+            await b.jobs.dispatch(t)
+            assert submitted[-1].engine == expected
+    asyncio.run(go())

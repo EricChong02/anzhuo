@@ -37,3 +37,13 @@ def _no_deepseek_key(monkeypatch):
     """测试里不读钥匙串、不真的连 DeepSeek（翻译、任务分组、判断档位都会退回 Haiku 那条路）。"""
     from remote_claude import deepseek_api
     monkeypatch.setattr(deepseek_api, "key", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_gpt_quota(monkeypatch):
+    """自动分流可读取额度，测试默认不启动真实 Codex；特定用例自行覆盖。"""
+    from remote_claude import codex
+
+    async def fake():
+        return {}
+    monkeypatch.setattr(codex, "rate_limits", fake)

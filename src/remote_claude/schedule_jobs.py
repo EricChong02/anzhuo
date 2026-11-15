@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import engines, folders, split
+try:
+    from . import router
+except ImportError:  # 开源版不带分派员。
+    router = None
 from .engines import MODELS
 from .intent import _looks_like_project, inline_overrides
 from .sessions import Job, Session
@@ -49,7 +53,7 @@ class ScheduleJobs:
             if inc.image_codes or inc.local_images or inc.files:
                 raise ValueError("定时任务请先用文字创建；需要的文件放在工作目录中")
             m, e = inline_overrides(cmd.text)
-            model = "gpt" if m == "gpt" else next((k for k, v in MODELS.items() if v == m), "auto")
+            model = m if m in ("gpt", "deepseek") else next((k for k, v in MODELS.items() if v == m), "auto")
             plan.update(target=cmd.num or (b.registry.current if re.search("这个对话|接着|继续", cmd.text) else None),
                         model=model, effort=e or "medium")
             task = self.create(plan)
@@ -87,8 +91,10 @@ class ScheduleJobs:
             if not cwd.is_dir(): raise ValueError("工作文件夹不存在")
             if await asyncio.to_thread(folders.blocked, [cwd]):
                 raise ValueError("工作文件夹不可访问")
-            if model == "auto":   # 没点名：按分工表（代码仓里按开发，别处按简单任务）
-                c = split.choose(b.cfg, "dev" if _looks_like_project(cwd) else "simple", [cwd], levels=b.quota_levels)
+            if model == "auto":   # 定时工作汇报也按任务内容分类。
+                kind = (await router.classify_kind(task["prompt"])) if router else None
+                kind = kind or ("dev" if _looks_like_project(cwd) else "simple")
+                c = await split.auto_choose(b, kind, [cwd])
                 pick, full = c.pick, c.full_model
             else:
                 pick, full = model, MODELS.get(model)

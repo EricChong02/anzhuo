@@ -82,7 +82,7 @@ def inline_overrides(text: str) -> tuple[str | None, str | None]:
     return model, effort
 
 
-KIND_CN = {"design": "定方案", "dev": "开发", "simple": "简单任务"}
+KIND_CN = {"design": "设计与前端", "work": "工作与文档", "dev": "开发", "simple": "简单任务"}
 
 
 def said_engine_model(engine: str, text: str) -> str | None:

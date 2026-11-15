@@ -40,7 +40,7 @@ class Config:
     max_parallel: int = 3
     auto_route: bool = True  # 直接说话时让分派员判断接着哪个对话、还是新开（router.py）
     default_effort: str | None = None  # 默认思考深度（low/medium/high/xhigh/max）；不填用 Claude Code 设置里的
-    # 分工表：新事三档（design 定方案 / dev 开发 / simple 其余）各交给谁 → {use 首选, model 别家型号, effort 深度, backup 备选}，
+    # 分工表：四类任务（design 设计前端 / work 工作文档 / dev 开发 / simple 简单任务）各交给谁 → {use 首选, model 别家型号, effort 深度, backup 备选}，
     # 见 split.py；老写法 design_model / dev_model / simple_model 也认
     split: dict[str, dict] = field(default_factory=lambda: _split_table(None))
     subagent_model: str = "sonnet"  # Claude 对话里派出的子代理默认用的模型；空 = 跟 Claude Code 默认（和主对话一样）

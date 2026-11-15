@@ -69,12 +69,12 @@ def test_choose_by_quota(both):
     got = split.choose(c, "dev", levels={"gpt": "告急"})
     assert got.pick == "sonnet" and "额度告急" in got.note
     assert split.choose(c, "dev", levels={"gpt": "告急", "claude": "告急"}).pick == "gpt"     # 备选那家也一样紧：不换
-    assert split.choose(c, "dev", levels={"gpt": "撞线", "claude": "撞线"}).pick == "gpt"
+    assert split.choose(c, "dev", levels={"gpt": "撞线", "claude": "撞线"}).pick == "deepseek"
     assert split.choose(c, "design", levels={"claude": "告急"}).pick == "sonnet"            # 同是 Claude：换更省的
     assert split.choose(c, "design", levels={"claude": "撞线"}).pick == "gpt"              # 同家撞线换了也没用
     assert split.choose(cfg(dev={"use": "sonnet", "backup": "opus"}), "dev", levels={"claude": "告急"}).pick == "sonnet"
     got = split.choose(cfg(simple={"use": "gpt"}), "simple", levels={"gpt": "撞线"})      # 没备选、别家撞线：退回 Sonnet
-    assert got.pick == "sonnet" and "撞线" in got.note
+    assert got.pick == "deepseek" and "额度用完" in got.note
     assert split.choose(c, "dev", engine="gpt", levels={"gpt": "撞线"}).pick == "gpt"     # 点名了哪家：不看额度
 
 
@@ -89,7 +89,7 @@ def test_check():
 
 def test_describe():
     s = split.describe(cfg(dev={"use": "gpt", "backup": "sonnet"}))
-    assert "定方案用 opus" in s and "开发用 gpt（备选 sonnet）" in s
+    assert "设计与前端用 opus" in s and "开发用 gpt（备选 sonnet）" in s
 
 
 def test_prefs_saves_split_and_drops_legacy(tmp_path):
@@ -106,7 +106,7 @@ def test_prefs_saves_split_and_drops_legacy(tmp_path):
     with pytest.raises(prefs.Invalid, match="分工表"):
         prefs.parse({"split": {"dev": {"use": "opus", "model": "gpt-5"}}}, cur)
     f = next(x for x in prefs.schema() if x["key"] == "split")
-    assert [r[0] for r in f["rows"]] == ["design", "dev", "simple"] and ["gpt", "GPT（Codex）"] in f["picks"]
+    assert [r[0] for r in f["rows"]] == ["design", "work", "dev", "simple"] and ["gpt", "GPT（Codex）"] in f["picks"]
     assert "deepseek" in f["engine_models"]
     assert Path(p).exists()
 
@@ -153,8 +153,11 @@ def test_new_session_follows_split(both, tmp_path, monkeypatch):
         n = b.registry.reserve_num()
         await b.start_session(n, tmp_path / "w", [], "写方案", inc("写方案"), model=MODELS["opus"])
         s = b.registry.get(n)
-        assert s.engine == "codex" and s.model is None and s.effort is None
-        assert "自动转给 GPT" in submitted[-1]
+        assert s.engine == "claude" and s.model == MODELS["opus"]
+        assert "你指定的" in submitted[-1]
+        n = b.registry.reserve_num()
+        await b.start_session(n, tmp_path / "w", [], "用 opus 写方案", inc("用 opus 写方案"))
+        assert b.registry.get(n).model == MODELS["opus"]
     asyncio.run(go())
 
 
@@ -166,9 +169,80 @@ def test_subagent_model_options_show_full_names():
 
 def test_claude_exhausted_uses_gpt_without_backup(both):
     c = cfg()
-    for kind in split.KINDS:
+    for kind in ("design", "dev", "simple"):
         got = split.choose(c, kind, levels={"claude": "撞线"})
         assert got.pick == "gpt" and got.effort == "" and "自动转给 GPT" in got.note
-    assert split.choose(c, "design", engine="claude", levels={"claude": "撞线"}).pick == "gpt"
+    assert split.choose(c, "design", engine="claude", levels={"claude": "撞线"}).pick == "opus"
     assert split.choose(c, "design", fenced=True, levels={"claude": "撞线"}).pick == "opus"
     assert split.choose(c, "design", levels={"claude": "撞线", "gpt": "撞线"}).pick == "opus"
+
+
+@pytest.mark.parametrize("window", ["five_hour", "seven_day"])
+@pytest.mark.parametrize("used,expected", [(.799, "gpt"), (.8, "deepseek"), (.95, "deepseek")])
+def test_work_switches_at_actual_eighty_percent(both, window, used, expected):
+    c = cfg()
+    got = split.choose(c, "work", limits_gpt={window: (used, None)}, levels={"gpt": "告急"})
+    assert got.pick == expected  # 速度预测告急不能让 79.9% 提前切换。
+    if expected == "deepseek":
+        assert "额度已用" in got.note
+    assert split.choose(c, "work", engine="gpt", limits_gpt={window: (used, None)}).pick == "gpt"
+
+
+def test_quota_fallback_preserves_access_boundaries(both):
+    c = cfg()
+    c.deepseek_block = ["私密资料"]
+    limits = {"five_hour": (.8, None)}
+    assert split.choose(c, "work", ["/tmp/私密资料"], limits_gpt=limits).pick == "gpt"
+    assert split.choose(c, "work", fenced=True, limits_gpt=limits).pick == "sonnet"
+    assert split.choose(c, "design", limits_gpt=limits).pick == "opus"
+    assert split.choose(c, "work", levels={"gpt": "撞线"}).pick == "deepseek"
+
+
+def test_auto_choice_refreshes_and_recovers_gpt(both):
+    import asyncio
+    from types import SimpleNamespace as NS
+
+    async def go():
+        runner = NS(limits_gpt={})
+        bridge = NS(cfg=cfg(), runner=runner, quota_levels={})
+        readings = [.8, .2]
+
+        async def refresh():
+            runner.limits_gpt = {"seven_day": (readings.pop(0), None)}
+        runner.refresh_gpt_usage = refresh
+        assert (await split.auto_choose(bridge, "work")).pick == "deepseek"
+        bridge.quota_levels["gpt"] = "撞线"  # 刷新后的实际恢复读数优先于旧档位。
+        assert (await split.auto_choose(bridge, "work")).pick == "gpt"
+        # 点名模型时不读取、也不覆盖。
+        assert (await split.auto_choose(bridge, "work", engine="gpt")).pick == "gpt"
+        assert not readings
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("used", [.799, .8])
+def test_new_work_session_and_explicit_models(both, tmp_path, monkeypatch, used):
+    import asyncio
+    from remote_claude.app import Bridge
+    from remote_claude.dingtalk import Incoming
+    from test_bridge import FakeDT
+
+    async def go():
+        b = Bridge(cfg(), FakeDT(), data_dir=tmp_path / "data")
+        b.runner.limits_gpt = {"seven_day": (used, None)}
+        b.quota.levels.update(gpt="偏紧", claude="撞线")
+        submitted = []
+
+        async def submit(s, text, inc, opening=""):
+            submitted.append(opening)
+        monkeypatch.setattr(b, "submit", submit)
+        inc = Incoming(sender_id="me", sender_nick="", conversation_type="1", kind="text", text="", via="web")
+        for text, kind, model, expected in [
+            ("整理工作通知", "work", None, "deepseek" if used >= .8 else "codex"),
+            ("用 GPT 写工作总结", "work", None, "codex"),
+            ("设计网页", "design", MODELS["opus"], "claude"),
+        ]:
+            n = b.registry.reserve_num()
+            await b.start_session(n, tmp_path, [], text, inc, kind=kind, model=model)
+            assert b.registry.get(n).engine == expected
+        assert "你指定的" in submitted[-1]
+    asyncio.run(go())
