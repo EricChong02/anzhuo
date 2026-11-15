@@ -511,7 +511,7 @@ class Runner:
         def progress(job_id, state, text):
             turn.last_at = time.time()
             agent = turn.agents.setdefault('code:' + job_id,
-                {'name': 'GPT 代码助手', 'kind': 'agent', 't0': time.time(), 't1': 0})
+                {'name': 'GPT 代码助手', 'kind': 'agent', 'model': 'GPT-6.1 Sol', 'model_source': 'configured', 't0': time.time(), 't1': 0})
             agent.update(status='running' if state in ('queued', 'running') else state, last=text)
             if state not in ('queued', 'running'):
                 agent['t1'] = time.time()

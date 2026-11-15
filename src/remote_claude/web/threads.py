@@ -17,7 +17,7 @@ from ..sessions import COMPACT
 from ..cards import parse_decision
 from ..engines.claude import NOISE
 from ..folders import display
-from ..report import EFFORT_CN
+from ..report import EFFORT_CN, live_agents
 from ..relay import RELAY, display_items, relay_hint
 from .common import _said_has, display_model, model_options
 
@@ -236,8 +236,7 @@ class ThreadsMixin:
                     "confirm": {"what": turn.confirm["what"], "cmd": turn.confirm["cmd"]} if turn.confirm else None,
                     "compact": b.runner.compacting(num) == "running",
                     "plan": turn.plan,
-                    "agents": [{"name": a["name"], "kind": a["kind"], "status": a["status"], "last": a["last"],
-                                "secs": int((a["t1"] or time.time()) - a["t0"])} for a in turn.agents.values()][-8:]}
+                    "agents": live_agents(turn)}
         # 后台助手做完时它会再答一句空话（No response requested.），那句不算；跳过它找真正问你的那条
         last = next((it["text"] for it in reversed(items) if it["who"] == "claude" and not it.get("historical") and not NOISE.match(it["text"] or "")), "")
         if not last and not any(it["who"] == "you" and not it.get("historical") for it in items):

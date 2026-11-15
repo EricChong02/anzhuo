@@ -368,7 +368,7 @@ class ClaudeEngine(Engine):
         async with ClaudeSDKClient(options=options) as client:
             runner.live[s.num] = client
             try:
-                last_text, results = await self._read(client, s, job, turn)
+                last_text, results = await self._read(client, s, job, turn, runner.subagent_model)
                 try:
                     usage = await client.get_context_usage()
                     s.context_tokens = int(usage.get("totalTokens") or 0) or None
@@ -386,7 +386,7 @@ class ClaudeEngine(Engine):
             return min(100.0, 100.0 * used / self.context_window)
         return float(usage["percentage"])
 
-    async def _read(self, client: ClaudeSDKClient, s: "Session", job: "Job", turn: "Turn") -> tuple[str, list[str]]:
+    async def _read(self, client: ClaudeSDKClient, s: "Session", job: "Job", turn: "Turn", subagent_model: str = "") -> tuple[str, list[str]]:
         """把你的话送进去，逐条读事件翻成步骤、说明、回复，直到这一轮真正结束。返回 (最后一段话, 各次结果)。"""
         await client.query(self.prompt(job))
         last_text = ""
@@ -420,8 +420,12 @@ class ClaudeEngine(Engine):
                         turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
             elif isinstance(msg, AssistantMessage):
                 turn.partial = ""
-                if msg.model:
+                if msg.model and msg.parent_tool_use_id is None:
                     turn.model = msg.model
+                elif msg.model:
+                    for agent in turn.agents.values():
+                        if agent.get("tool") == msg.parent_tool_use_id:
+                            agent.update(model=msg.model, model_source="observed")
                 for b in msg.content:
                     if isinstance(b, ThinkingBlock) and b.thinking.strip():
                         turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
@@ -432,6 +436,7 @@ class ClaudeEngine(Engine):
                 sub = sub_name(turn, msg.parent_tool_use_id)
                 for b in msg.content:
                     if isinstance(b, ToolUseBlock):
+                        remember_agent_tool(turn, b, self.model_for(s) if self.key == "deepseek" else subagent_model or turn.model or s.model)
                         if label := step_label(b.name, b.input or {}):
                             turn.steps.append(label)
                             e = {"t": time.time(), "kind": "do", "text": label, "detail": _tool_detail(b.name, b.input or {})}
@@ -476,13 +481,35 @@ class ClaudeEngine(Engine):
         return last_text, results
 
 
+def remember_agent_tool(turn, block, default_model="") -> None:
+    """先记工具调用元数据，task_started 用 tool_use_id 对应，不能把命令冒充助手。"""
+    if block.name not in ("Agent", "Task", "Bash"):
+        return
+    from . import MODELS
+    inp = block.input or {}
+    if block.name == "Bash":
+        meta = {"kind": "命令", "name": inp.get("description") or "后台命令"}
+    else:
+        model = inp.get("model") or default_model or ""
+        if model == "inherit":
+            model = default_model or ""
+        meta = {"kind": "助手", "name": inp.get("name") or inp.get("description") or "助手",
+                "model": MODELS.get(model, model), "model_source": "configured" if model else ""}
+    turn.agent_tools[block.id] = meta
+    for agent in turn.agents.values():
+        if agent.get("tool") == block.id:
+            agent.update(meta)
+
+
 def track_agent(turn, msg) -> None:
     """记下派出去的助手：开始、做到哪一步、结束。网页“在做”卡片和过程里按这个显示。"""
     a = turn.agents.get(msg.task_id)
     if isinstance(msg, TaskStartedMessage):
-        kind = "命令" if "bash" in (msg.task_type or "") else "助手"
-        turn.agents[msg.task_id] = {"name": _short_desc(msg.description), "kind": kind, "t0": time.time(), "t1": 0,
-                                    "status": "running", "last": "", "tool": msg.tool_use_id}
+        meta = turn.agent_tools.get(msg.tool_use_id, {})
+        kind = meta.get("kind") or ("命令" if any(x in (msg.task_type or "").lower() for x in ("bash", "command", "shell")) else "助手")
+        turn.agents[msg.task_id] = {"name": meta.get("name") or msg.description or "助手", "kind": kind,
+                                    "model": meta.get("model", ""), "model_source": meta.get("model_source", ""),
+                                    "t0": time.time(), "t1": 0, "status": "running", "last": "", "tool": msg.tool_use_id}
         return
     if a is None:
         return
