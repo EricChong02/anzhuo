@@ -69,7 +69,7 @@ WORKER_RULES = """
 
 # 总管不亲自干活：改文件、跑命令、上网查、派子助手都不行（读文件、找文件夹还可以）
 DISALLOWED = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "BashOutput", "Task", "Agent", "WebSearch", "WebFetch",
-              "mcp__xiaoe__generate_images", "mcp__xiaoe__send_files", "mcp__xiaoe__send_images"]
+              "mcp__xiaoe__generate_images", "mcp__xiaoe__delegate_code", "mcp__xiaoe__send_files", "mcp__xiaoe__send_images"]
 BUILTIN = ["Read", "Glob", "Grep"]   # 总管能看到的内置工具：只能读、找
 DENY_REASON = "你是总管，不亲自干活。用 new_session 开个对话去做，或用 send_to_session 交给已有的对话。"
 RECOVER = ("（远窗重启了，打断了你上一轮。先看看工作文件夹、git 状态和你已经做过的外部操作（提交、推送、发消息），"

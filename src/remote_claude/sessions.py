@@ -501,6 +501,37 @@ class Runner:
         except Exception:  # noqa: BLE001 - 查不到额度不影响报告
             log.debug("查额度失败", exc_info=True)
 
+    async def _delegate_code(self, s: Session, turn: Turn, args: dict) -> dict:
+        if s.root or engines.get(s.engine) is not engines.CLAUDE or turn.interrupted:
+            return {'state': 'skipped', 'error': '当前对话不能委派代码'}
+        from .code_delegate import CodeDelegator
+        if not hasattr(self, 'code_delegate'):
+            self.code_delegate = CodeDelegator(self.registry.path.parent / 'code_jobs')
+
+        def progress(job_id, state, text):
+            turn.last_at = time.time()
+            agent = turn.agents.setdefault('code:' + job_id,
+                {'name': 'GPT 代码助手', 'kind': 'agent', 't0': time.time(), 't1': 0})
+            agent.update(status='running' if state in ('queued', 'running') else state, last=text)
+            if state not in ('queued', 'running'):
+                agent['t1'] = time.time()
+            turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
+
+        task = asyncio.create_task(self.code_delegate.run(cwd=s.cwd, parent_num=s.num, args=args, progress=progress))
+        # 与生图共用父任务的取消和异常结束回收机制。
+        tasks = self.image_tasks.setdefault(s.num, set())
+        tasks.add(task)
+        try:
+            return await task
+        except asyncio.CancelledError:
+            if turn.interrupted:
+                return {'state': 'cancelled', 'error': '原任务已停止，未自动合并代码'}
+            raise
+        finally:
+            tasks.discard(task)
+            if not tasks:
+                self.image_tasks.pop(s.num, None)
+
     async def _generate_images(self, s: Session, turn: Turn, args: dict) -> dict:
         if self.image_delegate is None:
             self.image_delegate = ImageDelegator(self.registry.path.parent / 'image_jobs')
