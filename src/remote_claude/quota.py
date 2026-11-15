@@ -45,7 +45,9 @@ def window(key: str, v, now: float | None = None) -> dict | None:
         if 0 < used < 1 and elapsed > 0:
             at = now + (1 - used) / (used / elapsed)
             eta = at if at < reset else None
-    if used >= URGENT_AT or (pace is not None and used >= 0.5 and pace >= 1.5):
+    if used >= 1 and (reset is None or reset > now):
+        level = "撞线"
+    elif used >= URGENT_AT or (pace is not None and used >= 0.5 and pace >= 1.5):
         level = "告急"
     elif used >= FULL_AT or (pace is not None and used >= 0.25 and pace >= 1.0):
         level = "偏紧"

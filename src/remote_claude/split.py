@@ -142,6 +142,12 @@ def choose(cfg, kind: str | None, paths: list[Path | str] = (), fenced: bool = F
     levels = 各家额度现在在哪一档（Bridge.quota_levels）：首选这家告急 / 撞线时，备选更宽裕就换备选（偏紧不换，质量优先）。"""
     table = getattr(cfg, "split", None) or normalize(None)
     r = table.get(kind or "simple") or table["simple"]
+    levels = levels or {}
+    # Claude 撞线时即使原计划点名 Claude，也优先交给可用的 GPT。
+    planned = "sonnet" if engine == engines.CLAUDE.key else engine or r["use"]
+    if (family(planned) == engines.CLAUDE.key and levels.get("claude") == "撞线"
+            and levels.get("gpt") != "撞线" and not usable("gpt", list(paths), fenced, cfg)):
+        return Choice("gpt", note="Claude 额度用完，自动转给 GPT")
     if engine == engines.CLAUDE.key:
         return Choice(next((x for x in (r["use"], r["backup"]) if x in MODELS), FALLBACK), "", r["effort"])
     if engine:

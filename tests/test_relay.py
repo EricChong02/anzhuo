@@ -168,3 +168,28 @@ def test_router_worker_hits_limit_switches(tmp_path, monkeypatch, codex_ok):
         told = [r for r in runs if r[0] == boss.num]
         assert told and "接力到了" in told[0][3] and any(r[0] == new.num and r[1] == "codex" for r in runs)
     asyncio.run(go())
+
+
+def test_automatic_claude_limit_relay(codex_ok, tmp_path, monkeypatch):
+    """撞线自动交接并继续，取消原恢复；GPT 不可用时保留等待。"""
+    from unittest.mock import AsyncMock
+
+    async def go():
+        b = Bridge(_cfg(tmp_path), FakeDT(), data_dir=tmp_path / "d")
+        s = _old(b, tmp_path, limit_until=time.time() + 600)
+        await b.quota.set_level("claude", "撞线", num=s.num)
+        monkeypatch.setattr(b.relays, "_handoff", AsyncMock(return_value="原任务与已做步骤"))
+        submit = AsyncMock()
+        monkeypatch.setattr(b, "submit", submit)
+        await b.quota.switch_to_gpt(s.num, s.limit_until)
+        new = b.registry.get(s.relay_to)
+        assert new.engine == "codex" and new.relay_note == "原任务与已做步骤"
+        assert not s.auto_resume
+        submit.assert_awaited_once()
+        assert submit.call_args.args[0] is new
+        await b.quota.switch_to_gpt(s.num, s.limit_until)
+        assert submit.await_count == 1
+        blocked = _old(b, tmp_path, num=20, root=str(tmp_path), limit_until=time.time() + 600)
+        await b.quota.switch_to_gpt(blocked.num, blocked.limit_until)
+        assert not blocked.relay_to and blocked.auto_resume
+    asyncio.run(go())

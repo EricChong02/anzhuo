@@ -52,6 +52,32 @@ class QuotaWatch:
         s.limit_until = until
         asyncio.create_task(self.auto_resume(s.num, until))
         await self.set_level(s.engine, "撞线", num=s.num)
+        if engines.get(s.engine) is engines.CLAUDE:
+            asyncio.create_task(self.switch_to_gpt(s.num, until))
+
+    async def switch_to_gpt(self, num: int, until: float) -> None:
+        """先等原轮报告落盘，再带交接记录换 GPT；失败仍保留到点恢复。"""
+        b = self.b
+        for _ in range(120):
+            if not b.runner.busy(num):
+                break
+            await asyncio.sleep(0.5)
+        s = b.registry.get(num)
+        if (not s or s.hidden or not s.auto_resume or s.relay_to or s.limit_until != until
+                or b.runner.busy(num) or not self.capped_gpt_target(s)):
+            return
+        try:
+            result = await b.relays.start(num, via="auto", to="gpt", go=True)
+            if s.relay_to:
+                s.auto_resume = False
+                b.registry.save()
+                b.record("小E", "Claude 额度用完，自动转给 GPT", num=num, relay_to=s.relay_to)
+                log.info("额度接力 #%s：%s", num, result)
+        except Exception:
+            log.exception("自动转 GPT 失败 #%s，保留额度恢复等待", num)
+
+    def capped_gpt_target(self, s) -> bool:
+        return self.b.relays.capped(s) and any(t["to"] == "gpt" for t in self.b.relays.targets(s))
 
     async def auto_resume(self, num: int, until: float) -> None:
         """额度恢复后一分钟，替你说一句“继续”（你点了“别自动接”、或已经自己接着说了就不说）。"""

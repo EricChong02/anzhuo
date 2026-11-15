@@ -322,6 +322,12 @@ class Bridge:
             s.model = (engine_model or said_engine_model(alt, text)) if engines.get(alt).pick_model == "own" else None
         s.model = model or said_model or s.model
         s.effort = effort or said_effort or s.effort
+        # 包括网页手选型号、自然语言点名：Claude 耗尽时直接转 GPT。
+        if (engines.get(s.engine) is engines.CLAUDE and self.quota_levels.get("claude") == "撞线"
+                and self.quota_levels.get("gpt") != "撞线"
+                and not split.usable("gpt", [cwd, *add_dirs], bool(root), self.cfg)):
+            s.engine, s.model, s.effort = engines.CODEX.name, None, None
+            chosen = split.Choice("gpt", note="Claude 额度用完，自动转给 GPT")
         self.registry.add(s)
         where = folders.display(cwd) + "".join(f" ＋ {folders.display(p)}" for p in add_dirs)
         why = (f"分工表 · {KIND_CN.get(kind, '简单任务')}" + (f" · {chosen.note}" if chosen.note else "") if chosen

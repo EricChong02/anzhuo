@@ -33,6 +33,7 @@ def test_bus_order_errors_and_claim():
 
 def test_quota_level():
     """重置时间读不出来：只看已用多少。"""
+    assert quota.level({"five_hour": (1.0, "x")}) == "撞线"
     assert quota.level({}) == "充足"
     assert quota.level({"five_hour": (0.5, "x"), "seven_day": (0.8, None)}) == "偏紧"
     assert quota.level({"five_hour": (0.95, "x")}) == "告急"

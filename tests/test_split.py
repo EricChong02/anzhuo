@@ -71,7 +71,7 @@ def test_choose_by_quota(both):
     assert split.choose(c, "dev", levels={"gpt": "告急", "claude": "告急"}).pick == "gpt"     # 备选那家也一样紧：不换
     assert split.choose(c, "dev", levels={"gpt": "撞线", "claude": "撞线"}).pick == "gpt"
     assert split.choose(c, "design", levels={"claude": "告急"}).pick == "sonnet"            # 同是 Claude：换更省的
-    assert split.choose(c, "design", levels={"claude": "撞线"}).pick == "opus"              # 同家撞线换了也没用
+    assert split.choose(c, "design", levels={"claude": "撞线"}).pick == "gpt"              # 同家撞线换了也没用
     assert split.choose(cfg(dev={"use": "sonnet", "backup": "opus"}), "dev", levels={"claude": "告急"}).pick == "sonnet"
     got = split.choose(cfg(simple={"use": "gpt"}), "simple", levels={"gpt": "撞线"})      # 没备选、别家撞线：退回 Sonnet
     assert got.pick == "sonnet" and "撞线" in got.note
@@ -149,6 +149,12 @@ def test_new_session_follows_split(both, tmp_path, monkeypatch):
         await b.start_session(n, tmp_path / "w", [], "修个 bug", inc("修个 bug"), owner="g", root=str(tmp_path / "w"))
         s = b.registry.get(n)
         assert (s.engine, s.model) == ("claude", MODELS["sonnet"])
+        b.quota.levels["claude"] = "撞线"
+        n = b.registry.reserve_num()
+        await b.start_session(n, tmp_path / "w", [], "写方案", inc("写方案"), model=MODELS["opus"])
+        s = b.registry.get(n)
+        assert s.engine == "codex" and s.model is None and s.effort is None
+        assert "自动转给 GPT" in submitted[-1]
     asyncio.run(go())
 
 
@@ -156,3 +162,13 @@ def test_subagent_model_options_show_full_names():
     from remote_claude import prefs
     opts = dict(prefs._options(prefs.BY_KEY["subagent_model"]))
     assert opts[""] == "跟主对话" and opts["sonnet"].startswith("Claude Sonnet ")
+
+
+def test_claude_exhausted_uses_gpt_without_backup(both):
+    c = cfg()
+    for kind in split.KINDS:
+        got = split.choose(c, kind, levels={"claude": "撞线"})
+        assert got.pick == "gpt" and got.effort == "" and "自动转给 GPT" in got.note
+    assert split.choose(c, "design", engine="claude", levels={"claude": "撞线"}).pick == "gpt"
+    assert split.choose(c, "design", fenced=True, levels={"claude": "撞线"}).pick == "opus"
+    assert split.choose(c, "design", levels={"claude": "撞线", "gpt": "撞线"}).pick == "opus"
