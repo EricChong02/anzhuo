@@ -486,3 +486,11 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 
 .usage{max-height:calc(100dvh - 100px);overflow-y:auto}
 .mmenu .mo .mh{margin-left:8px;font-weight:400} .mmenu .mh.cool{color:var(--faint)}
+
+/* 传输入口在预览下方，返回聊天仍可找到进度；不覆盖底部输入条。 */
+.file-transfers{position:fixed;top:calc(64px + env(safe-area-inset-top));right:12px;z-index:49;max-width:min(360px,calc(100vw - 24px));max-height:30vh;overflow:auto}
+.file-transfers>div{display:flex;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);margin-bottom:8px}
+.file-transfers button{min-height:44px;padding:8px 12px;color:var(--acc)}
+.file-transfers .transfer-open{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:var(--t2)}
+.fv{padding-top:calc(116px + env(safe-area-inset-top))}
+.fv .native-download{position:absolute;top:calc(64px + env(safe-area-inset-top));min-height:44px;padding:8px 16px;color:#fff;border:1px solid #666;border-radius:var(--r1)}
