@@ -75,7 +75,7 @@ def test_course_account_no_personal_quota(tmp_path):
 def test_account_default_model_and_manual_override(tmp_path):
     async def go():
         b, root = _bridge(tmp_path)
-        b.web.accounts["user"].update(default_model="opus", default_effort="medium")
+        b.web.accounts["user"].update(default_model="opus", default_effort="medium", allowed_models=["opus", "sonnet"])
         calls = []
         async def start(*args, **kwargs):
             calls.append(kwargs)
@@ -91,6 +91,15 @@ def test_account_default_model_and_manual_override(tmp_path):
             r = await c.post("/_x/api/send", json={"text": "手动选择", "model": "sonnet", "effort": "high"})
             assert r.status == 200
             assert calls[-1]["model"] == MODELS["sonnet"] and calls[-1]["effort"] == "high"
+            listing = await (await c.get("/_x/api/sessions")).json()
+            assert [m[0] for m in listing["models"]] == ["opus", "sonnet"]
+            assert listing["me"]["default_model"] == "opus"
+            assert (await c.post("/_x/api/send", json={"text": "不允许的模型", "model": "haiku"})).status == 403
+            session = b.registry.add(Session(num=b.registry.reserve_num(), name="test", cwd=str(root), owner="user", root=str(root)))
+            assert (await c.post(f"/_x/api/settings/{session.num}", json={"model": "gpt"})).status == 403
+            assert (await c.post(f"/_x/api/settings/{session.num}", json={"model": "sonnet", "effort": "medium"})).status == 200
+            assert session.model == MODELS["sonnet"]
+
         finally:
             await c.close()
     asyncio.run(go())

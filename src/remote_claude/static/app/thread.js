@@ -162,7 +162,7 @@ function renderThread(d) {
   if ($('.limit')) bindRelayAlts($('.limit'), d.num, true);
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
-  const me = sessions.find(x => x.num === d.num) || {};
+  const currentSession = sessions.find(x => x.num === d.num) || {};
   const approve = (lastReply.match(/批准本会话编辑：[^\n`]+/g) || []);
   const yesNo = /(吗|么|是否|要不要|对不对|行不行|可不可以|好不好|对吧)[？?]\s*$/.test((d.awaiting || '').trim());
   // 按它最后说的给几个最可能的回答：批准编辑、是 / 不是、好的 / 按推荐、做完顺口的建议、停了或出错了就“继续”
@@ -171,8 +171,8 @@ function renderThread(d) {
     : d.awaiting_kind === 'suggest' ? [['好，做吧', '好，做吧'], ['不用了', '不用了']]
     : d.awaiting && yesNo ? [['是', '是'], ['不是', '不是'], ['先不做', '先不做']]
     : d.awaiting ? [['好的', '好的'], ['就按你推荐的', '就按你推荐的'], ['先不做', '先不做']]
-    : me.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
-  const canDismiss = !d.live && !d.limit && (d.awaiting || me.status === 'error');
+    : currentSession.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
+  const canDismiss = !d.live && !d.limit && (d.awaiting || currentSession.status === 'error');
   q.hidden = !quick.length && !canDismiss;
   q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') + (canDismiss ? '<button data-dismiss="1">不用回答了</button>' : '');
   const dm = q.querySelector('[data-dismiss]');
@@ -192,6 +192,12 @@ function renderThread(d) {
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = '';
+  if (me.course_url) {
+    const trial = new URL(me.course_url, location.origin), spot = d.ext?.course?.feedback;
+    if (spot?.section) trial.searchParams.set('xe_sec', spot.section);
+    if (Number.isInteger(spot?.screen)) trial.searchParams.set('xe_scr', spot.screen);
+    $('#headActs').innerHTML = `<a class="pill" href="${esc(trial.pathname + trial.search)}">返回试课</a>`;
+  }
   XE.emit('thread', d);   // 标题栏右边留给扩展
   $('#ta').placeholder = d.live && d.live.compact ? '说点什么…' : d.live ? '插话…' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };

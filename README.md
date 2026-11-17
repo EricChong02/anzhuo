@@ -168,3 +168,5 @@ Codex 新轮次在执行前后记录工作文件快照，可勾选“同时恢�
 合作试课账号：可在 `[accounts.账号名]` 中配置 `role = "user"`、`course = "_drafts/课程目录"` 和指向该课目录的 `root`。账号从 `/studio-preview.html?course=/workspace/_drafts/课程目录/course.json` 进入，能预览本课、反馈当前屏、在自己的对话里调用 Claude 直接修改本课；不会转到管理员对话。图片保存在本课的“收到的附件”里，执行继续使用受限账号沙箱。其他课程、教师接口、学生数据与其他账号的对话不开放。不另设个人额度时由维护者设置 `quota_exempt = true`，仍共用主账号实际可用额度；省略则沿用普通账号周上限。密码仍用 `scripts/set_account.py` 写入钥匙串。课程移动后须同步更新 `course` 与 `root`，未同步时拒绝预览。
 
 受限账号可配置 `default_model = "opus"`、`default_effort = "medium"`：课程反馈首次开对话或新建对话未指定模型时使用；已存在的对话沿用原设置，用户在聊天界面显式选择优先。
+
+合作账号可用 `allowed_models = ["opus", "sonnet"]` 限定可选模型，聊天和新建对话菜单均遵守该列表，发送与设置接口也拒绝其他模型。聊天标题栏提供“返回试课”，带回最近反馈的节和屏。取消账号个人额度限制不会绕过 Claude 订阅总额度。

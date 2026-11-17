@@ -173,6 +173,7 @@ class ActionsMixin:
     async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str]) -> web.Response:
         """受限账号说话：只能在自己的对话里接着说，或在自己的文件夹里新开；不分派、不排定时、不用 GPT。"""
         b = self.bridge
+        self._check_account_model(acct, data)
         if why := self.over_quota(acct):
             return web.json_response({"ok": False, "error": why}, status=429)
         inbox = self._inbox(request)
@@ -203,6 +204,12 @@ class ActionsMixin:
                        owner=owner, root=str(root))
         return web.json_response({"ok": True, "num": before})
 
+    def _check_account_model(self, acct, data):
+        allowed = self.accounts.get(acct, {}).get("allowed_models")
+        selected = str(data.get("model") or "")
+        if allowed and selected and selected not in allowed and selected not in [MODELS.get(k) for k in allowed]:
+            raise web.HTTPForbidden(text="这个账号只开放 Opus 和 Sonnet")
+
     @staticmethod
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
         """网页上选的模型（opus / sonnet / haiku）和深度（low…max）；没选或不认得的返回 None。"""
@@ -216,7 +223,9 @@ class ActionsMixin:
         s = self.bridge.registry.get(int(request.match_info["num"]))
         if not s:
             raise web.HTTPNotFound()
-        model, effort = self._model_effort(await request.json())
+        data = await request.json()
+        self._check_account_model(request.get("acct", ""), data)
+        model, effort = self._model_effort(data)
         if not engines.can_switch_model(s.engine, model):
             model = None   # 一个对话从头到尾用同一家：中途不在 Claude 和 GPT 之间换
         s.model = model or s.model

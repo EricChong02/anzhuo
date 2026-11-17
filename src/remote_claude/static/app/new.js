@@ -38,7 +38,7 @@ function openNew(fromPop, preset) {
   draw();
   $('.newv').onscroll = placeWhereMenu;
   $('#main').onclick = e => { if (menu && !e.target.closest('.wmenu')) { menu = false; draw(); } };
-  const ms = {model: 'auto', effort: ''};   // 深度空 = 没动过，照分工表或默认
+  const ms = {model: me.default_model || 'auto', effort: me.default_effort || ''};   // 深度空 = 没动过，照分工表或默认
   renderModel(ms, () => {}, true);
   const extra = () => ({...(ms.model !== 'auto' ? {model: ms.model} : {}), ...(ms.effort ? {effort: ms.effort} : {})});
   wireComposer((text, onProg, attachments) => sendApi({...((opts.find(o => o.v === pick) || {}).send || {folder: pick}), ...extra(), text, ...attachments}, onProg),

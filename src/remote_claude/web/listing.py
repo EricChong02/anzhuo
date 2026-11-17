@@ -117,13 +117,18 @@ class ListingMixin:
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         acct = request.get("acct", "")
-        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
+        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else "",
+              "default_model": self.accounts.get(acct, {}).get("default_model", "auto"),
+              "default_effort": self.accounts.get(acct, {}).get("default_effort", "")}
+        course = self.accounts.get(acct, {}).get("course")
+        if fenced and course:
+            me["course_url"] = "/studio-preview.html?course=/workspace/" + course + "/course.json"
         extra = {} if fenced else await asyncio.to_thread(self._ext_data, "sessions_extra", rows)   # 扩展可能要翻文件
         from ..app import router
         return web.json_response({"sessions": rows, "ext": extra, "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
-                                  "models": [m for m in model_options() if not fenced or m[0] in ("opus", "sonnet", "haiku", "fable")],
+                                  "models": [m for m in model_options() if not fenced or m[0] in self.accounts.get(acct, {}).get("allowed_models", ("opus", "sonnet", "haiku", "fable"))],
                                   "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "recent": [] if fenced else self._recent_folders(), "last_folder": "" if fenced else self._last_folder(),
