@@ -193,7 +193,10 @@ class ActionsMixin:
             return web.json_response({"ok": True, "injected": busy})
         root = Path(self.root_of(acct)).expanduser()
         root.mkdir(parents=True, exist_ok=True)
-        model, effort = self._model_effort(data)
+        account = self.accounts.get(acct, {})
+        model, effort = self._model_effort({**data,
+            "model": data.get("model") or account.get("default_model", ""),
+            "effort": data.get("effort") or account.get("default_effort", "")})
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
         await b.start_session(before, root, [], text, inc, kind="simple", model=None if engines.engine_of(model) else model, effort=effort,

@@ -70,3 +70,27 @@ def test_course_account_no_personal_quota(tmp_path):
     assert b.web.role("user") == "user"
     b.web.accounts["user"]["quota_exempt"] = False
     assert b.web.quota("user") is not None
+
+
+def test_account_default_model_and_manual_override(tmp_path):
+    async def go():
+        b, root = _bridge(tmp_path)
+        b.web.accounts["user"].update(default_model="opus", default_effort="medium")
+        calls = []
+        async def start(*args, **kwargs):
+            calls.append(kwargs)
+        b.start_session = start
+        c = await _login(b, "user", "demo-guest-test")
+        try:
+            r = await c.post("/_x/api/send", json={"text": "默认模型"})
+            assert r.status == 200
+            from remote_claude.engines import MODELS
+            assert calls[-1]["model"] == MODELS["opus"]
+            assert calls[-1]["effort"] == "medium"
+            assert calls[-1]["owner"] == "user" and calls[-1]["root"]
+            r = await c.post("/_x/api/send", json={"text": "手动选择", "model": "sonnet", "effort": "high"})
+            assert r.status == 200
+            assert calls[-1]["model"] == MODELS["sonnet"] and calls[-1]["effort"] == "high"
+        finally:
+            await c.close()
+    asyncio.run(go())
