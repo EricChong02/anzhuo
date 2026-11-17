@@ -163,3 +163,6 @@ Codex 新轮次在执行前后记录工作文件快照，可勾选“同时恢�
 ## Fable 5.2（2026-11-10）
 
 `fable` 现指向 `claude-fable-5-2`；SDK 至少为 0.2.180。模型菜单的 Fable 行和额度详情、管理页里单列“本周 Fable”额度（官方 `/usage` 的百分比，不与总周额度相加）；专属额度告急不把其他 Claude 型号判为告急。API 标价（美元/百万 token）：输入 8、输出 40、缓存读 0.2，用于管理页估算。
+
+
+合作试课账号：可在 `[accounts.账号名]` 中配置 `role = "user"`、`course = "_drafts/课程目录"` 和指向该课目录的 `root`。账号从 `/studio-preview.html?course=/workspace/_drafts/课程目录/course.json` 进入，能预览本课、反馈当前屏、在自己的对话里调用 Claude 直接修改本课；不会转到管理员对话。图片保存在本课的“收到的附件”里，执行继续使用受限账号沙箱。其他课程、教师接口、学生数据与其他账号的对话不开放。不另设个人额度时由维护者设置 `quota_exempt = true`，仍共用主账号实际可用额度；省略则沿用普通账号周上限。密码仍用 `scripts/set_account.py` 写入钥匙串。课程移动后须同步更新 `course` 与 `root`，未同步时拒绝预览。

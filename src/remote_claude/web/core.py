@@ -170,7 +170,7 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
 
     def quota(self, acct: str) -> dict | None:
         """受限账号本周额度用了多少（admin 不限，返回 None）。顺手把推出来的换算比例存下，数据少的时候接着用。"""
-        if self.role(acct) == "admin":
+        if self.role(acct) == "admin" or self.accounts.get(acct, {}).get("quota_exempt") is True:
             return None
         limits = getattr(getattr(self.bridge, "runner", None), "limits", {}) or {}
         week = limits.get("seven_day")
@@ -355,7 +355,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             request["acct"], request["owner"] = self._admin(), "admin"
         owner, admin = request["owner"], self.role(request["acct"]) == "admin"
         route = request.match_info.route.resource.canonical if request.match_info.route.resource else ""
-        if not admin and route not in self.user_routes:
+        if not admin and route not in self.user_routes and not any(
+                getattr(e, "allows_account_request", lambda r: False)(request) for e in self.exts):
             raise web.HTTPForbidden(text="这个账号用不了这里")
         if route.startswith(f"{self.px}/admin") or route.startswith(f"{self.px}/api/admin"):
             if not admin:

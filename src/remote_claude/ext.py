@@ -107,7 +107,7 @@ class Api:
 
     # ---- 对话 ----
     def sessions(self, owner: str = "admin") -> list["Session"]:
-        return [s for s in self._b.registry.visible() if s.owner == owner]
+        return list(self._b.registry.visible(owner))
 
     def session(self, num: int) -> "Session | None":
         return self._b.registry.get(num)
@@ -162,6 +162,16 @@ class Api:
         before = self._b.registry.next_num
         await self._b.new_session([folder] if folder else [], text, self._incoming(text, images, via), note=note, kind=kind)
         return self._b.registry.get(before)
+
+    def account(self, request) -> dict:
+        """当前登录账号的配置副本；不包含密码指纹。"""
+        w = self._b.web
+        return {k: v for k, v in w.accounts.get(request.get("acct", ""), {}).items() if k != "hash"}
+
+    async def send_fenced(self, request, text: str, images: list[str], num=None):
+        """扩展沿用受限账号发送入口：额度、图片落盘、归属与执行沙箱保持一致。"""
+        return await self._b.web._send_fenced(request, request["acct"],
+                                             {"text": text, "images": images, "num": num}, text, [])
 
     def on(self, event: str, fn: Callable, order: int = 50) -> None:
         """订阅核心事件（见 events.py）。"""

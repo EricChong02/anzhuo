@@ -163,14 +163,14 @@ class Course(Extension):
                     if not str(r.get("request") or "").startswith(("（试课反馈）", "（试课提问）"))),
                    default=float(s.created or 0))
 
-    def course_session(self, cdir: str, title: str):
+    def course_session(self, cdir: str, title: str, owner: str = "admin"):
         """试课反馈交给谁：先看对话名和标题重合多少字；同名的对话里，交给你最近亲手在用的那个
         （试课页自动交来的反馈不算）。发过这门课试课链接的再优先一点。"""
         root = self.root_path.resolve()
         pairs = lambda t: {t[i:i + 2] for i in range(len(t) - 1)}  # 两字片段，比如“淘宝”“数据”“工程”
         want = pairs(re.sub(r"\W", "", title))
         best, best_key = None, None
-        for s in self.api.sessions():
+        for s in self.api.sessions(owner):
             try:
                 inside = Path(s.cwd).expanduser().resolve().is_relative_to(root)
             except OSError:
@@ -188,6 +188,54 @@ class Course(Extension):
             if best_key is None or key > best_key:
                 best, best_key = s, key
         return best
+
+    def account_course(self, request) -> str:
+        """仅显式绑定单课且沙箱根与课程目录一致的账号可以试课。"""
+        a = self.api.account(request)
+        rel = a.get("course", "")
+        if a.get("role") != "user" or not isinstance(rel, str):
+            return ""
+        if not re.fullmatch(r"(?:_drafts|topics/[^/]+)/[^/.][^/]*", rel) or ".." in rel:
+            return ""
+        target = (self.root_path / rel).resolve()
+        if (not target.is_relative_to(self.root_path.resolve()) or
+                Path(a.get("root") or "/").expanduser().resolve() != target or
+                not (target / "course.json").is_file()):
+            return ""
+        return rel
+
+    def allows_account_request(self, request) -> bool:
+        rel = self.account_course(request)
+        if not rel or any(x in request.path for x in ("..", "\\", "%")):
+            return False
+        path, method = request.path, request.method
+        if path in (self.api.url("/api/feedback"), self.api.url("/api/course")):
+            return method == ("POST" if path.endswith("feedback") else "GET")
+        if method not in ("GET", "HEAD"):
+            return False
+        if path == "/studio-preview.html":
+            return request.query.get("course") == f"/workspace/{rel}/course.json"
+        if path.startswith(f"/workspace/{rel}/"):
+            file = (self.root_path / path.removeprefix("/workspace/")).resolve()
+            return file.is_relative_to((self.root_path / rel).resolve())
+        if path.startswith(self.api.url("/static/")):
+            return path in {self.api.url("/static/" + f) for f in (
+                "feedback.js", "vendor/modern-screenshot.js")}
+        preview_scripts = {
+            "/app/lecture-reveal.js", "/app/lecture-reveal.css", "/shared/ai-availability.js", "/shared/canvas-chrome.js",
+            "/shared/icons.js", "/shared/learning-result.js", "/shared/student-drafts.js",
+            "/shared/xiaoxin-orb.js", "/shared/xiaoxin-presence.js", "/studio-rehearse.js",
+            "/teacher/lecture-answers.js", "/teacher/lecture-cues.js",
+        }
+        return (path in preview_scripts or path == "/style.css" or path.startswith(
+            ("/engine/", "/assets/", "/vendor/", "/courses/_shared/"))) and not path.endswith(".html")
+
+    def _check_account_course(self, request, course):
+        if self.api.account(request).get("role") == "admin":
+            return
+        rel = self.account_course(request)
+        if not rel or course != f"/workspace/{rel}/course.json":
+            raise web.HTTPForbidden(text="这个账号只开放合作课程")
 
     # ---------- 挂接点 ----------
     def turn_links(self, files: list[str], turn) -> list[dict]:
@@ -296,8 +344,11 @@ class Course(Extension):
         m = COURSE_JSON.match(str(data.get("course") or ""))
         if not m or ".." in m.group(1).split("/"):
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
+        self._check_account_course(request, str(data.get("course") or ""))
         cdir = m.group(2)
         title = self._title(cdir)
+        if request.get("owner", "admin") != "admin":
+            return await self._account_feedback(request, data, m, title)
         # 一次可以带几处（试课页上“先记下”攒的），每处：节、屏、说了什么、截图
         notes = [x for x in (data.get("items") or [data]) if isinstance(x, dict)][:12]
         lines, images = [], []
@@ -333,6 +384,34 @@ class Course(Extension):
             self.api.save()
         return web.json_response({"ok": bool(s), "num": s.num if s else None, "name": s.name if s else "新对话"})
 
+    async def _account_feedback(self, request, data, m, title):
+        owner = request["owner"]
+        notes = [x for x in (data.get("items") or [data]) if isinstance(x, dict)][:12]
+        if not notes:
+            return web.json_response({"ok": False, "error": "没写反馈"}, status=400)
+        lines, images = [], []
+        for x in notes:
+            where = self._where(m.group(1), m.group(2), x)
+            lines.append(f"{where}（节 id {x.get('section') or '未知'}）：{str(x.get('text') or '见截图')[:8000]}")
+            images.extend((x.get("images") or [])[:max(0, 6-len(images))])
+        ask = bool(data.get("ask"))
+        msg = (f"（试课{'提问' if ask else '反馈'}）《{title}》（{m.group(1)}/{m.group(2)}）：\n"
+               + "\n".join(lines) + ("\n先别改，对照本课教案解释。" if ask else
+               "\n请直接修改本课，保留其他内容。完成后说明修改了哪一屏，提醒我刷新该屏核对。只在本课目录内工作。"))
+        s = self.course_session(m.group(2), title, owner)
+        response = await self.api.send_fenced(request, msg, images, s.num if s else None)
+        result = json.loads(response.text)
+        if not result.get("ok"):
+            return response
+        s = s or self.api.session(result.get("num"))
+        if s:
+            last = notes[-1]
+            self.api.data(s)["feedback"] = {"course": data["course"], "section": last.get("section") or "",
+                "screen": last.get("screen"), "step": last.get("step"),
+                "where": self._where(m.group(1), m.group(2), last), "t": time.time()}
+            self.api.save()
+        return web.json_response({"ok": bool(s), "num": s.num if s else None, "name": s.name if s else ""})
+
     def _where(self, parent: str, cdir: str, x: dict) -> str:
         """“第 2 节「数据从哪来」第 3 屏”：页面没读到节名时，自己从课程文件里查。"""
         sec_no, sec_title, screen = x.get("section_no") or 0, str(x.get("section_title") or ""), x.get("screen")
@@ -354,11 +433,12 @@ class Course(Extension):
 
     async def _api_course(self, request: web.Request) -> web.Response:
         """试课页右下角的小条、课程库点名字：这门课是哪个对话在改、改到哪了、改完没有。"""
+        self._check_account_course(request, request.query.get("course", ""))
         m = COURSE_JSON.match(request.query.get("course", ""))
         if not m:
             return web.json_response({"num": None})
         cdir = m.group(2)
-        s = await asyncio.to_thread(self.course_session, cdir, self._title(cdir))
+        s = await asyncio.to_thread(self.course_session, cdir, self._title(cdir), request.get("owner", "admin"))
         if not s:
             return web.json_response({"num": None})
         st = self.api.status(s.num)

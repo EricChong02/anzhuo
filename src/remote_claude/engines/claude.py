@@ -201,6 +201,8 @@ class ClaudeEngine(Engine):
                 why = f"这个工具（{name}）在这里不能用。"
             else:
                 paths = [args[k] for k in PATH_KEYS if args.get(k)]
+                if name in {"mcp__xiaoe__send_images", "mcp__xiaoe__send_files"}:
+                    paths.extend(args.get("paths") or [])
                 pat = str(args.get("pattern") or "") if name == "Glob" else ""
                 if pat.startswith(("/", "~")):
                     paths.append(pat.split("*")[0] or "/")

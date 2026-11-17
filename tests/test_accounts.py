@@ -139,6 +139,8 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
     for name, args in [("Read", {"file_path": str(home / "Projects/x")}), ("Read", {"file_path": "../Projects/x"}),
                        ("Read", {"file_path": str(root / "sneaky/x")}), ("Glob", {"pattern": str(home) + "/**/*.md"}),
                        ("Grep", {"pattern": "a", "path": str(home)}), ("Edit", {"file_path": "~/.zshrc"}),
+                       ("mcp__xiaoe__send_files", {"paths": [str(home / "Projects/x")]}),
+                       ("mcp__xiaoe__send_images", {"paths": [str(root / "sneaky/x")]}),
                        ("CronCreate", {}), ("mcp__xiaoe__generate_images", {}), ("Skill", {})]:
         out = run(name, args)
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny", (name, args)
