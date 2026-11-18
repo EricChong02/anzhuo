@@ -43,6 +43,7 @@ def test_course_account_boundaries(tmp_path):
             async def send_fenced(request, acct, data, text, streamed):
                 called.append((request["owner"], acct, data))
                 return web.json_response({"ok": True, "num": own.num})
+            real_send_fenced = b.web._send_fenced
             b.web._send_fenced = send_fenced
             payload = {"course": url, "section": "sec-1", "screen": 2, "text": "这里字大一点"}
             r = await c.post("/_x/ext/course/api/feedback", json=payload)
@@ -53,8 +54,30 @@ def test_course_account_boundaries(tmp_path):
             assert (await c.post("/_x/ext/course/api/feedback", json={**payload, "course": "/workspace/_drafts/b/course.json"})).status == 403
             b.web.base = "https://x.example"
             assert (await c.post("/_x/ext/course/api/feedback", json=payload, headers={"Origin": "https://evil.invalid"})).status == 403
-            b.web.accounts["user"].pop("course")
+            published = root / "topics/bx1/a"
+            published.parent.mkdir(parents=True)
+            lesson.rename(published)
+            b.web.accounts["user"].update(root=str(published), course="topics/bx1/a")
+            current = "/workspace/topics/bx1/a/course.json"
+            r = await c.get("/studio-preview.html", params={"course": url, "xe_sec": "sec-1", "xe_scr": "2"}, allow_redirects=False)
+            assert r.status == 302
+            from yarl import URL
+            assert dict(URL(r.headers["Location"]).query) == {"course": current, "xe_sec": "sec-1", "xe_scr": "2"}
+            r = await c.get(r.headers["Location"])
+            assert r.status == 200 and "feedback.js" in await r.text()
+            assert (await c.get(current)).status == 200
             assert (await c.get(url)).status == 403
+            _course(root, "topics/bx1/b")
+            r = await c.get("/studio-preview.html", params={"course": "/workspace/_drafts/b/course.json"})
+            assert r.status == 403
+            r = await c.get("/_x/ext/course/api/course", params={"course": current})
+            assert (await r.json())["num"] is None
+            r = await c.post("/_x/ext/course/api/feedback", json={**payload, "course": current})
+            assert r.status == 200 and called[-1][2]["num"] is None
+            # 装回真实发送入口后，旧会话不能写回草稿目录。
+            b.web._send_fenced = real_send_fenced
+            r = await c.post("/_x/api/send", json={"num": own.num, "text": "在旧对话继续"})
+            assert r.status == 409 and not lesson.exists()
         finally:
             await c.close()
             await up.close()

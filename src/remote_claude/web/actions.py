@@ -176,6 +176,17 @@ class ActionsMixin:
         self._check_account_model(acct, data)
         if why := self.over_quota(acct):
             return web.json_response({"ok": False, "error": why}, status=429)
+        account = self.accounts.get(acct, {})
+        owner = self.owner_key(acct)
+        root = Path(self.root_of(acct)).expanduser()
+        num = data.get("num")
+        if num:
+            session = b.registry.mine(int(num), owner)
+            if not session:
+                raise web.HTTPNotFound()
+            if account.get("course") and (
+                    not session.root or Path(session.root).expanduser().resolve() != root.resolve()):
+                return web.json_response({"ok": False, "error": "课程目录已迁移，请返回试课后重新提交反馈"}, status=409)
         inbox = self._inbox(request)
         images = await self._save_images(data, inbox)
         uploaded = streamed + await self._save_files(data, inbox)
@@ -191,16 +202,11 @@ class ActionsMixin:
                 raise web.HTTPBadRequest()
             self._check_account_model(acct, {"model": pick})
             inc.model_override = MODELS[pick]
-        owner = self.owner_key(acct)
-        if num := data.get("num"):
-            if not b.registry.mine(int(num), owner):
-                raise web.HTTPNotFound()
+        if num:
             busy = int(num) in b.runner.turns
             await b.message(Cmd("message", num=int(num), text=text), inc, routed=True)
             return web.json_response({"ok": True, "injected": busy})
-        root = Path(self.root_of(acct)).expanduser()
         root.mkdir(parents=True, exist_ok=True)
-        account = self.accounts.get(acct, {})
         model, effort = self._model_effort({**data,
             "model": data.get("model") or account.get("default_model", ""),
             "effort": data.get("effort") or account.get("default_effort", "")})

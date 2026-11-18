@@ -201,6 +201,8 @@ class Course(Extension):
         for s in self.api.sessions(owner):
             if not Path(s.cwd).expanduser().resolve().is_relative_to(self.root_path.resolve()):
                 continue
+            if owner != "admin" and not self._session_for_course(s, course):
+                continue
             meta = s.ext.get(self.name, {})
             if meta.get("feedback", {}).get("course") != course:
                 continue
@@ -211,13 +213,20 @@ class Course(Extension):
             return max(bound, key=lambda s: s.updated)
         m = COURSE_JSON.match(course)
         s = self.course_session(m.group(2), title, owner, pick) if m else None
-        if s:
+        if s and (owner == "admin" or self._session_for_course(s, course)):
             known = s.ext.get(self.name, {}).get("feedback", {}).get("course")
             if known and known != course:
                 return None
             if not pick or (s.engine == "claude" and s.model == MODELS[pick]):
                 return s
         return None
+
+    def _session_for_course(self, session, course: str) -> bool:
+        match = COURSE_JSON.fullmatch(course)
+        if not match or not session.root:
+            return False
+        target = (self.root_path / match[1] / match[2]).resolve()
+        return Path(session.root).expanduser().resolve() == target and Path(session.cwd).expanduser().resolve() == target
 
     def feedback_conflict(self, course, title, owner, target):
         candidates = [s for s in self.api.sessions(owner)
@@ -254,7 +263,12 @@ class Course(Extension):
         if method not in ("GET", "HEAD"):
             return False
         if path == "/studio-preview.html":
-            return request.query.get("course") == f"/workspace/{rel}/course.json"
+            course = request.query.get("course", "")
+            current = f"/workspace/{rel}/course.json"
+            if course == current:
+                return True
+            legacy = f"/workspace/_drafts/{Path(rel).name}/course.json"
+            return rel.startswith("topics/") and course == legacy and self._moved_course(course) == current
         if path.startswith(f"/workspace/{rel}/"):
             file = (self.root_path / path.removeprefix("/workspace/")).resolve()
             return file.is_relative_to((self.root_path / rel).resolve())
@@ -350,7 +364,8 @@ class Course(Extension):
             self._client = aiohttp.ClientSession(auto_decompress=False, timeout=aiohttp.ClientTimeout(total=120))
         drop = HOP | (PROXY_SOURCE if request.path.startswith(LOCAL_ONLY) else set())
         inject = request.method == "GET" and request.path in FEEDBACK_PAGES
-        if inject and (moved := self._moved_course(request.query.get("course", ""))):
+        if request.method in ("GET", "HEAD") and request.path in FEEDBACK_PAGES and (
+                moved := self._moved_course(request.query.get("course", ""))):
             return web.HTTPFound(request.rel_url.update_query(course=moved).path_qs)  # 早先记下的草稿链接：课上架后跳到新位置
         if inject:
             drop = drop | {"accept-encoding", "if-none-match", "if-modified-since"}  # 要改页面，取不压缩、完整的一份
