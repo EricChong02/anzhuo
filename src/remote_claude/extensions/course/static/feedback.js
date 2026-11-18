@@ -22,6 +22,8 @@
   const until = async (ok, ms) => { const t = Date.now(); while (Date.now() - t < ms) { try { if (ok()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 150)); } return false; };
 
   const css = `
+.xe-model{display:flex;align-items:center;gap:8px;font-size:14px;margin:12px 0 6px;color:#374151}.xe-model select{flex:1;min-width:0;min-height:44px;border:1px solid #CBD5E1;border-radius:10px;background:#fff;color:#1D1D1F;padding:6px;font:inherit}.xe-model-note{display:block;color:#6B7280;font-size:12px;margin-bottom:10px}
+
 .xe-bar{position:fixed;left:calc(14px + env(safe-area-inset-left));bottom:calc(14px + env(safe-area-inset-bottom));z-index:2147483000;display:flex;gap:8px;align-items:center;
   font:600 15px -apple-system,"PingFang SC",sans-serif}
 .xe-fb,.xe-st{height:40px;padding:0 14px;border-radius:999px;border:1px solid rgba(0,0,0,.1);background:rgba(255,255,255,.86);
@@ -159,11 +161,16 @@
 
   async function open() {
     const h = await here(), q = queue();
+    let target = null;
+    try { target = await (await fetch('/_x/ext/course/api/course?course=' + encodeURIComponent(courseUrl))).json(); } catch (e) {}
+    const current = target?.num ? `沿用 #${target.num}${target.model ? ' · ' + target.model.replace(/^claude-/, '') : ''}` : '沿用默认（新对话）';
     const sh = document.createElement('div'); sh.className = 'xe-sh';
     sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span></div>
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
+      <label class="xe-model">这批反馈交给 <select aria-label="反馈使用的模型"><option value="">${esc(current)}</option><option value="sonnet">Sonnet · 局部修改</option><option value="opus">Opus · 教学设计与复杂修改</option></select></label>
+      <small class="xe-model-note">仅这批生效；指定型号时，等当前工作结束再处理。</small>
       <div class="xe-row"><button class="xe-shot">截图</button><span class="xe-th"></span>
       <button class="xe-later" disabled>先记下</button>
       <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交'}</button></div></div>`;
@@ -217,7 +224,7 @@
       const items = [...queue(), ...((ta.value.trim() || images.length) ? [cur()] : [])];
       try {
         const r = await fetch('/_x/ext/course/api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({course: courseUrl, items})});
+          body: JSON.stringify({course: courseUrl, items, model: sh.querySelector("select").value})});
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || '没交出去');
         save(KEY, null); refreshBtn();
@@ -230,6 +237,9 @@
         poll();
       } catch (e) {
         send.disabled = false; later.disabled = false; send.textContent = '没交出去，再试一次';
+        let err = sh.querySelector('.xe-error');
+        if (!err) { err = document.createElement('p'); err.className = 'xe-error'; sh.querySelector('.xe-box').appendChild(err); }
+        err.textContent = e.message || '请稍后再试';
       }
     };
     setTimeout(() => ta.focus(), 50);

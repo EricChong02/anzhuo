@@ -416,7 +416,7 @@ class ClaudeEngine(Engine):
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
-            model=self.model_for(s),
+            model=job.model_override or self.model_for(s),
             effort=s.effort or runner.default_effort or None,
             resume=s.claude_id,
             resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上

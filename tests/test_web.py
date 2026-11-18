@@ -467,15 +467,15 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     monkeypatch.setitem(MODELS, "opus", "claude-opus-7-2")
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
-    assert opts["gpt"] == "GPT-6.1 Sol"
+    assert opts["gpt"] == "GPT-6.2 Sol"  # 远窗默认独立于桌面 Codex 配置
     assert opts["fable"] == "Claude Fable 5.2"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"
     (tmp_path / "config.toml").write_text("bad = [")
-    assert dict(model_options())["gpt"] == "GPT"
+    assert dict(model_options())["gpt"] == "GPT-6.2 Sol"
     (tmp_path / "config.toml").unlink()
-    assert dict(model_options())["gpt"] == "GPT"
+    assert dict(model_options())["gpt"] == "GPT-6.2 Sol"
 
 
 def test_fork(tmp_path, monkeypatch):

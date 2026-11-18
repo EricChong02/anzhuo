@@ -412,7 +412,7 @@ class Bridge:
         for i, (code, fname) in enumerate(inc.files):
             path = await self.dt.download(code, inbox / f"{stamp}-{i}-{Path(fname).name}")
             text += f"\n\n（附件已存到：{path}）"
-        job = Job(text=text, images=images, via=inc.via)
+        job = Job(text=text, images=images, via=inc.via, model_override=inc.model_override)
         self.work_at = time.time()
         ahead = self.runner.submit(s, job)
         if ahead == -1:

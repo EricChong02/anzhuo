@@ -185,6 +185,12 @@ class ActionsMixin:
             return web.json_response({"ok": False, "error": "没写内容"}, status=400)
         inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
                        local_images=images, via="web")
+        if data.get("feedback_model"):
+            pick = str(data["feedback_model"])
+            if pick not in ("opus", "sonnet"):
+                raise web.HTTPBadRequest()
+            self._check_account_model(acct, {"model": pick})
+            inc.model_override = MODELS[pick]
         owner = self.owner_key(acct)
         if num := data.get("num"):
             if not b.registry.mine(int(num), owner):
@@ -196,7 +202,7 @@ class ActionsMixin:
         root.mkdir(parents=True, exist_ok=True)
         account = self.accounts.get(acct, {})
         model, effort = self._model_effort({**data,
-            "model": data.get("model") or account.get("default_model", ""),
+            "model": ("" if data.get("feedback_model") else data.get("model")) or account.get("default_model", ""),
             "effort": data.get("effort") or account.get("default_effort", "")})
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)

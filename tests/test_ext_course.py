@@ -281,3 +281,28 @@ def test_old_feedback_moves_into_ext(tmp_path):
     assert b.registry.get(1).ext == {"course": {"feedback": spot}}
     s2 = asyncio.run(b.relays.open(b.registry.get(1), "交接"))
     assert s2.ext == {"course": {"feedback": spot}} and s2.ext is not b.registry.get(1).ext
+
+
+def test_feedback_selected_model_is_transient(tmp_path):
+    from remote_claude.engines import MODELS
+    async def go():
+        b, root = _bridge(tmp_path)
+        _course(root, "_drafts/c1", "淘宝 2003")
+        s = b.registry.add(Session(num=b.registry.reserve_num(), name="淘宝 2003", cwd=str(root), model=MODELS['opus']))
+        seen = []
+        async def message(cmd, inc, routed=False):
+            seen.append(inc.model_override)
+        b.message = message
+        c = await _login(b)
+        try:
+            body = {"course": "/workspace/_drafts/c1/course.json", "text": "改标题", "model": "sonnet"}
+            assert (await (await c.post('/_x/ext/course/api/feedback', json=body)).json())['ok']
+            assert seen == [MODELS['sonnet']] and s.model == MODELS['opus']
+            body['model'] = 'bad'
+            assert (await c.post('/_x/ext/course/api/feedback', json=body)).status == 400
+            s.engine = 'codex'
+            body['model'] = 'opus'
+            assert (await c.post('/_x/ext/course/api/feedback', json=body)).status == 409
+        finally:
+            await c.close()
+    asyncio.run(go())

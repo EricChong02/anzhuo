@@ -23,6 +23,7 @@ class Incoming:
     sender_nick: str
     conversation_type: str  # "1" 单聊，"2" 群聊
     kind: str  # text / picture / richText / audio / file / 其他原样
+    model_override: str = field(default="", kw_only=True)  # 内部入口指定这一轮的 Claude 型号
     text: str = ""
     image_codes: list[str] = field(default_factory=list)
     files: list[tuple[str, str]] = field(default_factory=list)  # (downloadCode, 文件名)

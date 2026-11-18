@@ -64,9 +64,8 @@ def display_model(model_id: str) -> str:
 
 
 def model_options() -> list[list[str]]:
-    from ..codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        [e.key, (display_model(configured_model()) or e.label) if e is engines.CODEX else e.label]
+        [e.key, (display_model(engines.CODEX.DEFAULT_MODEL) or e.label) if e is engines.CODEX else e.label]
         for e in engines.known() if e.pick_model == "own" and (e is engines.CODEX or e.available())]
 
 def _md(text: str) -> str:

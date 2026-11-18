@@ -345,6 +345,9 @@ class Course(Extension):
         if not m or ".." in m.group(1).split("/"):
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
         self._check_account_course(request, str(data.get("course") or ""))
+        pick = data.get("model") or ""
+        if pick not in ("", "opus", "sonnet"):
+            return web.json_response({"ok": False, "error": "请选择沿用当前、Opus 或 Sonnet"}, status=400)
         cdir = m.group(2)
         title = self._title(cdir)
         if request.get("owner", "admin") != "admin":
@@ -374,11 +377,15 @@ class Course(Extension):
         spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"), "step": last.get("step"),
                 "where": self._where(m.group(1), cdir, last), "t": time.time()}
         s = self.course_session(cdir, title)
+        if s and pick and s.engine not in ("", "claude", None):
+            return web.json_response({"ok": False, "error": "当前课程对话使用其他引擎，请在远窗中接力到 Claude 后再提交"}, status=409)
+        from ...engines import MODELS
+        model_kw = {"model": MODELS[pick]} if pick else {}
         if s:
             self.api.data(s)["feedback"] = spot   # 记下最后一处在哪：改好后回复里的试课链接直接跳回这一屏
-            await self.api.send(s.num, msg, images, via="feedback")
+            await self.api.send(s.num, msg, images, via="feedback", **model_kw)
             return web.json_response({"ok": True, "num": s.num, "name": s.name})
-        s = await self.api.new(str(self.root_path), msg, images, kind="dev", note="（试课反馈新开）", via="feedback")
+        s = await self.api.new(str(self.root_path), msg, images, kind="dev", note="（试课反馈新开）", via="feedback", **model_kw)
         if s:
             self.api.data(s)["feedback"] = spot
             self.api.save()
@@ -399,7 +406,7 @@ class Course(Extension):
                + "\n".join(lines) + ("\n先别改，对照本课教案解释。" if ask else
                "\n请直接修改本课，保留其他内容。完成后说明修改了哪一屏，提醒我刷新该屏核对。只在本课目录内工作。"))
         s = self.course_session(m.group(2), title, owner)
-        response = await self.api.send_fenced(request, msg, images, s.num if s else None)
+        response = await self.api.send_fenced(request, msg, images, s.num if s else None, **({"model": data["model"]} if data.get("model") else {}))
         result = json.loads(response.text)
         if not result.get("ok"):
             return response
@@ -443,5 +450,5 @@ class Course(Extension):
             return web.json_response({"num": None})
         st = self.api.status(s.num)
         return web.json_response({"num": s.num, "name": s.name, "state": st["state"], "step": st["step"],
-                                  "minutes": st["minutes"], "updated": s.updated,
+                                  "minutes": st["minutes"], "updated": s.updated, "model": s.model or "",
                                   "feedback": self.api.data(s).get("feedback") if s.ext.get(self.name) else None})

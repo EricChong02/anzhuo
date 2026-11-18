@@ -150,6 +150,7 @@ class Registry:
 
 @dataclass
 class Job:
+    model_override: str = field(default="", kw_only=True)
     schedule_id: str = field(default="", kw_only=True)
     schedule_run_id: str = field(default="", kw_only=True)
     text: str
@@ -254,7 +255,7 @@ class Runner:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
         turn = self.turns.get(s.num)
         # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后；能不能插、怎么插由引擎定
-        if (turn and turn.accepting and not turn.interrupted and job.text != COMPACT
+        if (not job.model_override and turn and turn.accepting and not turn.interrupted and job.text != COMPACT
                 and turn.request != _request_title(Job(text=COMPACT))
                 and (steer := engines.get(s.engine).steer(self, s, turn, job)) is not None):
             turn.injected += 1
@@ -264,7 +265,7 @@ class Runner:
         q = self.queues.setdefault(s.num, asyncio.Queue())
         ahead = q.qsize() + (1 if s.num in self.turns else 0)
         last = q._queue[-1] if q.qsize() else None  # noqa: SLF001
-        if last and last.text != COMPACT and job.text != COMPACT and last.via == job.via:
+        if last and last.text != COMPACT and job.text != COMPACT and last.via == job.via and last.model_override == job.model_override:
             # 前一句还排着没开工，你又补了一句：并成一件交给它，免得它把几句话分成几轮一句句答
             last.parts = last.parts or [last.text]
             last.parts.append(job.text)

@@ -38,15 +38,16 @@ async def approve_command(runner: "Runner", s: "Session", turn: "Turn", method: 
 
 
 class CodexEngine(Engine):
+    DEFAULT_MODEL = "gpt-6.2-sol"
     name, label, tool, key = "codex", "GPT", "Codex", "gpt"
-    pick_model = "own"   # 型号用 Codex 自己报的（model/list）；不选就用 ~/.codex/config.toml 里的
+    pick_model = "own"   # 型号用 Codex 自己报的（model/list）；新对话未指定时用 DEFAULT_MODEL
     can_steer = can_rewind = can_fork = has_quota = has_tools = stop_hook = True
 
     def available(self) -> bool:
         return codex_conn.codex_bin() is not None
 
     def models(self) -> tuple[list[str], str]:
-        return list(codex_conn.MODELS_SEEN), codex_conn.configured_model() or "Codex 自己配置的模型"
+        return list(codex_conn.MODELS_SEEN), self.DEFAULT_MODEL
 
     def limits(self, runner: "Runner") -> dict:
         return runner.limits_gpt
@@ -75,6 +76,8 @@ class CodexEngine(Engine):
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:
         """开或接着会话 → 开一轮 → 把事件翻成和 Claude 一样的步骤、说明、回复；正在写的回复边写边给网页。
         只能写对话所在的文件夹（workspace-write，可联网）。"""
+        if not s.codex_id and not s.model:
+            s.model = self.DEFAULT_MODEL
         await check_folders(s)
         checkpoints = Checkpoints(runner.registry.path.parent / "checkpoints")
         if job.text != COMPACT:
