@@ -105,6 +105,9 @@ class Registry:
         raw = json.loads(self.path.read_text())
         known = set(Session.__dataclass_fields__)
         self.sessions = {int(k): Session(**{f: x for f, x in v.items() if f in known}) for k, v in raw.get("sessions", {}).items()}
+        for session in self.sessions.values():
+            if session.engine == "codex" and not session.model:
+                session.model = engines.CODEX.DEFAULT_MODEL
         self.current = raw.get("current")
         self.next_num = raw.get("next_num", max(self.sessions, default=0) + 1)
 

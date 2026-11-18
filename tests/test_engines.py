@@ -267,3 +267,16 @@ def test_model_feedback_waits_and_does_not_merge(monkeypatch):
         assert [j.model_override for j in runner.queued(1)] == [MODELS['sonnet'], MODELS['opus']]
         assert s.model == MODELS['opus'] and not runner.tasks
     asyncio.run(go())
+
+
+def test_inherited_gpt_default_upgrades_without_overriding_explicit_choice(tmp_path):
+    import json
+    from remote_claude.sessions import Registry
+    path = tmp_path / 'sessions.json'
+    path.write_text(json.dumps({"sessions": {
+        "1": {"num": 1, "name": "旧默认", "cwd": "/tmp", "engine": "codex", "codex_id": "old-thread"},
+        "2": {"num": 2, "name": "手选", "cwd": "/tmp", "engine": "codex", "model": "gpt-6.1-sol"}}}))
+    reg = Registry(path)
+    assert reg.get(1).model == 'gpt-6.2-sol'
+    assert reg.get(1).codex_id == 'old-thread'
+    assert reg.get(2).model == 'gpt-6.1-sol'

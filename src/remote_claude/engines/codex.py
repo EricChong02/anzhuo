@@ -76,7 +76,7 @@ class CodexEngine(Engine):
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:
         """开或接着会话 → 开一轮 → 把事件翻成和 Claude 一样的步骤、说明、回复；正在写的回复边写边给网页。
         只能写对话所在的文件夹（workspace-write，可联网）。"""
-        if not s.codex_id and not s.model:
+        if not s.model:
             s.model = self.DEFAULT_MODEL
         await check_folders(s)
         checkpoints = Checkpoints(runner.registry.path.parent / "checkpoints")
