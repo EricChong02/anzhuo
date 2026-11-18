@@ -9,7 +9,7 @@
   window.__xiaoeFeedback = true;
   const params = new URLSearchParams(location.search);
   const courseUrl = params.get('course') || '';
-  const KEY = 'xe-fb:' + courseUrl, SENT = 'xe-sent:' + courseUrl;
+  const KEY = 'xe-fb:' + courseUrl, SENT = 'xe-sent:' + courseUrl, MODEL = 'xe-model:' + courseUrl;
   let manifest = null;
   const loadManifest = async () => {
     if (manifest || !courseUrl) return manifest;
@@ -169,12 +169,15 @@
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
-      <label class="xe-model">这批反馈交给 <select aria-label="反馈使用的模型"><option value="">${esc(current)}</option><option value="sonnet">Sonnet · 局部修改</option><option value="opus">Opus · 教学设计与复杂修改</option></select></label>
-      <small class="xe-model-note">仅这批生效；指定型号时，等当前工作结束再处理。</small>
+      <label class="xe-model">这批反馈交给 <select aria-label="反馈使用的模型"><option value="">${esc(current)}</option><option value="sonnet">Sonnet 对话${target?.targets?.sonnet ? ` · #${target.targets.sonnet}` : ' · 首次新建'}</option><option value="opus">Opus 对话${target?.targets?.opus ? ` · #${target.targets.opus}` : ' · 首次新建'}</option></select></label>
+      <small class="xe-model-note">按课程复用对应型号的对话；另一条对话忙时，完成后再交。</small>
       <div class="xe-row"><button class="xe-shot">截图</button><span class="xe-th"></span>
       <button class="xe-later" disabled>先记下</button>
       <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交'}</button></div></div>`;
     document.body.appendChild(sh);
+    const modelSelect = sh.querySelector("select");
+    modelSelect.value = ["opus", "sonnet"].includes(load(MODEL)) ? load(MODEL) : "";
+    modelSelect.onchange = () => { save(MODEL, modelSelect.value); poll(); };
     const ta = sh.querySelector('textarea'), send = sh.querySelector('.xe-send'), later = sh.querySelector('.xe-later');
     let images = [];
     const box = sh.querySelector('.xe-box'), th = sh.querySelector('.xe-th');
@@ -254,7 +257,7 @@
     if (!courseUrl || !stEl) return;
     if (document.hidden) { timer = setTimeout(poll, 8000); return; }
     let d = null;
-    try { d = await (await fetch('/_x/ext/course/api/course?course=' + encodeURIComponent(courseUrl))).json(); } catch (e) {}
+    try { d = await (await fetch('/_x/ext/course/api/course?course=' + encodeURIComponent(courseUrl) + '&model=' + encodeURIComponent(load(MODEL) || ''))).json(); } catch (e) {}
     const sent = load(SENT);
     stEl.className = 'xe-st'; stEl.hidden = true; stEl.onclick = null;
     if (d && d.num) {

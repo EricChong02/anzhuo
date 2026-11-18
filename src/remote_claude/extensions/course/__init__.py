@@ -94,6 +94,7 @@ class Course(Extension):
         self._client: aiohttp.ClientSession | None = None
         self._list: tuple[float, list] = (0.0, [])
         self._cards: tuple[float, list] = (0.0, [])
+        self._feedback_lock = asyncio.Lock()
         self._migrate_feedback()
 
     @property
@@ -163,7 +164,7 @@ class Course(Extension):
                     if not str(r.get("request") or "").startswith(("（试课反馈）", "（试课提问）"))),
                    default=float(s.created or 0))
 
-    def course_session(self, cdir: str, title: str, owner: str = "admin"):
+    def course_session(self, cdir: str, title: str, owner: str = "admin", pick: str = ""):
         """试课反馈交给谁：先看对话名和标题重合多少字；同名的对话里，交给你最近亲手在用的那个
         （试课页自动交来的反馈不算）。发过这门课试课链接的再优先一点。"""
         root = self.root_path.resolve()
@@ -171,6 +172,10 @@ class Course(Extension):
         want = pairs(re.sub(r"\W", "", title))
         best, best_key = None, None
         for s in self.api.sessions(owner):
+            if pick:
+                from ...engines import MODELS
+                if s.engine != "claude" or s.model != MODELS[pick]:
+                    continue
             try:
                 inside = Path(s.cwd).expanduser().resolve().is_relative_to(root)
             except OSError:
@@ -188,6 +193,41 @@ class Course(Extension):
             if best_key is None or key > best_key:
                 best, best_key = s, key
         return best
+
+    def feedback_session(self, course: str, title: str, owner="admin", pick=""):
+        """按完整课程路径和型号续接，优先复用已经绑定的对话。"""
+        from ...engines import MODELS
+        bound = []
+        for s in self.api.sessions(owner):
+            if not Path(s.cwd).expanduser().resolve().is_relative_to(self.root_path.resolve()):
+                continue
+            meta = s.ext.get(self.name, {})
+            if meta.get("feedback", {}).get("course") != course:
+                continue
+            if pick and (s.engine != "claude" or s.model != MODELS[pick]):
+                continue
+            bound.append(s)
+        if bound:
+            return max(bound, key=lambda s: s.updated)
+        m = COURSE_JSON.match(course)
+        s = self.course_session(m.group(2), title, owner, pick) if m else None
+        if s:
+            known = s.ext.get(self.name, {}).get("feedback", {}).get("course")
+            if known and known != course:
+                return None
+            if not pick or (s.engine == "claude" and s.model == MODELS[pick]):
+                return s
+        return None
+
+    def feedback_conflict(self, course, title, owner, target):
+        candidates = [s for s in self.api.sessions(owner)
+                      if s.ext.get(self.name, {}).get("feedback", {}).get("course") == course]
+        m = COURSE_JSON.match(course)
+        original = self.course_session(m.group(2), title, owner) if m else None
+        if original:
+            candidates.append(original)
+        return next((s for s in candidates if (not target or s.num != target.num)
+                     and self.api.status(s.num).get("state") == "running"), None)
 
     def account_course(self, request) -> str:
         """仅显式绑定单课且沙箱根与课程目录一致的账号可以试课。"""
@@ -336,6 +376,10 @@ class Course(Extension):
 
     # ---------- 试课反馈 ----------
     async def _api_feedback(self, request: web.Request) -> web.Response:
+        async with self._feedback_lock:
+            return await self._submit_feedback(request)
+
+    async def _submit_feedback(self, request: web.Request) -> web.Response:
         """试课页上“反馈这一屏”：带上课、节、屏，交给做这门课的对话；没有就在课程根里新开一个。"""
         if not self.api.same_origin(request):
             raise web.HTTPForbidden()
@@ -350,7 +394,12 @@ class Course(Extension):
             return web.json_response({"ok": False, "error": "请选择沿用当前、Opus 或 Sonnet"}, status=400)
         cdir = m.group(2)
         title = self._title(cdir)
-        if request.get("owner", "admin") != "admin":
+        owner = request.get("owner", "admin")
+        course = str(data["course"])
+        target = self.feedback_session(course, title, owner, pick)
+        if conflict := self.feedback_conflict(course, title, owner, target):
+            return web.json_response({"ok": False, "error": f"#{conflict.num} 正在修改这门课，请等它完成后再交；本次内容仍在反馈框内。"}, status=409)
+        if owner != "admin":
             return await self._account_feedback(request, data, m, title)
         # 一次可以带几处（试课页上“先记下”攒的），每处：节、屏、说了什么、截图
         notes = [x for x in (data.get("items") or [data]) if isinstance(x, dict)][:12]
@@ -372,13 +421,12 @@ class Course(Extension):
             msg = (f"（试课反馈）《{title}》共 {len(lines)} 处（{m.group(1)}/{cdir}）：\n"
                    + "\n".join(f"{i}. {w}（节 id {sec}）：{t}" for i, (w, sec, t) in enumerate(lines, 1))
                    + "\n\n一处一处改，改完把改过的几屏截图给我看。")
+        msg += "\n\n本课可能已由另一条对话修改过。先核对当前课程文件和教案，只读取与本批反馈相关的部分，以当前文件为准。"
         last = notes[-1] if notes else {}
         self.api.record("你（试课提问）" if data.get("ask") else "你（试课反馈）", msg, images=len(images))
         spot = {"course": str(data.get("course")), "section": last.get("section") or "", "screen": last.get("screen"), "step": last.get("step"),
                 "where": self._where(m.group(1), cdir, last), "t": time.time()}
-        s = self.course_session(cdir, title)
-        if s and pick and s.engine not in ("", "claude", None):
-            return web.json_response({"ok": False, "error": "当前课程对话使用其他引擎，请在远窗中接力到 Claude 后再提交"}, status=409)
+        s = target
         from ...engines import MODELS
         model_kw = {"model": MODELS[pick]} if pick else {}
         if s:
@@ -387,6 +435,7 @@ class Course(Extension):
             return web.json_response({"ok": True, "num": s.num, "name": s.name})
         s = await self.api.new(str(self.root_path), msg, images, kind="dev", note="（试课反馈新开）", via="feedback", **model_kw)
         if s:
+            s.name = f"{title} · {pick.title()}" if pick else title
             self.api.data(s)["feedback"] = spot
             self.api.save()
         return web.json_response({"ok": bool(s), "num": s.num if s else None, "name": s.name if s else "新对话"})
@@ -405,7 +454,8 @@ class Course(Extension):
         msg = (f"（试课{'提问' if ask else '反馈'}）《{title}》（{m.group(1)}/{m.group(2)}）：\n"
                + "\n".join(lines) + ("\n先别改，对照本课教案解释。" if ask else
                "\n请直接修改本课，保留其他内容。完成后说明修改了哪一屏，提醒我刷新该屏核对。只在本课目录内工作。"))
-        s = self.course_session(m.group(2), title, owner)
+        s = self.feedback_session(str(data["course"]), title, owner, data.get("model") or "")
+        msg += "\n本课可能被另一条对话修改过；先核对当前课程文件和教案，只读本批相关部分。"
         response = await self.api.send_fenced(request, msg, images, s.num if s else None, **({"model": data["model"]} if data.get("model") else {}))
         result = json.loads(response.text)
         if not result.get("ok"):
@@ -445,10 +495,17 @@ class Course(Extension):
         if not m:
             return web.json_response({"num": None})
         cdir = m.group(2)
-        s = await asyncio.to_thread(self.course_session, cdir, self._title(cdir), request.get("owner", "admin"))
+        course, owner = request.query.get("course", ""), request.get("owner", "admin")
+        title = self._title(cdir)
+        pick = request.query.get("model", "")
+        if pick not in ("", "opus", "sonnet"):
+            raise web.HTTPBadRequest()
+        targets = {key: (s.num if (s := self.feedback_session(course, title, owner, key)) else None)
+                   for key in ("opus", "sonnet")}
+        s = self.feedback_session(course, title, owner, pick)
         if not s:
-            return web.json_response({"num": None})
+            return web.json_response({"num": None, "targets": targets})
         st = self.api.status(s.num)
         return web.json_response({"num": s.num, "name": s.name, "state": st["state"], "step": st["step"],
-                                  "minutes": st["minutes"], "updated": s.updated, "model": s.model or "",
+                                  "minutes": st["minutes"], "updated": s.updated, "model": s.model or "", "targets": targets,
                                   "feedback": self.api.data(s).get("feedback") if s.ext.get(self.name) else None})

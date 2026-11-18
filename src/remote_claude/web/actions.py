@@ -202,7 +202,7 @@ class ActionsMixin:
         root.mkdir(parents=True, exist_ok=True)
         account = self.accounts.get(acct, {})
         model, effort = self._model_effort({**data,
-            "model": ("" if data.get("feedback_model") else data.get("model")) or account.get("default_model", ""),
+            "model": data.get("model") or account.get("default_model", ""),
             "effort": data.get("effort") or account.get("default_effort", "")})
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)

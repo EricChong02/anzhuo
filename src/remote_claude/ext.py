@@ -162,11 +162,10 @@ class Api:
                   via: str = "", model: str = "") -> "Session | None":
         """在 folder 里新开一个对话，开头就说 text；kind = design / dev / simple（照分工表选模型）。返回新对话。"""
         before = self._b.registry.next_num
-        from .engines import MODELS
-        # 显式选 Claude 时确保创建 Claude 对话；所选型号只随第一轮任务传递。
+        # 显式选型号时新建固定型号对话，后续试课反馈按课程和型号复用。
         inc = self._incoming(text, images, via)
         inc.model_override = model
-        await self._b.new_session([folder] if folder else [], text, inc, note=note, kind=kind, **({"model": MODELS["sonnet"]} if model else {}))
+        await self._b.new_session([folder] if folder else [], text, inc, note=note, kind=kind, **({"model": model} if model else {}))
         return self._b.registry.get(before)
 
     def account(self, request) -> dict:

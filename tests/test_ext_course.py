@@ -63,7 +63,7 @@ def _bridge(tmp_path, upstream="http://127.0.0.1:9", **ext):
 
     async def new(tokens, text, inc, note="", kind=None, model=None, effort=None, **k):
         b.new.append((tokens, text, kind))
-        s = b.registry.add(Session(num=b.registry.reserve_num(), name="新", cwd=tokens[0] if tokens else ""))
+        s = b.registry.add(Session(num=b.registry.reserve_num(), name="新", cwd=tokens[0] if tokens else "", model=model))
         return s
 
     b.message, b.new_session = message, new
@@ -283,26 +283,31 @@ def test_old_feedback_moves_into_ext(tmp_path):
     assert s2.ext == {"course": {"feedback": spot}} and s2.ext is not b.registry.get(1).ext
 
 
-def test_feedback_selected_model_is_transient(tmp_path):
+def test_feedback_reuses_separate_model_conversations(tmp_path):
     from remote_claude.engines import MODELS
     async def go():
         b, root = _bridge(tmp_path)
         _course(root, "_drafts/c1", "淘宝 2003")
-        s = b.registry.add(Session(num=b.registry.reserve_num(), name="淘宝 2003", cwd=str(root), model=MODELS['opus']))
-        seen = []
-        async def message(cmd, inc, routed=False):
-            seen.append(inc.model_override)
-        b.message = message
+        opus = b.registry.add(Session(num=b.registry.reserve_num(), name="淘宝 2003", cwd=str(root), model=MODELS['opus']))
         c = await _login(b)
         try:
             body = {"course": "/workspace/_drafts/c1/course.json", "text": "改标题", "model": "sonnet"}
-            assert (await (await c.post('/_x/ext/course/api/feedback', json=body)).json())['ok']
-            assert seen == [MODELS['sonnet']] and s.model == MODELS['opus']
-            body['model'] = 'bad'
-            assert (await c.post('/_x/ext/course/api/feedback', json=body)).status == 400
-            s.engine = 'codex'
-            body['model'] = 'opus'
-            assert (await c.post('/_x/ext/course/api/feedback', json=body)).status == 409
+            async def post(model):
+                return await c.post('/_x/ext/course/api/feedback', json={**body, "model": model})
+            first = await (await post('sonnet')).json()
+            assert first['ok'] and first['num'] != opus.num
+            sonnet = b.registry.get(first['num'])
+            assert sonnet.model == MODELS['sonnet']
+            assert (await (await post('opus')).json())['num'] == opus.num
+            assert (await (await post('sonnet')).json())['num'] == sonnet.num
+            assert len(b.new) == 1 and opus.model == MODELS['opus']
+            assert (await post('bad')).status == 400
+            status = await (await c.get('/_x/ext/course/api/course', params={"course": body['course'], "model": "sonnet"})).json()
+            assert status['num'] == sonnet.num and status['targets'] == {"opus": opus.num, "sonnet": sonnet.num}
+            # Opposite model busy: retain the user's input instead of launching a concurrent edit.
+            b.runner.turns[opus.num] = NS(started=0, plan=[], steps=[])
+            assert (await post('sonnet')).status == 409
+            b.runner.turns.clear()
         finally:
             await c.close()
     asyncio.run(go())
