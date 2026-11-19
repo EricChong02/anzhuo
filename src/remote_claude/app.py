@@ -117,6 +117,7 @@ class Bridge:
         if rec := usage.row(s, turn, engines.get(s.engine).limits(self.runner), last=last):
             usage.append(self.data_dir / "usage.jsonl", rec)
             self.registry.save()
+        self.web.reindex_later(s)   # 这一轮做完了：后台更新这个对话的搜索索引
 
     # ---------- 发消息 ----------
     def record(self, who: str, text: str, **extra) -> None:
@@ -430,6 +431,7 @@ class Bridge:
         client = self.ding.client() if self.cfg.dingtalk_enabled else None
         if self.web.enabled:
             await self.web.start()
+            asyncio.create_task(asyncio.to_thread(self.web.reindex_all))   # 搜索索引：补上记录变过的对话
         # 插着电时别让 Mac 睡着（小E 退出就自动失效）；合盖或用电池时照常睡。Windows / Linux 没有 caffeinate，跳过
         try:
             subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])

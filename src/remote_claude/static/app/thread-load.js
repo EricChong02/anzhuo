@@ -51,10 +51,16 @@ async function loadThread() {
   // 后台通知仍更新列表；只有实际打开对话时才读取，避免请求顺带清掉未读。
   if (!sel || document.hidden || (matchMedia('(max-width:820px)').matches && !$('#app').classList.contains('in'))) return;
   try {
-    const d = await api('thread/' + sel);
-    if (d.num !== sel) return;
-    if (d.redirect) { await loadSessions(); if (sel === d.num) followRelay(d.redirect); return; }
-    cacheThread(d);
+    const hit = searchHit, feed = $('#feed');
+    const suffix = hit ? '?' + new URLSearchParams({source: hit.source, target: hit.target}) : '';
+    const d = await api('thread/' + sel + suffix);
+    if (d.num !== sel || feed !== $('#feed') || hit !== searchHit) return;
+    if (d.redirect) { await loadSessions(); if (feed === $('#feed') && sel === d.num) followRelay(d.redirect); return; }
+    if (!hit) cacheThread(d);
+    if (hit && !hit.jumped && !d.items.some(i => i.search_hit)) {
+      searchHit = null;
+      toast('这条消息已变动，请重新搜索');
+    }
     const key = JSON.stringify(d) + JSON.stringify(pending[d.num] || []);
     const selText = getSelection && getSelection(); const reading = selText && !selText.isCollapsed && $('#feed') && $('#feed').contains(selText.anchorNode);
     if (key !== lastKey && !reading) {

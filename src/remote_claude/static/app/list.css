@@ -29,3 +29,6 @@
   .task-group>summary{min-height:48px}
   .task-group>summary b{font-size:var(--t4)}
 }
+
+.search-pages{display:flex;align-items:center;gap:8px;padding:10px}
+#list .item[data-target] .hit{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;white-space:normal;overflow-wrap:anywhere}

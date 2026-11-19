@@ -44,7 +44,7 @@ class ThreadsMixin:
         """这个对话每轮的原始记录（旧的在前）：额度用完接力时，小E 按它拼交接材料。"""
         return [r for p in self._turn_paths(num) if (r := self._turn(p.stem))]
 
-    def _codex_history(self, num: int) -> list[dict]:
+    def _codex_history(self, num: int, *, full: bool = False) -> list[dict]:
         """Codex 对话的一来一回：Codex 的记录格式不一样，直接用小E 自己记的每轮（你说的话 + 过程 + 最后的回复）。"""
         items: list[dict] = []
         for p in self._turn_paths(num):
@@ -82,55 +82,126 @@ class ThreadsMixin:
             items.append({"who": "claude", "text": lt.final_text or lt.error or "（没有回复）",
                           "ts": lt.ended, "elapsed": max(0, lt.ended - lt.started) if lt.ended >= lt.started else None,
                           "steps": len(lt.steps), "process": []})
-        return items[-300:]
+        return items if full else items[-300:]
 
-    def _search_items(self, s) -> list[dict]:
-        """一个对话里能搜的话（你说的、它每轮的回复），按记录文件变没变缓存住，不用每次重读几十 MB 的记录。"""
-        records = engines.get(s.engine).history == "records"   # 记录在远窗这边（GPT、Kimi）还是 Claude 自己那
-        if records:
-            key = ("x", len(list(self.turns_dir.glob(f"{s.num}-*.json"))))
+    def _search_key(self, s) -> str:
+        """同时跟踪归档修改、分叉继承与回退隐藏。"""
+        files = self._turn_paths(s.num)
+        if s.claude_id and (path := thread.transcript_path(s.claude_id)):
+            files.append(path)
+        h = hashlib.sha256(f"v3:{s.owner}:{s.engine}:{s.claude_id}:{s.cwd}:{s.rewind_at}".encode())
+        for path in files:
+            try:
+                st = path.stat()
+            except FileNotFoundError:
+                continue
+            h.update(f"{path.name}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+        if engines.get(s.engine).history == "records":
+            last = getattr(self.bridge.runner, "last", {}).get(s.num)
+            if last and not any(p.stem == f"{s.num}-{int(last.started)}" for p in files):
+                h.update(str(last.ended).encode())
+        return h.hexdigest()
+
+    def _read_history(self, s, *, full: bool = False) -> list[dict]:
+        if engines.get(s.engine).history == "records":
+            items = self._codex_history(s.num, full=full)
+        elif s.claude_id:
+            times: dict = {}
+            msgs = thread.full_messages(s.claude_id, s.cwd, times)
+            items = thread.history(msgs, limit=None if full else 300, times=times)
         else:
-            p = thread.transcript_path(s.claude_id) if s.claude_id else None
-            key = ("c", p.stat().st_mtime if p else 0)
-        hit = self._search_cache.get(s.num)
-        if hit and hit[0] == key:
-            return hit[1]
-        items: list[dict] = []
+            return []
+        items = thread.attach_records(items, self._records(s.num))
+        return display_items(items)
+
+    @staticmethod
+    def _search_token(ordinal: int, text: str) -> str:
+        return f"{ordinal}-{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+
+    def reindex(self, s, known: dict[int, str] | None = None) -> tuple[str | None, bool]:
+        """返回可查询的索引版本及本次是否重建。"""
+        index = self.search_index
         try:
-            if records:
-                items = self._codex_history(s.num)
-            elif s.claude_id:
-                items = thread.history(thread.full_messages(s.claude_id, s.cwd), limit=100000)
-        except Exception:  # noqa: BLE001 - 读不到就当没有
-            log.debug("搜索读记录失败", exc_info=True)
-        items = [{"who": it["who"], "text": it.get("text") or ""} for it in items if it.get("who") in ("you", "claude")]
-        self._search_cache[s.num] = (key, items)
-        return items
+            key = self._search_key(s)
+            if known is not None and known.get(s.num) == key:
+                return key, False
+            with index.lock:
+                key = self._search_key(s)
+                if index.key(s.num) == key:
+                    return key, False
+                items = self._read_history(s, full=True)
+                if s.rewind_at:
+                    cut = next((i for i, it in enumerate(items) if it.get("end") == s.rewind_at), None)
+                    if cut is not None:
+                        items = items[:cut + 1]
+                if self._search_key(s) == key:
+                    index.put(s.num, key, items)
+                    return key, True
+        except Exception:  # noqa: BLE001 - 索引出错不影响别的功能
+            log.debug("更新搜索索引失败", exc_info=True)
+        return None, False
+
+    def reindex_all(self) -> None:
+        """启动时补一遍：只重抽记录变过的对话，已删的清掉。"""
+        sessions = list(self.bridge.registry.sessions.values())
+        self.search_index.drop_except({s.num for s in sessions})
+        known = self.search_index.keys()
+        n = sum(self.reindex(s, known)[1] for s in sessions)
+        log.info("搜索索引已更新 %d / %d 个对话", n, len(sessions))
+
+    def reindex_later(self, s) -> None:
+        """一轮做完后在后台更新这个对话的索引。"""
+        try:
+            asyncio.get_running_loop().run_in_executor(None, self.reindex, s)
+        except RuntimeError:
+            pass
 
     async def _api_search(self, request: web.Request) -> web.Response:
         q = request.query.get("q", "").strip()
-        b = self.bridge
-        if not q:
-            return web.json_response({"q": q, "title": [], "said": [], "deleted": []})
-        ql, now = q.lower(), time.time()
-        out: dict[str, list] = {"title": [], "said": [], "deleted": []}
+        page_arg = request.query.get("page", "1")
+        if not re.fullmatch(r"[1-9][0-9]{0,8}", page_arg):
+            raise web.HTTPBadRequest()
+        page = int(page_arg)
         owner = request.get("owner", "admin")
-        for s in sorted((x for x in b.registry.sessions.values() if x.owner == owner), key=lambda x: -x.updated):
-            row = {"num": s.num, "name": s.name, "updated": s.updated,
-                   "hidden": s.hidden, "hidden_at": s.hidden_at, "engine": s.engine}
-            if ql in s.name.lower():
-                out["deleted" if s.hidden else "title"].append(row)
-                continue
-            items = await asyncio.to_thread(self._search_items, s)
-            for it in reversed(items):
-                i = it["text"].lower().find(ql)
-                if i >= 0:
-                    t = it["text"]
-                    row["who"] = "you" if it["who"] == "you" else "ai"
-                    row["snippet"] = ("…" if i > 24 else "") + t[max(0, i - 24):i + len(q) + 40].replace("\n", " ") + ("…" if i + len(q) + 40 < len(t) else "")
-                    out["deleted" if s.hidden else "said"].append(row)
-                    break
-        return web.json_response({"q": q, **{k: v[:30] for k, v in out.items()}})
+        sessions = sorted((s for s in self.bridge.registry.sessions.values() if s.owner == owner),
+                          key=lambda s: (-s.updated, -s.num))
+        return web.json_response(await asyncio.to_thread(self._search, q, page, sessions))
+
+    def _search(self, q: str, page: int, sessions) -> dict:
+        ql = q.lower()
+        out: dict[str, list] = {"title": [], "said": [], "deleted": []}
+        counts = dict.fromkeys(out, 0)
+        size = 30
+        start = (page - 1) * size
+
+        def on_page(category):
+            counts[category] += 1
+            return start < counts[category] <= start + size
+
+        if q:
+            known = self.search_index.keys()
+            keys = {}
+            for s in sessions:
+                key, _ = self.reindex(s, known)
+                if key:
+                    keys[s.num] = key
+            rows = {s.num: {"num": s.num, "name": s.name, "updated": s.updated, "hidden": s.hidden,
+                            "hidden_at": s.hidden_at, "engine": s.engine} for s in sessions}
+            for row in rows.values():
+                if ql in row["name"].lower():
+                    category = "deleted" if row["hidden"] else "title"
+                    if on_page(category):
+                        out[category].append(row)
+            for num, ordinal, who, text in self.search_index.matches(q, keys):
+                row = rows[num]
+                category = "deleted" if row["hidden"] else "said"
+                if on_page(category):
+                    i = text.lower().find(ql)
+                    lo, hi = max(0, i - 48), i + len(q) + 72
+                    snippet = ("…" if lo else "") + text[lo:hi] + ("…" if hi < len(text) else "")
+                    out[category].append({**row, "who": who, "snippet": snippet.replace("\n", " "),
+                                          "target": self._search_token(ordinal, text)})
+        return {"q": q, **out, "counts": counts, "more": any(n > start + size for n in counts.values())}
 
     def _relay_chain(self, session):
         chain, seen = [], set()
@@ -153,29 +224,29 @@ class ThreadsMixin:
             session = child
         return session
 
-    async def _saved_items(self, s):
-        b, num = self.bridge, s.num
-        # 两种引擎的附件都在完成后的归档里；归档可能晚于状态更新，须参与缓存失效。
-        records = engines.get(s.engine).history == "records"
-        lt = b.runner.last.get(num) if records and hasattr(b.runner, "last") else None
-        key = (s.claude_id or s.codex_id or s.acp_id, s.updated, len(list(self.turns_dir.glob(f"{num}-*.json"))),
-               lt.ended if lt else 0, self._cc_mtime(s))
+    async def _saved_items(self, s, *, full: bool = False):
+        num = s.num
+        key = (await asyncio.to_thread(self._search_key, s), s.updated, full)
         cached = self._threads.get(num)
         if cached and cached[0] == key:
-            items = cached[1]
-        else:
-            items = []
-            if records:
-                items = thread.attach_records(self._codex_history(num), self._records(num))
-            elif s.claude_id:
-                try:
-                    times: dict = {}
-                    msgs = await asyncio.to_thread(thread.full_messages, s.claude_id, s.cwd, times)
-                    items = thread.attach_records(thread.history(msgs, times=times), self._records(num))
-                except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
-                    log.debug("读对话记录失败", exc_info=True)
-            self._threads[num] = (key, items)
-        return display_items(items)
+            return [dict(it) for it in cached[1]]
+        try:
+            items = await asyncio.to_thread(self._read_history, s, full=full)
+        except Exception:  # noqa: BLE001 - 读不到记录就只显示进行中的
+            log.debug("读对话记录失败", exc_info=True)
+            return []
+        self._threads[num] = (key, items)
+        return [dict(it) for it in items]
+
+    async def _history_for_view(self, s, source, target):
+        items = await self._saved_items(s, full=s.num == source)
+        if s.num != source:
+            return items
+        ordinal = int(target.split("-", 1)[0])
+        if (ordinal < len(items) and self._search_token(ordinal, items[ordinal]["text"]) == target):
+            items[ordinal]["search_hit"] = True
+            return items[min(max(0, ordinal - 20), max(0, len(items) - 300)):]
+        return items[-300:]
 
     async def _api_thread(self, request: web.Request) -> web.Response:
         b = self.bridge
@@ -187,7 +258,10 @@ class ThreadsMixin:
         if latest.num != num:
             return web.json_response({"num": num, "redirect": latest.num})
         chain = self._relay_chain(s)
-        items = await self._saved_items(s)
+        source_arg = request.query.get("source", "")
+        target = request.query.get("target", "")
+        source = int(source_arg) if re.fullmatch(r"[0-9]{1,12}", source_arg) and re.fullmatch(r"[0-9]{1,12}-[a-f0-9]{16}", target) else None
+        items = await self._history_for_view(s, source, target)
         # 你刚发的话：Claude 的记录要等这一轮做完才重读，先把还没出现在记录里的接在后面（不限时，进了记录才拿掉）
         # 带图的话在记录里是“[图片]\n原话”，比对时去掉图片占位、只看原话开头
         # 记录里你的话后面可能多了“（附件已存到：…）”，所以按开头比：记录里那句以你刚发的话开头就算进了记录
@@ -205,12 +279,12 @@ class ThreadsMixin:
         history = []
         for index, previous in enumerate(chain[:-1]):
             history += [{**it, "source_num": previous.num, "historical": True}
-                        for it in await self._saved_items(previous)]
+                        for it in await self._history_for_view(previous, source, target)]
             following = chain[index + 1]
             history.append({"who": "note", "text": "已接力 · 查看交接摘要", "handoff": following.relay_note})
         items = history + items
         for it in items:
-            if it["who"] == "claude":
+            if it["who"] == "claude" and not it.get("search_hit"):
                 it["text"] = self._zh_or_later(it["text"])
         for it in [i for i in items if i["who"] == "claude"][-2:]:   # 最近两轮的工作过程也译（再早的不译，太费）
             if it.get("process"):

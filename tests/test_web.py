@@ -930,7 +930,7 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
         listing = json.loads((await w._api_sessions({})).text)
         assert [(r["num"], r["name"]) for r in listing["sessions"]] == [(3, "完整标题")]
         before = [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
-        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}))).text)
+        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}, query={}))).text)
         assert result["name"] == "完整标题"
         assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["问题1", "问题2", "问题3"]
         assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["交接1", "交接2"]
@@ -964,7 +964,7 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         w=Web('http://x',0,tmp_path)
         w.bridge=NS(registry=reg,runner=runner,outgoing={},cfg=None,quota_levels={},events=Bus())
         w.bridge.relays=Relays(w.bridge); w.bridge.relays.start=rejected
-        request=NS(match_info={'num':'1'},headers={},can_read_body=False)
+        request=NS(match_info={'num':'1'},query={},headers={},can_read_body=False)
         result=json.loads((await w._api_thread(request)).text)
         assert not result['can_relay'] and not result['usage']['relay_suggested']
         turns.clear()
@@ -1007,7 +1007,7 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         w.save_turn(parent.label, Turn(started=100, ended=101, request="设计", final_text=question), str(tmp_path), "设计")
         w.save_turn(parent.label, Turn(started=110, ended=111, request=RELAY, final_text="内部摘要"), str(tmp_path), "接力")
-        req = NS(match_info={"num": "2"})
+        req = NS(match_info={"num": "2"}, query={})
         result = json.loads((await w._api_thread(req)).text)
         assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计"]
         assert [i["text"] for i in result["items"] if i["who"] == "claude"] == [question]
@@ -1139,6 +1139,75 @@ def test_shortcut_upload_without_login(tmp_path, monkeypatch):
             created.clear()
             r = await c.post(f"/_x/q/{token}?name=%E7%AC%94%E8%AE%B0.txt", data=b"hello")
             assert (await r.json())["ok"] and "笔记.txt" in created[0]["text"]
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
+def test_search_index_incremental(tmp_path):
+    """搜索索引：只在记录变了才重抽；中文两个字也能搜；对话删了索引跟着清。"""
+    from remote_claude.searchindex import SearchIndex
+
+    ix = SearchIndex(tmp_path / "search.db")
+    ix.put(1, "x1", [{"who": "you", "text": "做一张海报"}, {"who": "claude", "text": "好的，海报做好了"}])
+    ix.put(2, "x1", [{"who": "you", "text": "Hello World"}])
+    assert ix.keys() == {1: "x1", 2: "x1"}
+    assert list(ix.matches("海报", ix.keys())) == [(1, 1, "claude", "好的，海报做好了"), (1, 0, "you", "做一张海报")]
+    assert list(ix.matches("hello", {2: "x1"})) == [(2, 0, "you", "Hello World")]
+    assert list(ix.matches("hello", {1: "x1", 2: "wrong-key"})) == []
+    ix.put(1, "x2", [{"who": "you", "text": "换个话题"}])
+    assert list(ix.matches("海报", ix.keys())) == []
+    ix.drop_except({2})
+    assert ix.keys() == {2: "x1"}
+    for p in tmp_path.glob("search.db-*"):
+        p.unlink()
+    (tmp_path / "search.db").write_bytes(b"not a database")
+    assert SearchIndex(tmp_path / "search.db").keys() == {}          # 库坏了自动重建
+
+
+def test_search_jumps_to_old_relay_message(tmp_path):
+    from types import SimpleNamespace as NS
+    from remote_claude.sessions import Registry, Session
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        root = Session(num=1, name="蓝鲸记录", cwd=str(tmp_path), engine="codex", relay_to=2)
+        reg.add(root)
+        reg.add(Session(num=2, name="接力", cwd=str(tmp_path), engine="codex", relay_from=1))
+        reg.add(Session(num=3, name="蓝鲸私有", cwd=str(tmp_path), engine="codex", owner="user"))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=reg, outgoing={},
+                      runner=NS(turns={}, last={}, limits={}, default_effort="medium", compacting=lambda n: "",
+                                busy=lambda n: False, queued=lambda n: []),
+                      relays=NS(writing={}, targets=lambda s: []))
+        for n in range(153):
+            w.save_turn("#1 蓝鲸记录", Turn(started=n + 1000, ended=n + 1001,
+                        request=f"第 {n} 条消息", final_text=f"第 {n} 条回复" + ("，蓝鲸" if n < 31 else "")),
+                        str(tmp_path), "完成")
+        w.save_turn("#3 蓝鲸私有", Turn(started=1000, ended=1001, request="蓝鲸私有正文", final_text="蓝鲸私有回复"),
+                    str(tmp_path), "完成")
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            first = await (await c.get("/_x/api/search", params={"q": "蓝鲸"})).json()
+            assert [r["num"] for r in first["title"]] == [1]
+            assert first["counts"]["said"] == 31 and len(first["said"]) == 30 and first["more"]
+            second = await (await c.get("/_x/api/search", params={"q": "蓝鲸", "page": 2})).json()
+            assert len(second["said"]) == 1 and not second["more"]
+            target = second["said"][0]["target"]
+            redirect = await (await c.get("/_x/api/thread/1")).json()
+            assert redirect["redirect"] == 2
+            data = await (await c.get("/_x/api/thread/2")).json()
+            assert all("第 0 条回复" not in it["text"] for it in data["items"])
+            data = await (await c.get("/_x/api/thread/2", params={"source": 1, "target": target})).json()
+            hits = [it for it in data["items"] if it.get("search_hit")]
+            assert len(hits) == 1 and hits[0]["text"] == "第 0 条回复，蓝鲸" and hits[0]["historical"]
+            # 回退隐藏归档后，不再返回已撤回的那一条。
+            root.codex_hidden.append("1-1000")
+            changed = await (await c.get("/_x/api/search", params={"q": "蓝鲸"})).json()
+            assert changed["counts"]["said"] == 30
         finally:
             await c.close()
 

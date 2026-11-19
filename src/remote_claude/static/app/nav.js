@@ -3,6 +3,7 @@ function navTo(state, hash) {
   const st = history.state;
   if (st && (st.s || st.n || st.a)) history.replaceState(state, '', hash); else history.pushState(state, '', hash);
 }
+let searchHit = null;
 function followRelay(num) {
   const feed = $('#feed'), ta = $('#ta');
   const view = feed ? {top: feed.scrollTop, stick, html: $('#col').innerHTML, draft: ta?.value || ''} : null;
@@ -13,9 +14,10 @@ function followRelay(num) {
     saveComposerText(String(num), draft.text);
   }
   relayWait = 0;
-  openSession(num, false, view);
+  openSession(num, false, view, searchHit);
 }
-function openSession(num, fromPop, view) {
+function openSession(num, fromPop, view, hit = null) {
+  searchHit = hit;
   partialText = ''; setTimeout(connectEvents);
   if (sel && sel !== num) presence(false);
   sel = num; lastKey = ''; presence(true);
@@ -29,7 +31,7 @@ function openSession(num, fromPop, view) {
   $('#back').onclick = () => history.state && history.state.s ? history.back() : goList();
   const feed = $('#feed');
   // 刚点进来：一直贴着最下面（图片、在做卡片后加载撑高也跟着到底），直到你自己往上翻
-  stick = view ? view.stick : true;
+  stick = hit ? false : view ? view.stick : true;
   if (view) { $('#col').innerHTML = view.html; feed.scrollTop = view.top; }
   const toEnd = () => { if (stick) feed.scrollTop = feed.scrollHeight; };
   new ResizeObserver(toEnd).observe($('#col'));
@@ -47,7 +49,7 @@ function openSession(num, fromPop, view) {
   $('#jump').onclick = () => { document.querySelectorAll('.live .plist').forEach(x => { delete x.dataset.reading; x.scrollTop = x.scrollHeight; }); stick = true; feed.scrollTo({top: feed.scrollHeight, behavior: 'smooth'}); };
   wireComposer((text, onProg, attachments) => sendApi({num, text, ...attachments}, onProg), (text, imgs) => { const p = {text, imgs, t: Date.now(), base: saidBase(num, text)}; (pending[num] ||= []).push(p); return p; });
   if (view && view.draft && $('#ta')) { $('#ta').value = view.draft; $('#ta').oninput(); }
-  renderSide(); headStatus(); if (!view) showCached(num); loadThread();
+  renderSide(); headStatus(); if (!view && !hit) showCached(num); loadThread();
 }
 
 // 告诉 Mac“我正开着这个对话看”：做完时不再弹通知、不发钉钉（切走、锁屏、5 分钟没碰就不算在看）
@@ -64,7 +66,7 @@ function presence(on) {
 }
 setInterval(() => { const on = looking(); if (sel && (on || looked)) presence(on); looked = on; }, 15000);
 addEventListener('pagehide', () => presence(false));
-function goList() { presence(false); sel = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
+function goList() { presence(false); sel = null; searchHit = null; setTimeout(connectEvents); if (location.hash) history.replaceState(null, '', location.pathname); $('#app').classList.remove('in'); renderSide(); }
 // 实时推送：Mac 那边一有变化就推过来（列表 s、这个对话 t、正在写的回复 p），不再每几秒问一次
 let es = null, esNum = -1, esOk = false, lastPoll = 0, partialText = '', partialOpen = false;
 const pushOn = () => 'Notification' in window && Notification.permission === 'granted';

@@ -104,7 +104,7 @@ def _detail(name: str, inp: dict) -> str:
     return ""
 
 
-def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]:
+def history(messages, limit: int | None = 300, times: dict | None = None) -> list[dict]:
     items: list[dict] = []
     reply, steps, process = "", 0, []
     ts = 0.0  # 回复那段话的时间
@@ -179,7 +179,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
     last_note = max((i for i, it in enumerate(items) if it["who"] == "note"), default=-1)
     for it in items[:last_note + 1]:
         it.pop("end", None)
-    out = items[-limit:]
+    out = items if limit is None else items[-limit:]
     replies = [it for it in out if it["who"] == "claude"]
     for it in replies[:-PROCESS_KEEP]:
         it.pop("process", None)

@@ -21,7 +21,7 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
-  d.items = d.items.flatMap(saSplit);
+  d = {...d, items: d.items.flatMap(saSplit)};
   const replies = d.items.filter(i => i.who === 'claude');
   const keep = new Set(replies.slice(-2));
   // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
@@ -33,12 +33,13 @@ function renderThread(d) {
   const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
     // 总管收到的回报、退回、提问、重启提示（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会说
+    const match = it.search_hit ? ' data-search-hit="1"' : '';
     const tag = it.who === 'you' && SA_TAGS.find(t => it.text.startsWith(t));
     if (tag) {
       const [head, ...rest] = it.text.slice(tag.length).split('\n\n');
-      return `<details class="note rpt"><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
+      return `<details class="note rpt"${match}${match ? ' open' : ''}><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
     }
-    if (it.who === 'note' && it.sa) return `<details class="note rpt"><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
+    if (it.who === 'note' && it.sa) return `<details class="note rpt"${match}${match ? ' open' : ''}><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
@@ -46,7 +47,7 @@ function renderThread(d) {
       const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : (it.age > 30 ? '没开工' : '已送到');
       const before = prevEnd(idx);
       const btns = ib('copy', '复制') + (it.historical ? ib('bring', '带给当前会话') : '') + (!it.historical && (isQ || (!it.pending && before)) ? ib('back', '回退') : '') + (!it.historical && !it.pending && before !== null ? ib('fork', '分叉') : '');
-      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
+      return `<div class="yw"${match} data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
     if (it.who === 'note' && it.handoff !== undefined) return `<details class="note"><summary>${esc(it.text)}</summary><div class="md">${md(it.handoff || '无交接说明')}</div></details>`;
@@ -55,7 +56,7 @@ function renderThread(d) {
       ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
     const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.links || []).map(x => linkPill(x, it, d))].join('');
-    const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
+    const id = d.num + ':' + idx, fold = !match && !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
     const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><button class="file-download file-share" data-file-url="${esc(f.url)}" data-file-name="${esc(f.name)}" aria-label="分享 ${esc(f.name)}"${navigator.share ? '' : ' hidden'}>分享</button><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
     const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
@@ -67,7 +68,7 @@ function renderThread(d) {
     const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
     const btns = `<span class="ibs">${ib('copy', '复制')}${it.historical ? ib('bring', '带给当前会话') : it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
-    return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
+    return `<div class="cl ${fold ? 'fold' : ''}"${match} data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
@@ -211,10 +212,45 @@ function renderThread(d) {
   tickSilence();   // 先填好“没动静”那行，再定位置
   const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
   const an = anchor && document.querySelector('#col ' + anchor.sel);
-  if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
+  const hit = searchHit && $('#col [data-search-hit]');
+  const body = hit && (hit.matches('details') ? hit : hit.querySelector('.you, .md') || hit);
+  const mark = body && markSearchText(body, searchHit.q);
+  if (hit && !searchHit.jumped) {
+    searchHit.jumped = true;
+    stick = false;
+    feed.scrollTop += (mark || hit).getBoundingClientRect().top - feed.getBoundingClientRect().top - 24;
+  } else if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
   else if (near && fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
   else if (near) feed.scrollTop = feed.scrollHeight;
   else feed.scrollTop = savedTop;
+}
+function markSearchText(root, query) {
+  // Markdown 可能把一次命中拆成多个文本节点，保留原有链接和格式。
+  const text = root.textContent;
+  const start = text.toLowerCase().indexOf(query.toLowerCase());
+  if (start < 0) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const end = start + query.length;
+  const ranges = [];
+  let offset = 0;
+  for (let node; offset < end && (node = walker.nextNode());) {
+    const next = offset + node.length;
+    if (next > start) {
+      const range = document.createRange();
+      range.setStart(node, Math.max(0, start - offset));
+      range.setEnd(node, Math.min(node.length, end - offset));
+      ranges.push(range);
+    }
+    offset = next;
+  }
+  let first = null;
+  for (const range of ranges) {
+    const mark = document.createElement('mark');
+    range.surroundContents(mark);
+    first ||= mark;
+    mark.closest('details.code')?.setAttribute('open', '');
+  }
+  return first;
 }
 const replyCount = {}, wasLive = {}, sentImgs = new Map();
 

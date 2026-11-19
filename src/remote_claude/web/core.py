@@ -20,6 +20,7 @@ from aiohttp import web
 
 from .. import thread, usage
 from ..push import Push
+from ..searchindex import SearchIndex
 from ..speech import Speech
 from ..ext import STATIC_FILE, Routes
 from .common import COOKIE, PAGE, PREFIX, PUBLIC, USER_ROUTES
@@ -87,8 +88,8 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         self._zh_busy: set[str] = set()
         self._uimg: dict[str, tuple[bytes, str]] = {}   # 你发过的图，最近取过的留在内存
         self._uimg_miss: set[str] = set()
-        self._zh_failed: set[str] = set()
-        self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self.search_index = SearchIndex(data_dir / "search.db")   # 搜索用：各对话里说过的话
         self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
         self._quick_pending: dict[str, dict] = {}  # 快捷指令一次分享多个文件时先攒着
 
