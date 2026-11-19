@@ -394,6 +394,12 @@ class Course(Extension):
         async with self._feedback_lock:
             return await self._submit_feedback(request)
 
+    def _feedback_models(self, request) -> tuple[str, ...]:
+        allowed = self.api.account(request).get("allowed_models")
+        if allowed is None:
+            return ("sonnet", "opus")
+        return tuple(key for key in ("sonnet", "opus", "fable") if key in allowed)
+
     async def _submit_feedback(self, request: web.Request) -> web.Response:
         """试课页上“反馈这一屏”：带上课、节、屏，交给做这门课的对话；没有就在课程根里新开一个。"""
         if not self.api.same_origin(request):
@@ -405,8 +411,8 @@ class Course(Extension):
             return web.json_response({"ok": False, "error": "认不出是哪门课"}, status=400)
         self._check_account_course(request, str(data.get("course") or ""))
         pick = data.get("model") or ""
-        if pick not in ("", "opus", "sonnet"):
-            return web.json_response({"ok": False, "error": "请选择沿用当前、Opus 或 Sonnet"}, status=400)
+        if pick and pick not in self._feedback_models(request):
+            return web.json_response({"ok": False, "error": "请选择这个账号可用的反馈模型"}, status=400)
         cdir = m.group(2)
         title = self._title(cdir)
         owner = request.get("owner", "admin")
@@ -513,10 +519,11 @@ class Course(Extension):
         course, owner = request.query.get("course", ""), request.get("owner", "admin")
         title = self._title(cdir)
         pick = request.query.get("model", "")
-        if pick not in ("", "opus", "sonnet"):
+        models = self._feedback_models(request)
+        if pick and pick not in models:
             raise web.HTTPBadRequest()
         targets = {key: (s.num if (s := self.feedback_session(course, title, owner, key)) else None)
-                   for key in ("opus", "sonnet")}
+                   for key in models}
         s = self.feedback_session(course, title, owner, pick)
         if not s:
             return web.json_response({"num": None, "targets": targets})

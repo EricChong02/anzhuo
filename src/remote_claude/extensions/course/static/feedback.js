@@ -164,19 +164,26 @@
     let target = null;
     try { target = await (await fetch('/_x/ext/course/api/course?course=' + encodeURIComponent(courseUrl))).json(); } catch (e) {}
     const current = target?.num ? `沿用 #${target.num}${target.model ? ' · ' + target.model.replace(/^claude-/, '') : ''}` : '沿用默认（新对话）';
+    const labels = {sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable'};
+    const models = Object.keys(labels).filter(key => Object.hasOwn(target?.targets ?? {}, key));
+    const modelOptions = models.map(key => {
+      const num = target.targets[key];
+      const label = labels[key] + (num ? ' 对话 · #' + num : ' 对话 · 首次新建');
+      return `<option value="${key}">${esc(label)}</option>`;
+    }).join('');
     const sh = document.createElement('div'); sh.className = 'xe-sh';
     sh.innerHTML = `<div class="xe-box"><b>反馈这一屏</b><div class="xe-where"><span>${h.m.title ? `《${esc(h.m.title)}》` : ''}${esc(h.where)}</span></div>
       ${q.length ? `<div class="xe-q"><small>已记下 ${q.length} 处</small>${q.map((x, k) =>
         `<div><span>${esc(x.where)}：${esc(x.text || '见截图')}</span><button data-k="${k}" aria-label="删掉">×</button></div>`).join('')}</div>` : ''}
       <textarea placeholder="哪里要改？"></textarea>
-      <label class="xe-model">这批反馈交给 <select aria-label="反馈使用的模型"><option value="">${esc(current)}</option><option value="sonnet">Sonnet 对话${target?.targets?.sonnet ? ` · #${target.targets.sonnet}` : ' · 首次新建'}</option><option value="opus">Opus 对话${target?.targets?.opus ? ` · #${target.targets.opus}` : ' · 首次新建'}</option></select></label>
+      <label class="xe-model">这批反馈交给 <select aria-label="反馈使用的模型"><option value="">${esc(current)}</option>${modelOptions}</select></label>
       <small class="xe-model-note">按课程复用对应型号的对话；另一条对话忙时，完成后再交。</small>
       <div class="xe-row"><button class="xe-shot">截图</button><span class="xe-th"></span>
       <button class="xe-later" disabled>先记下</button>
       <button class="xe-send" ${q.length ? '' : 'disabled'}>${q.length ? `一起交（${q.length + 1} 处）` : '交'}</button></div></div>`;
     document.body.appendChild(sh);
     const modelSelect = sh.querySelector("select");
-    modelSelect.value = ["opus", "sonnet"].includes(load(MODEL)) ? load(MODEL) : "";
+    modelSelect.value = models.includes(load(MODEL)) ? load(MODEL) : "";
     modelSelect.onchange = () => { save(MODEL, modelSelect.value); poll(); };
     const ta = sh.querySelector('textarea'), send = sh.querySelector('.xe-send'), later = sh.querySelector('.xe-later');
     let images = [];

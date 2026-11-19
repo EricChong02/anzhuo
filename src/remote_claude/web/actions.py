@@ -198,7 +198,7 @@ class ActionsMixin:
                        local_images=images, via="web")
         if data.get("feedback_model"):
             pick = str(data["feedback_model"])
-            if pick not in ("opus", "sonnet"):
+            if pick not in ("opus", "sonnet", "fable"):
                 raise web.HTTPBadRequest()
             self._check_account_model(acct, {"model": pick})
             inc.model_override = MODELS[pick]
@@ -220,7 +220,7 @@ class ActionsMixin:
         allowed = self.accounts.get(acct, {}).get("allowed_models")
         selected = str(data.get("model") or "")
         if allowed and selected and selected not in allowed and selected not in [MODELS.get(k) for k in allowed]:
-            raise web.HTTPForbidden(text="这个账号只开放 Opus 和 Sonnet")
+            raise web.HTTPForbidden(text="这个账号不能使用该模型")
 
     @staticmethod
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
