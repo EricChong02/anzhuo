@@ -157,7 +157,7 @@ class CodexEngine(Engine):
                 return {"decision": "accept"}
             if method == "applyPatchApproval":
                 return {"decision": "approved"}
-            if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具（总管派活的汇报、退回）
+            if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具
                 args = prm.get("arguments") if isinstance(prm.get("arguments"), dict) else {}
                 if label := step_label(f"mcp__xiaoe__{prm.get('tool')}", args):
                     turn.steps.append(label)
@@ -167,7 +167,7 @@ class CodexEngine(Engine):
                 return {"contentItems": [{"type": "inputText", "text": text}], "success": not res.get("isError")}
             return None
 
-        # 特殊角色（总管派出去的对话）的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
+        # 特殊角色的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
         rl = dict(role(runner, s))
         from ..collaboration import tools as collaboration_tools, RULES as collaboration_rules
         rl["tools"] = [*(rl.get("tools") or []), *collaboration_tools(runner, s, turn)]

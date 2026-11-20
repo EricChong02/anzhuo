@@ -134,7 +134,7 @@ class AcpEngine(Engine):
             effort = s.effort or runner.default_effort or ""
             if effort and (want := thinking_value(effort, conn.option("thinking"))):
                 await conn.set_option("thinking", want)
-            acp_conn.remember(s.engine, conn.option("model"))   # 总管派活时知道它有哪些模型
+            acp_conn.remember(s.engine, conn.option("model"))   # 记下它有哪些模型
             model = (conn.option("model") or {}).get("currentValue") or ""
             turn.model = f"{name}（{model}）" if model else name
             text = job.text

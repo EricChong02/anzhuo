@@ -5,7 +5,7 @@ import time
 import pytest
 from types import SimpleNamespace as NS
 
-from remote_claude import quota, superagent
+from remote_claude import quota
 from remote_claude.app import Bridge
 from remote_claude.config import Config
 from remote_claude.events import Bus
@@ -83,15 +83,3 @@ def test_quota_events(tmp_path):
     asyncio.run(go())
 
 
-def test_relay_keeps_boss(tmp_path):
-    """接力：总管派的活接力后照旧回报总管；总管自己接力，角色、没看的情况、手下的对话都交给新的。"""
-    b = Bridge(Config(client_id="t", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s"), super_agent=True),
-               NS(secret="x"), tmp_path / "d")
-    boss = superagent.find(b)
-    boss.notes = ["10:00 用户直接对 #3 说了话"]
-    w = b.registry.add(Session(num=b.registry.reserve_num(), name="活", cwd=str(tmp_path), boss=boss.num))
-    w2 = asyncio.run(b.relays.open(w, "交接"))
-    assert w2.boss == boss.num and superagent.boss_of(b, w2) is boss
-    nb = asyncio.run(b.relays.open(boss, "交接"))
-    assert nb.role == superagent.ROUTER and boss.role == "" and not boss.pinned and nb.notes and not boss.notes
-    assert superagent.find(b) is nb and w.boss == w2.boss == nb.num and b.registry.current == nb.num

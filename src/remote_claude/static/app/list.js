@@ -27,23 +27,22 @@ async function organizeTasks(force = false) {
   } catch (_) { if (force) toast('整理暂未完成，请稍后重试'); }
   finally { taskGrouping = false; await loadSessions(); }
 }
-// 侧栏只分三块：总管（固定在最上面）、现在（要你看 / 在做 / 刚做完的，按急缓排）、任务（其余按任务收起来）
+// 侧栏分两块：现在（要你看 / 在做 / 刚做完的，按急缓排）、任务（其余按任务收起来）
 // 平时的对话一行：名字左、时间右；有状态（在做、等你、出错、做完了）才多一行说明
 const ROW_STATE = s => ['running', 'queued', 'awaiting', 'error', 'paused'].includes(s.status) ? statusText(s) : s.suggest ? '有建议' : s.unread ? '做完了' : '';
 const NOW = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || s.unread || s.suggest;
 const RANK = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
 function sideRow(s) {
-  const state = ROW_STATE(s), boss = s.role === 'router';
-  return `${boss ? '' : `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button>`}<button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''} ${state ? '' : 'one'} ${boss ? 'boss' : ''}" data-n="${s.num}">
-      ${boss ? `<span class="bossic">${ICON.boss}</span>` : ''}<span class="tx"><div class="nl"><span class="nm">${esc(s.name)}</span>${engTag(s.engine)}<span class="tm">${esc(ago(s.updated))}</span></div>${state ? `<div class="st"><span class="dot"></span><span class="sx">${esc(state)}</span></div>` : ''}</span><span class="more" data-m="${s.num}">⋯</span></button>${boss ? '' : '</div>'}`;
+  const state = ROW_STATE(s);
+  return `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''} ${state ? '' : 'one'}" data-n="${s.num}">
+      <span class="tx"><div class="nl"><span class="nm">${esc(s.name)}</span>${engTag(s.engine)}<span class="tm">${esc(ago(s.updated))}</span></div>${state ? `<div class="st"><span class="dot"></span><span class="sx">${esc(state)}</span></div>` : ''}</span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
 }
 function renderSide() {
   XE.emit('side', {query});
-  if (query) { $('#boss').innerHTML = ''; return renderSearch(); }
-  const prefs = groupPreferences(), buckets = new Map(), routers = [], now = [];
+  if (query) return renderSearch();
+  const prefs = groupPreferences(), buckets = new Map(), now = [];
   for (const s of sessions) {
-    if (s.role === 'router') routers.push(s);
-    else if (NOW(s)) now.push(s);
+    if (NOW(s)) now.push(s);
     else {
       const name = s.task_group || '待整理';
       if (!buckets.has(name)) buckets.set(name, []);
@@ -57,10 +56,9 @@ function renderSide() {
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary>${ICON.chev}<b>${esc(name)}</b><small>${xs.length}</small></summary><div class="task-rows">${xs.map(sideRow).join('')}</div></details>`;
   };
-  $('#boss').innerHTML = routers.map(sideRow).join('');
   const html = (now.length ? `<div class="label">现在</div>${now.map(sideRow).join('')}` : '')
     + (groups.length ? `<div class="label">${taskGrouping ? '任务 · 正在整理…' : '任务'}</div>${groups.map(group).join('')}` : '');
-  $('#list').innerHTML = html || (routers.length ? '' : `<div class="note" style="padding:10px">还没有对话</div>`);
+  $('#list').innerHTML = html || `<div class="note" style="padding:10px">还没有对话</div>`;
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
@@ -95,7 +93,7 @@ async function delSession(num) {
 }
 function wireRows() {
   document.querySelectorAll('#list .swdel').forEach(d => d.onclick = e => { e.stopPropagation(); delSession(+d.dataset.d); });
-  document.querySelectorAll('#boss .item[data-n], #list .item[data-n]').forEach(b => {
+  document.querySelectorAll('#list .item[data-n]').forEach(b => {
     let timer = 0, longed = false, x0 = 0, y0 = 0, axis = '', base = 0, dx = 0;
     const sw = b.parentElement.classList.contains('swipe');
     if (sw && +b.dataset.n === swOpen) swSet(b, -SW, false);

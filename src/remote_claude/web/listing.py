@@ -111,7 +111,7 @@ class ListingMixin:
                          "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
                          "engine": getattr(s, "engine", "claude"),
                          "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
-                         "pinned": s.pinned, "role": s.role,
+                         "pinned": s.pinned,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
@@ -143,7 +143,7 @@ class ListingMixin:
         home = str(Path.home())
         seen, out = {str(Path(v).expanduser()) for v in b.cfg.folders.values()}, []   # 配了短名的文件夹已经在菜单里，不再重复列
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
-            if s.owner != "admin" or s.role == "router":   # 受限账号的、总管的文件夹不算（总管的文件夹不是干活的地方）
+            if s.owner != "admin":   # 受限账号的文件夹不算
                 continue
             p = str(Path(s.cwd).expanduser())
             if p in seen or p == home or p.startswith(scratch):
@@ -159,7 +159,7 @@ class ListingMixin:
         b = self.bridge
         scratch, home = str(Path(b.cfg.scratch_root).expanduser()), str(Path.home())
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
-            if s.owner != "admin" or s.role == "router":   # 受限账号的、总管的文件夹不算（总管的文件夹不是干活的地方）
+            if s.owner != "admin":   # 受限账号的文件夹不算
                 continue
             p = str(Path(s.cwd).expanduser())
             if p == home or p.startswith(scratch):

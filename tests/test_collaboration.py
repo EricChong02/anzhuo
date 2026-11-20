@@ -105,14 +105,3 @@ def test_helpers_are_separate_and_missing_usage_not_counted_as_zero(tmp_path):
     assert len(result['helpers'])==1
     assert result['helpers'][0]['calls']==2 and result['helpers'][0]['token_reports']==1
     assert result['helpers'][0]['total_tokens']==42
-
-
-def test_admin_collaboration_panel_displays_unknown_and_escapes_model():
-    import subprocess,shutil
-    from remote_claude import __file__ as package
-    source=(Path(package).parent/'static/app/admin.js').read_text()
-    fn=source[source.index('function collaborationHTML('):]
-    data=dict(jobs=1,accepted=0,first_passed=0,rejected=0,unreviewed=1,corrections=0,helpers=[],main_usage=[],note='尚不能判断节省',tasks=[dict(parent_num=1,model='<script>bad</script>',backend='codex',kind='backend',state='completed',accepted=None,attempts=[{'tokens':None}])])
-    program="const esc=s=>String(s).replaceAll('<','&lt;');const tokn=String;"+fn+"console.log(collaborationHTML("+json.dumps(data)+"));"
-    html=subprocess.check_output([shutil.which('node'),'-e',program],text=True)
-    assert '<script>bad' not in html and '未报告' in html and '未验收' in html

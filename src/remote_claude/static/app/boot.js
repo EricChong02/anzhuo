@@ -74,7 +74,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   const width = Number(read('sidebar'));
   if (width >= 240 && width <= 420) root.style.setProperty('--sidebar-width', width + 'px');
   const bar = document.createElement('div'); bar.className = 'desktop-tools';
-  bar.innerHTML = '<button id="workspaceToggle" title="收起侧栏（⌘⇧L）" aria-label="收起侧栏" aria-expanded="true">☰</button><button id="workspaceHelp" title="桌面使用设置与快捷键" aria-label="桌面使用设置与快捷键">⌘</button>';
+  bar.innerHTML = '<button id="workspaceToggle" title="收起侧栏（⌘⇧L）" aria-label="收起侧栏" aria-expanded="true">☰</button>';
   app.appendChild(bar);
   const toggle = () => {
     if (tablet && innerWidth < 1000) { if ($('#app').classList.contains('in')) $('#back')?.click(); return; }
@@ -104,8 +104,8 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     };
     el.querySelector('input').focus();
   };
-  $('#workspaceHelp').onclick = help;
-  if (tablet) { $('#workspaceHelp').title = 'iPad 使用与键盘设置'; $('#workspaceHelp').setAttribute('aria-label', 'iPad 使用与键盘设置'); }
+  window.openDesktopHelp = () => desktop() && help();   // 入口在“更多”菜单和 ⌘/，顶栏不再单放一个按钮
+  window.hasDesktopHelp = desktop;
   const grip = document.createElement('div'); grip.className = 'sidebar-grip'; grip.tabIndex = 0;
   grip.setAttribute('role', 'separator'); grip.setAttribute('aria-label', '调整侧栏宽度'); grip.setAttribute('aria-orientation', 'vertical');
   grip.setAttribute('aria-valuemin', '240'); grip.setAttribute('aria-valuemax', '420'); app.appendChild(grip);

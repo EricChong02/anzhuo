@@ -1,5 +1,5 @@
 """Claude 引擎：claude-agent-sdk 的 ClaudeSDKClient。PreToolUse 钩子拦危险命令（走 policy）、受限账号的护栏、
-总管不亲自干活的拒绝钩子、Stop 钩子（角色的 on_stop）；进程内 MCP 工具交图、交文件、列步骤、委派生图。"""
+按角色拒绝工具的钩子、Stop 钩子（角色的 on_stop）；进程内 MCP 工具交图、交文件、列步骤、委派生图。"""
 from __future__ import annotations
 
 import asyncio
@@ -174,7 +174,7 @@ class ClaudeEngine(Engine):
 
     @staticmethod
     def deny(names: set[str], reason: str = ""):
-        """不让这个对话用某些工具（总管不亲自干活）。"""
+        """不让这个对话用某些工具。"""
         async def hook(data, tool_use_id, context):
             name = str(data.get("tool_name") or "")
             if name not in names:
@@ -431,7 +431,7 @@ class ClaudeEngine(Engine):
                            "append": build_user_instructions(display(Path(s.root).expanduser()), runner.language, runner.extra_instructions)
                            if fenced else build_instructions(runner.language, runner.extra_instructions) + rl.get("append", "")},
             disallowed_tools=list(rl.get("disallowed", [])),
-            tools=rl.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
+            tools=rl.get("builtin"),   # 只给这几个内置工具；None = 照常全给
             mcp_servers={"xiaoe": self.tools(runner, turn, s)},
             env=self.env(runner, s),
             stderr=lambda line: log.debug("claude: %s", line),

@@ -92,7 +92,7 @@ def test_deepseek_header_never_shows_claude_quota():
     program = """const el={innerHTML:''}; const $=()=>el; const esc=String;
 const limits=[{name:'5 小时',pct:100}],limitsGpt=[],modelLimits=x=>x;
 const usageRelay={num:1,targets:[]},sel=1; let usageOpen=true;
-const bindRelayAlts=()=>{},qcell=x=>x.name,wan=String;
+const bindRelayAlts=()=>{},qline=x=>x.name,wan=String,relayAlt=()=>'';
 """ + fn + "renderUsage({has_quota:false,mkey:'deepseek',context:3}); console.log(el.innerHTML);"
     html = subprocess.check_output([shutil.which('node'), '-e', program], text=True)
     assert '5 小时' not in html and '100%' not in html

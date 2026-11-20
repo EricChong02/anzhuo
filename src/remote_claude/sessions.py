@@ -81,10 +81,6 @@ class Session:
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_pending: dict = field(default_factory=dict)  # 接力前尚待回答的问题及原文
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
-    role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
-    boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
-    ticket: str = ""  # 总管派出来的：最近一次汇报的状态（ready / waiting / blocked / failed / dropped / asked / stopped / error）
-    notes: list[str] = field(default_factory=list)  # 总管：上次开口后发生的事，下次开口前一起看
 
     @property
     def label(self) -> str:
@@ -105,6 +101,9 @@ class Registry:
         raw = json.loads(self.path.read_text())
         known = set(Session.__dataclass_fields__)
         self.sessions = {int(k): Session(**{f: x for f, x in v.items() if f in known}) for k, v in raw.get("sessions", {}).items()}
+        for k, v in raw.get("sessions", {}).items():
+            if v.get("role") == "router":   # 已移除的“总管”对话（2026-11-20）：收起来，不再置顶
+                self.sessions[int(k)].hidden, self.sessions[int(k)].pinned = True, False
         for session in self.sessions.values():
             if session.engine == "codex" and not session.model:
                 session.model = engines.CODEX.DEFAULT_MODEL
@@ -178,8 +177,6 @@ class Runner:
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
-        self.spare = asyncio.Semaphore(1)   # 预留给你接着说话的那一个名额（新开的活用不了）
-        self.use_spare = False   # 总管打开时才用预留名额
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.live: dict[int, Any] = {}  # 正在跑的这一轮的连接（Claude 客户端 / Codex / ACP 连接；插话、停下用），引擎放、引擎拿
@@ -193,7 +190,7 @@ class Runner:
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
-        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot", "on_stop"} 或 None
+        self.role = None   # 特殊角色的额外工具和约定：role(session) → {"tools", "append", "disallowed", "on_stop"} 或 None
         self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
         self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
         self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
@@ -240,16 +237,10 @@ class Runner:
         return task
 
     @contextlib.asynccontextmanager
-    async def _slot(self, own: bool, human: bool):
-        """拿一个并行名额。own：自己有名额（总管）；human：你接着跟已有对话说话，名额满了可以用预留的那一个。"""
-        if own:
+    async def _slot(self):
+        """拿一个并行名额。"""
+        async with self.sem:
             yield
-        elif human and self.use_spare and self.sem.locked() and not self.spare.locked():
-            async with self.spare:
-                yield
-        else:
-            async with self.sem:
-                yield
 
     def busy(self, num: int) -> bool:
         return num in self.turns or num in self.waiting or num in self.finishing or not self.queues.get(num, asyncio.Queue()).empty()
@@ -374,14 +365,10 @@ class Runner:
                 continue
             s.status = "queued"
             self.registry.save()
-            # 总管有自己的名额：派出去的对话占满并行数时，它照样能听你说话、收回报
-            own = bool(((self.role(s) if self.role else None) or {}).get("own_slot"))
-            # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
-            human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
             async with contextlib.AsyncExitStack() as slot:
                 self.waiting.add(num)
                 try:   # 等名额时被取消（关机、重启）也要把“在等”清掉，不然这个对话一直算在忙
-                    await slot.enter_async_context(self._slot(own, human))
+                    await slot.enter_async_context(self._slot())
                 except BaseException:
                     self.dropped.discard(num)
                     raise
@@ -393,7 +380,6 @@ class Runner:
                     self.registry.save()
                     continue
                 turn = Turn(started=time.time(), request=_request_title(job), said=job.text[:SAID_MAX], via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
-                turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()

@@ -52,7 +52,7 @@ MODELS_SEEN: dict[str, str] = {}   # Codex 能用的型号 → 显示名（启�
 
 
 async def probe_models() -> None:
-    """问 Codex 现在能用哪些型号（Sol / Terra / Luna / Astra 各代），网页菜单、总管选型号用。不花额度。"""
+    """问 Codex 现在能用哪些型号（Sol / Terra / Luna / Astra 各代），网页菜单用。不花额度。"""
     c = CodexConn(str(Path.home()), lambda m, p: None)
     try:
         await c.start()

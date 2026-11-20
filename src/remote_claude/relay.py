@@ -77,7 +77,7 @@ def _cut(text: str, n: int) -> str:
 
 
 def _said(text: str) -> str:
-    """记录里你说的话：去掉接力前言、总管转话时附的说明。"""
+    """记录里你说的话：去掉接力前言、旧版总管转话时附的说明。"""
     if text.startswith("（这是接力的新对话") and "用户这次说：\n\n" in text:
         text = text.split("用户这次说：\n\n", 1)[1]
     return re.sub(r"\n\n（经.{1,20}?转来。.*$", "", text, flags=re.S).strip()
@@ -147,7 +147,7 @@ def handoff(s, records: list[dict], git: str = "", path: str = "", said_max: int
 class Relays:
     """接力：把一个对话换到新对话接着做。普通接力让原对话写交接说明；换家（Claude ↔ GPT）、换型号也走这里；
     原对话额度用完了写不了，就由小E 按记录拼交接材料（handoff）。新对话开好后发事件 relayed(旧, 新)，
-    总管据此把“谁派的活”交接过去。"""
+    """
 
     def __init__(self, bridge: "Bridge"):
         self.b = bridge
@@ -160,7 +160,7 @@ class Relays:
         return s.limit_until > time.time() or self.b.quota_levels.get(fam) == "撞线"
 
     def targets(self, s) -> list[dict]:
-        """除了原样接力，还能换到哪（网页按钮、总管用）：[{to, label, level}]。没装、受限账号不能用、文件夹不许发、
+        """除了原样接力，还能换到哪（网页按钮用）：[{to, label, level}]。没装、受限账号不能用、文件夹不许发、
         那家也撞线了的不列；原对话撞线时同一家的也不列（换了也接不上）。DeepSeek 不列：接复杂的活不如这两家（质量优先）。"""
         cur = pick_of(s)
         fam = split.family(cur or "sonnet")
@@ -192,7 +192,7 @@ class Relays:
         return ""
 
     async def start(self, num: int, via: str = "web", to: str = "", go: bool = False, wait_idle: float = 0) -> str:
-        """to = 换到哪（pick：sonnet / gpt …，空 = 原样）；go = 开好新对话就替你说“继续”（换家接着做、总管派的活）。
+        """to = 换到哪（pick：sonnet / gpt …，空 = 原样）；go = 开好新对话就替你说“继续”（换家接着做）。
         原对话额度用完了就不让它写，小E 直接拼交接材料、马上开新对话。
         wait_idle = 最多等几秒让这一轮收完尾（一轮刚做完、报告还没发完时也算在忙）。"""
         for _ in range(int(wait_idle * 2)):
@@ -264,7 +264,7 @@ class Relays:
                            what="小E 按那边的记录整理的交接材料（那边额度用完了，没法自己写）" if mechanical else "那边写的交接说明")
         s = Session(num=self.b.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
                     owner=p.owner, root=p.root, engine=engine, model=model, effort=effort, pinned=p.pinned, ext=copy.deepcopy(p.ext),
-                    task_group=p.task_group, task_group_manual=p.task_group_manual, boss=p.boss,
+                    task_group=p.task_group, task_group_manual=p.task_group_manual,
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"{head}{TAIL}\n\n{note}\n\n---\n用户这次说：")
         pending = p.relay_pending or {}
@@ -275,6 +275,6 @@ class Relays:
             s.unsent = s.unsent.replace("\n\n---\n用户这次说：", f"\n\n接力前最后一条答复（用户可能直接选择其中的选项）：\n{question}\n\n---\n用户这次说：")
         self.b.registry.add(s)
         p.relay_to = s.num
-        await self.b.events.emit("relayed", p, s)   # 总管：把“谁派的活”、总管身份交接过去
+        await self.b.events.emit("relayed", p, s)
         self.b.registry.save()
         return s

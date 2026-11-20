@@ -22,11 +22,11 @@ function quotaPace(l, now = Date.now()) {
   const day = d.toDateString() === new Date(now).toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
   return {text: `按这速度${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 用完`, warn: true};
 }
-function qcell(l, hot = 80) {
-  const reset = quotaResetLabel(l), pace = quotaPace(l);
-  const h = l.pct != null && l.pct >= hot || pace?.warn;
-  return `<div class="qm ${h ? 'hot' : ''}" title="${reset ? esc(reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
-    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)} 重置</div>` : ''}${pace?.warn ? `<div class="qr qp">${esc(pace.text)}</div>` : ''}</div>`;
+// 上下文小窗里的一行：名字和重置时间同一行，下面一条细进度条；偏紧时再补一句何时用完
+function qline(l, hot = 80) {
+  const reset = quotaResetLabel(l), pace = quotaPace(l), h = l.pct != null && l.pct >= hot || pace?.warn;
+  return `<div class="qm ${h ? 'hot' : ''}"><div class="ql"><span>${esc(l.name)}${reset ? `<em>${esc(reset)} 重置</em>` : ''}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
+    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${pace?.warn ? `<div class="qr qp">${esc(pace.text)}</div>` : ''}</div>`;
 }
 function quotaGroups() {
   return [['Claude', limits], ...(limitsGpt.length && hasGpt ? [['Codex', limitsGpt]] : [])].filter(([, ls]) => ls.length);
@@ -116,15 +116,15 @@ function renderUsage(u) {
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   const running = u.relay?.kind === 'running', canRelay = !u.busy && !running && usageRelay.num === sel;
-  const relayBtns = running ? '<button class="pill" disabled><i class="spin"></i>正在写交接说明</button>'
-    : `<button class="pill" id="relayBtn" ${canRelay ? '' : 'disabled'}>${u.busy ? '回答结束后才能接力' : '接力到新对话'}</button>`
-      + (canRelay ? usageRelay.targets.map(a => relayAlt(a, '接力并换 ' + a.label, 'pill')).join('') : '');
+  const relayBtn = running ? '<button class="pill" disabled><i class="spin"></i>写交接说明</button>'
+    : `<button class="pill" id="relayBtn" ${canRelay ? '' : 'disabled'} title="${u.busy ? '回答结束后才能接力' : '写交接说明，换到新对话接着做'}">接力到新对话</button>`;
+  const compactBtn = `<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
+    u.compacting === 'running' ? '<i class="spin"></i>压缩中' : u.compacting === 'queued' ? '已排队' : '压缩'}</button>`;
+  const alts = canRelay && usageRelay.targets.length ? `<div class="ux">换模型接力${usageRelay.targets.map(a => relayAlt(a, a.label, 'lk')).join('')}</div>` : '';
+  const ctx = u.context != null ? qline({name: u.tokens ? `上下文 · 约 ${wan(u.tokens)} token` : '上下文', pct: u.context}, 70) : '';
   el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
-    + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
-      ${u.tokens ? `<div class="uh">约 ${wan(u.tokens)} token。窗口满了会自动压缩；想换个干净的上下文再接力。</div>` : ''}
-      <div class="ua">${relayBtns}<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
-        u.compacting === 'running' ? '<i class="spin"></i>正在压缩' : u.compacting === 'queued' ? '已排队压缩' : '压缩上下文'}</button></div>
-      ${u.has_quota === false ? '<div class="uh">按量计费，不使用 Claude 的订阅额度。</div>' : `<div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}`}</div>` : '');
+    + (usageOpen ? `<div class="usage">${ctx}<div class="ua">${relayBtn}${compactBtn}</div>${alts}
+      ${u.has_quota === false ? '<div class="uh">按量计费，不占订阅额度</div>' : ls.length ? `<div class="usep"></div>${ls.map(l => qline(l)).join('')}` : ''}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); usageOpen = false; startRelay(sel); };
   bindRelayAlts(el, sel);
