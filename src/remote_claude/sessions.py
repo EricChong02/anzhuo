@@ -42,7 +42,7 @@ class Session:
     model: str | None = None  # None = 用 ~/.claude/settings.json 里的默认
     effort: str | None = None
     context_pct: float | None = None
-    context_tokens: int | None = None  # 上下文多少 token（每轮都要把这些重读一遍，长了就提示接力）
+    context_tokens: int | None = None  # 上下文多少 token（右上角“上下文”小窗里显示）
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
     unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
     seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
@@ -76,7 +76,7 @@ class Session:
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
     claude_usage: dict = field(default_factory=dict)  # Claude 报的这个会话累计金额和各模型 token（接着上次的会话也累计），每轮记差值
-    relay_suggested: bool = False  # 已在空闲时建议过接力，之后进行中只显示禁用按钮
+    relay_suggested: bool = False  # 不再使用（2026-11-20 撤掉主动接力提示）；留着只为读旧的 sessions.json
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_pending: dict = field(default_factory=dict)  # 接力前尚待回答的问题及原文

@@ -783,9 +783,6 @@ def test_relay(tmp_path, monkeypatch, engine):
         from remote_claude.sessions import Job
         from remote_claude.report import Turn
         old = b.registry.get(6)
-        old.context_tokens = 1000
-        assert "没有接力建议" in await b.relays.start(6)
-        old.context_tokens = 300_000
         b.runner.turns[6] = Turn(started=1)
         assert "等回答结束" in await b.relays.start(6) and 6 not in b.relays.writing
         b.runner.turns.pop(6)
@@ -815,36 +812,10 @@ def test_relay(tmp_path, monkeypatch, engine):
 
 
 def test_relay_hint():
-    """什么时候提示接力：上下文 12 万以上；或隔了一个多小时回来、上下文 8 万以上（缓存过期要整段重写）。门槛可配置。"""
-    from remote_claude.config import Config
-    from remote_claude.sessions import Session
-    from remote_claude.relay import relay_hint
-    now = 1_000_000.0
-    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=130_000, updated=now - 60)
-    assert relay_hint(s, False, False, now)["kind"] == "long"
-    assert relay_hint(s, False, False, now, cfg=Config(relay_long=200_000)) is None   # 门槛调高了就不提示
-    s.context_tokens = 250_000
-    assert relay_hint(s, True, False, now) is None                 # 正在做不打扰
-    assert relay_hint(s, False, True, now) == {"kind": "running"}
-    s.updated = now - 2 * 3600
-    h = relay_hint(s, False, False, now)
-    assert h["kind"] == "cold" and h["hours"] == 2.0
-    s.context_tokens = 50_000
-    assert relay_hint(s, False, False, now) is None                # 短对话重写也不贵
-    s.context_tokens, s.relay_to = 250_000, 9
-    assert relay_hint(s, False, False, now) is None                # 已经接力过
-
-
-def test_relay_hint_compact_when_window_nearly_full():
-    """上下文用到七成：提示先压缩（活没做完）、做完再接力；1M 窗口的对话 12 万时还是只问“这一段做完了吗”。"""
+    """不再主动提示接力或压缩（实测不省额度）：状态条只在正在写交接说明时出现。"""
     from remote_claude.relay import RELAY, relay_hint
-    from remote_claude.sessions import Session
-    now = 1_000_000.0
-    s = Session(num=1, name="x", cwd="/", claude_id="a", context_tokens=150_000, context_pct=75.0, updated=now - 60)
-    h = relay_hint(s, False, False, now)
-    assert h["kind"] == "compact" and h["pct"] == 75 and h["key"] == "compact7"
-    s.context_pct = 15.0
-    assert relay_hint(s, False, False, now)["kind"] == "long"
+    assert relay_hint(False) is None
+    assert relay_hint(True) == {"kind": "running"}
     assert "2000 字" not in RELAY and "宁可长一点" in RELAY   # 交接说明不硬限字数
 
 

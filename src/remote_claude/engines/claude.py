@@ -395,6 +395,9 @@ class ClaudeEngine(Engine):
     def env(self, runner: "Runner", s: "Session") -> dict:
         """给 Claude Code 进程的环境变量。"""
         return {"ENABLE_TOOL_SEARCH": "false",   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
+                # 不加载 claude.ai 账号上的连接器：它连上、掉线都会改工具列表，整段提示缓存作废重写
+                # （11-07～11-20 实测 195 次、约占 Claude 消耗两成；这些连接器在远窗里一次没用过）
+                "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
                 # 子代理默认用便宜一档的模型（只是默认：派的时候点名模型、或 fork 照旧跟主对话）
                 **({"CLAUDE_CODE_SUBAGENT_MODEL": runner.subagent_model} if runner.subagent_model else {})}
 

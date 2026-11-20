@@ -44,8 +44,6 @@ class Config:
     # 见 split.py；老写法 design_model / dev_model / simple_model 也认
     split: dict[str, dict] = field(default_factory=lambda: _split_table(None))
     subagent_model: str = "sonnet"  # Claude 对话里派出的子代理默认用的模型；空 = 跟 Claude Code 默认（和主对话一样）
-    relay_long: int = 120_000  # 上下文到这么长就提示接力：每说一句都要把整段重读一遍
-    relay_cold: int = 80_000  # 隔了一个多小时（缓存过期）再回来、上下文又有这么长，先提示接力
     reply_language: str = "简体中文"  # 让每个对话用什么语言回复；写成空字符串 = 不指定
     extra_instructions: str = ""  # 你自己追加给每个对话的固定要求（比如“做完小任务直接提交，不要问”）
     translate_english: bool = False  # 默认关闭。打开后，回复里有大段英文时译成中文再给你看：只用 DeepSeek，失败保留原文

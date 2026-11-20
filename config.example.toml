@@ -44,8 +44,6 @@
 # [split.simple]               # 简单任务（查资料、整理文件、问答、小改动）
 # use = "sonnet"
 # subagent_model = "sonnet"    # 对话里派出的子代理默认用的模型；写 "" = 跟主对话一样
-# relay_long = 120000          # 上下文（token）到这么长就提示接力：越长每句话越贵
-# relay_cold = 80000           # 隔一个多小时回来（缓存过期）、上下文又有这么长，也提示接力
 # reply_language = "简体中文"   # 让每个对话用什么语言回复；写 "" 表示不指定
 # translate_english = false    # 默认关闭。想看中文版的思考过程和英文回复，改成 true：只用 DeepSeek；失败保留原文，不回退 Claude
 # extra_instructions = ""      # 你自己的固定要求，会追加给每个对话，例如：“小改动做完直接提交，不用问我”

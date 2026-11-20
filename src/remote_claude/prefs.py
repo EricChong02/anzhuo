@@ -104,8 +104,6 @@ FIELDS: list[Field] = [
     Field("task_group_rules", "分类规则", "自动", "textarea", "一行一条，比如“同一门课的各小节都归到课程名下”", check=_short(LONG), when="task_grouping"),
     Field("auto_cleanup", "每天自动整理", "自动", "bool", "归档旧记录、清旧临时文件夹，每月一次体检", live=False),
     Field("dingtalk_quiet", "钉钉只发结果", "自动", "bool", "开工、进度这些只在网页里看", when="dingtalk_enabled"),
-    Field("relay_long", "对话多长提醒接力", "高级", "int", "单位 token，默认 120000；越长每句话越贵", rng=(30_000, 1_000_000), adv=True),
-    Field("relay_cold", "隔一小时回来、多长提醒接力", "高级", "int", "缓存过期后整段要重读，单位 token", rng=(10_000, 1_000_000), adv=True),
     Field("max_parallel", "最多同时干活的对话", "高级", "int", "多的排队", live=False, adv=True),
     Field("scratch_root", "临时文件夹放哪", "高级", "text", "没指定文件夹时在这里新建", check=_short(500), adv=True),
     Field("search_roots", "按名字找文件夹的范围", "高级", "lines", "一行一个路径", adv=True),

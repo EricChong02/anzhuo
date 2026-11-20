@@ -179,7 +179,7 @@ def test_chat_api(tmp_path, monkeypatch):
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "relay_suggested": False, "has_quota": True}
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "has_quota": True}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
@@ -966,14 +966,13 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         w.bridge.relays=Relays(w.bridge); w.bridge.relays.start=rejected
         request=NS(match_info={'num':'1'},query={},headers={},can_read_body=False)
         result=json.loads((await w._api_thread(request)).text)
-        assert not result['can_relay'] and not result['usage']['relay_suggested']
+        assert not result['can_relay'] and result['usage']['relay'] is None   # 再长也不主动提示
         turns.clear()
         result=json.loads((await w._api_thread(request)).text)
-        assert result['can_relay'] and result['usage']['relay_suggested']
-        assert Registry(tmp_path/'sessions.json').get(1).relay_suggested
+        assert result['can_relay'] and result['usage']['relay'] is None
         turns[1]=Turn(started=time.time())
         result=json.loads((await w._api_thread(request)).text)
-        assert not result['can_relay'] and result['usage']['relay_suggested']
+        assert not result['can_relay']
         assert (await w._api_relay(request)).status==409
         turns.clear()
         from remote_claude.sessions import Job
@@ -982,9 +981,9 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         assert not result['can_relay']
         assert (await w._api_relay(request)).status==409
         queued.clear()
-        s.context_tokens = 1000  # 建议触发过，即使上下文下降也保留入口
+        s.context_tokens = 1000  # 手动接力不看上下文长短
         result = json.loads((await w._api_thread(request)).text)
-        assert result['can_relay'] and result['usage']['relay_suggested']
+        assert result['can_relay']
     asyncio.run(go())
 
 

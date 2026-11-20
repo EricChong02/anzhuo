@@ -336,15 +336,12 @@ class ThreadsMixin:
                 item["effort_label"] = EFFORT_CN.get(item.get("effort"), "")
         relay_busy = bool(turn) or b.runner.busy(num)
         relaying = num in b.relays.writing
-        recommendation = relay_hint(s, relay_busy, relaying, cfg=getattr(b, "cfg", None))
-        if recommendation and recommendation["kind"] in ("long", "cold", "compact") and not s.relay_suggested:
-            s.relay_suggested = True
-            b.registry.save()
+        recommendation = relay_hint(relaying)
         usage = {"model": display_model(selected) if selected else "默认模型", "effort": EFFORT_CN.get(eff, eff or "默认"),
                  "mkey": eng.key if eng.pick_model != "menu" else next((k for k in ("opus", "sonnet", "haiku", "fable") if k in pick.lower()), ""),
                  "ekey": eff or "", "has_quota": eng.has_quota,
                  "context": round(s.context_pct) if s.context_pct is not None else None,
-                 "tokens": s.context_tokens, "relay": recommendation, "relay_suggested": s.relay_suggested,
+                 "tokens": s.context_tokens, "relay": recommendation,
                  "compacting": b.runner.compacting(num), "busy": b.runner.busy(num)}
         queue = ["压缩上下文" if j.text == COMPACT else (t[:80] or "（图片）") for j in b.runner.queued(num) for t in (j.parts or [j.text])]
         limit = {"until": s.limit_until, "at": time.strftime("%H:%M", time.localtime(s.limit_until)), "auto": s.auto_resume} \
@@ -355,7 +352,7 @@ class ThreadsMixin:
                                   "live": live, "queue": queue, "awaiting": "" if turn else s.awaiting,
                                   "awaiting_kind": "" if turn else s.awaiting_kind, "decision": decision, "usage": usage,
                                   "limit": limit, "engine": s.engine, "ext": self._ext_data("thread_extra", s), "relay_to": s.relay_to or None,
-                                  "can_relay": s.relay_suggested and bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
+                                  "can_relay": bool(s.claude_id or s.codex_id) and not s.relay_to and not relay_busy and not relaying,
                                   "relay_targets": targets,
                                   "five_hour": {"pct": round(five[0] * 100), "reset": five[1] or ""} if five else None})
 

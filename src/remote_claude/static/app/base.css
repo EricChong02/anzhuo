@@ -368,13 +368,9 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
 /* 接力到新对话 */
 .relay{display:flex;align-items:center;gap:8px;background:var(--accsoft);color:var(--ink);border-radius:var(--r1);padding:8px 8px 8px 12px;margin:0 0 6px;font-size:var(--t2);line-height:1.55}
-.relay .rt{flex:1;min-width:0}
-.relay button.x{width:30px;padding:0;display:grid;place-items:center;background:none;color:var(--mute);flex:none} .relay button.x svg{width:16px;height:16px}
 .usage .uh{font-size:var(--t1);color:var(--mute);line-height:1.55}
 .usage .ua{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px} .usage .ua .pill{width:100%;justify-content:center;margin:0}
 .usage .ua .pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}
-.relay button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
-.relay button.on{background:var(--acc);color:var(--on-acc)}
 .relay.running{background:none;color:var(--mute);padding:2px 8px 6px}
 /* 回到这里 */
 .rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
