@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import os
 import re
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage,
 
 from ..cards import step_label
 from ..folders import display
+from . import fence as fence_mod
 from . import policy
 from .base import CONFIRM_WAIT, Engine, check_folders, role
 
@@ -50,11 +52,14 @@ def build_instructions(language: str = "简体中文", extra: str = "") -> str:
     return lang + RULES + (extra.strip() + "\n" if extra.strip() else "")
 
 
-def build_user_instructions(root: str, language: str = "简体中文", extra: str = "") -> str:
+def build_user_instructions(root: str, language: str = "简体中文", extra: str = "", read_only: list[str] = ()) -> str:
     """受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提小E 自己怎么重启。"""
     text = build_instructions(language, extra).replace(COLLABORATION_RULES, "")
     return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "run_command" not in ln and "remote-claude" not in ln) + (
-        f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
+        f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n"
+        + (f"另外这些文件夹可以只读参考，不能改：{'、'.join(read_only)}。\n" if read_only else "")
+        + "临时文件放 $TMPDIR（只有你能读写），不要放 /tmp。node、npx、python3、pdftotext、pandoc 可以直接用；"
+          "python3 里装好了 python-docx、PyMuPDF（import pymupdf）、pypdf、openpyxl、numpy、Pillow；不能联网安装新的包。\n")
 
 
 # 受限对话能用的工具；别的（定时、远程触发、工作树、Monitor 等）一律拦下
@@ -184,14 +189,16 @@ class ClaudeEngine(Engine):
         return hook
 
     @staticmethod
-    def fence(s: "Session"):
-        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
+    def fence(s: "Session", extra_read: list = (), tmp: Path | None = None):
+        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。
+        自己的临时目录可读写；extra_read（账号的 read_dirs）只读。"""
         root = Path(s.root).expanduser().resolve()
+        write_ok = [root] + ([tmp.resolve()] if tmp else [])
+        read_ok = write_ok + [Path(d).resolve() for d in extra_read]
 
-        def inside(raw: str) -> bool:
+        def resolve(raw: str) -> Path:
             p = Path(str(raw)).expanduser()
-            p = (p if p.is_absolute() else Path(s.cwd) / p).resolve()
-            return p == root or p.is_relative_to(root)
+            return (p if p.is_absolute() else Path(s.cwd) / p).resolve()
 
         async def hook(data, tool_use_id, context):
             name = str(data.get("tool_name") or "")
@@ -206,8 +213,10 @@ class ClaudeEngine(Engine):
                 pat = str(args.get("pattern") or "") if name == "Glob" else ""
                 if pat.startswith(("/", "~")):
                     paths.append(pat.split("*")[0] or "/")
-                if any(not inside(p) for p in paths):
-                    why = f"只能在 {display(root)} 里面读写，这个路径在外面。"
+                allowed = write_ok if name in EDIT_TOOLS else read_ok
+                if any(not fence_mod.inside(resolve(p), allowed) for p in paths):
+                    why = (f"只能在 {display(root)} 里面读写" + ("（另有几个只读参考文件夹）" if extra_read else "")
+                           + "，这个路径在外面。")
             if not why:
                 return {}
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
@@ -215,11 +224,21 @@ class ClaudeEngine(Engine):
         return hook
 
     @staticmethod
-    def fence_options(s: "Session") -> dict:
-        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹、连不上本机端口），家目录里别的东西读写都拒绝。"""
+    def fence_options(s: "Session", extra_read: list = (), tmp: Path | None = None) -> dict:
+        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹和临时目录、连不上本机端口），家目录里别的东西读写都拒绝；
+        extra_read 和本机工具链只读放行。admin 的 /tmp/claude-<uid> 和别的账号的临时目录读不到。"""
         root = Path(s.root).expanduser().resolve()
         home = Path.home().resolve()
         deny: list[str] = []
+        readable = [root, *[Path(d).resolve() for d in extra_read], *fence_mod.tool_dirs()]
+        if root.is_relative_to(home):
+            no_read = fence_mod.siblings_to_deny(readable, home)
+        else:
+            under = [p for p in readable if p.is_relative_to(home)]
+            no_read = fence_mod.siblings_to_deny(under, home) if under else [home]
+        no_read += [Path("/Volumes"), Path("/Users/Shared")]
+        for p in no_read:
+            deny += [f"Read(/{p})", f"Read(/{p}/**)"]
         outside = [Path("/Volumes"), Path("/Users/Shared")]
         if root.is_relative_to(home):   # 从文件夹往上到家目录，每一层的兄弟都挡掉
             cur = root
@@ -232,10 +251,13 @@ class ClaudeEngine(Engine):
         else:
             outside.append(home)
         for p in outside:
-            for t in ("Read", "Edit"):
-                deny += [f"{t}(/{p})", f"{t}(/{p}/**)"]
+            deny += [f"Edit(/{p})", f"Edit(/{p}/**)"]
+        uid = os.getuid()
+        fs = {"denyRead": [f"/private/tmp/claude-{uid}", f"/tmp/claude-{uid}", str(fence_mod.TMP_BASE)]}
+        if tmp:
+            fs |= {"allowWrite": [str(tmp)], "allowRead": [str(tmp)]}
         return {
-            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False},
+            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "filesystem": fs},
             "settings": json.dumps({"permissions": {"deny": deny}}),
         }
 
@@ -412,8 +434,11 @@ class ClaudeEngine(Engine):
             Path(s.cwd).mkdir(parents=True, exist_ok=True)
         hooks = [*self.extra_hooks(runner, s), HookMatcher(matcher="Bash", hooks=[self.guard(runner, s, turn)], timeout=CONFIRM_WAIT + 60)]
         rl = role(runner, s)
+        extra_read, tmp = [], None
         if fenced:
-            hooks.insert(0, HookMatcher(matcher=None, hooks=[self.fence(s)], timeout=60))
+            extra_read = fence_mod.read_dirs((getattr(runner.cfg, "accounts", None) or {}).get(s.owner))
+            tmp = fence_mod.ensure_tmp(s.owner)
+            hooks.insert(0, HookMatcher(matcher=None, hooks=[self.fence(s, extra_read, tmp)], timeout=60))
         if rl.get("disallowed"):   # 光靠 disallowed_tools 挡不住（bypassPermissions 下照样执行），用钩子拒掉
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self.deny(set(rl["disallowed"]), rl.get("deny_reason", ""))], timeout=60))
         options = ClaudeAgentOptions(
@@ -428,12 +453,14 @@ class ClaudeEngine(Engine):
             setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code",
-                           "append": build_user_instructions(display(Path(s.root).expanduser()), runner.language, runner.extra_instructions)
+                           "append": build_user_instructions(display(Path(s.root).expanduser()), runner.language, runner.extra_instructions,
+                                                     [display(d) for d in extra_read])
                            if fenced else build_instructions(runner.language, runner.extra_instructions) + rl.get("append", "")},
             disallowed_tools=list(rl.get("disallowed", [])),
             tools=rl.get("builtin"),   # 只给这几个内置工具；None = 照常全给
             mcp_servers={"xiaoe": self.tools(runner, turn, s)},
-            env=self.env(runner, s),
+            env={**self.env(runner, s), **({"TMPDIR": str(tmp), "CLAUDE_CODE_TMPDIR": str(tmp), "PATH": fence_mod.path_env()}
+                                            if fenced else {})},
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},
@@ -441,7 +468,7 @@ class ClaudeEngine(Engine):
             # 删东西、推代码、改数据库这类先问你（见 policy.py）；等你点的时间算在钩子里，超时就当不同意
             hooks={"PreToolUse": hooks, **({"Stop": [HookMatcher(matcher=None, hooks=[self.stop_check(runner, s, turn)], timeout=60)]}
                                            if rl.get("on_stop") else {})},
-            **(self.fence_options(s) if fenced else {}),
+            **(self.fence_options(s, extra_read, tmp) if fenced else {}),
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:
