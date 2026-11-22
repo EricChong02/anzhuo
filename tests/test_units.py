@@ -328,7 +328,7 @@ def test_compact_queue():
 
 
 def test_cleanup(tmp_path):
-    """60 天前的副本删掉、新的留着；90 天前的对话记录压缩归档，登记着的不动。"""
+    """附件按 30 天清理；90 天前的原生对话压缩归档，登记着的保留。"""
     import gzip
     import os
     import time
@@ -338,14 +338,27 @@ def test_cleanup(tmp_path):
     old, new = data / "outbox" / "4-1" / "a.png", data / "inbox" / "web" / "b.png"
     for f in (old, new):
         f.parent.mkdir(parents=True); f.write_bytes(b"x" * 10)
-    os.utime(old, (now - 61 * 86400,) * 2)
+    os.utime(old, (now - 30 * 86400,) * 2)
+    original = tmp_path / "工作文件.png"
+    original.write_text("原件")
+    (new.parent / "link.png").symlink_to(original)
+    os.utime(original, (now - 40 * 86400,) * 2)
+    pdf = data / "pdfpages" / "4-1-0" / "p-1.png"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"page")
+    rec = data / "turns" / "4-1.json"
+    rec.parent.mkdir()
+    rec.write_text('{"ended": %s}' % (now - 30 * 86400))
+    assert cleanup.purge_attachments(data, now) == (2, 14)
+    assert not old.exists() and not pdf.exists() and new.exists()
+    assert original.read_text() == "原件"
+    assert cleanup.purge_attachments(data, now) == (0, 0)
     (proj / "p").mkdir(parents=True)
     for name in ("old", "keep", "fresh"):
         (proj / "p" / f"{name}.jsonl").write_text('{"a":1}\n' * 100)
     for name in ("old", "keep"):
         os.utime(proj / "p" / f"{name}.jsonl", (now - 91 * 86400,) * 2)
     r = cleanup.run(data, {"keep"}, now, proj, arch)
-    assert old.exists() and new.exists()   # 对话里的截图、文件副本不删
     assert not (proj / "p" / "old.jsonl").exists() and (proj / "p" / "keep.jsonl").exists() and (proj / "p" / "fresh.jsonl").exists()
     assert gzip.open(arch / "p" / "old.jsonl.gz").read().count(b"\n") == 100
     assert r["removed"] == 0 and r["archived"] == 1

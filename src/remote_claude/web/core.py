@@ -86,8 +86,6 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         except (OSError, json.JSONDecodeError):
             self._zh = {}
         self._zh_busy: set[str] = set()
-        self._uimg: dict[str, tuple[bytes, str]] = {}   # 你发过的图，最近取过的留在内存
-        self._uimg_miss: set[str] = set()
         self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
         self.search_index = SearchIndex(data_dir / "search.db")   # 搜索用：各对话里说过的话
         self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
@@ -301,7 +299,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         cc_mtime = self._cc_mtime(s)
         return json.dumps([s.updated if s else 0, s.relay_to if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
-                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime,
+                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime, int(time.time() // 3600),
                            [(k,a.get('status'),a.get('model'),a.get('last')) for k,a in t.agents.items()] if t else [],
                            int(time.monotonic()//5) if t and any(a.get('status')=='running' and a.get('model_source')!='observed' for a in t.agents.values()) else 0])
 

@@ -30,6 +30,18 @@ async def spend_loop(b: Bridge) -> None:
         await asyncio.sleep(600)
 
 
+async def attachment_loop(b: Bridge) -> None:
+    """启动后清一次收发附件，此后每小时检查。"""
+    from .cleanup import purge_attachments
+
+    while True:
+        try:
+            await asyncio.to_thread(purge_attachments, b.data_dir)
+        except Exception:  # noqa: BLE001
+            log.exception("远窗附件清理失败")
+        await asyncio.sleep(3600)
+
+
 async def cleanup_loop(b: Bridge) -> None:
     """每天清一次旧副本、归档 90 天前的旧对话记录（见 cleanup.py）；登记着的对话不动。"""
     from . import cleanup

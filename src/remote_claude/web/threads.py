@@ -13,6 +13,7 @@ from pathlib import Path
 from aiohttp import web
 
 from .. import engines, thread, translate
+from ..cleanup import attachment_expired
 from ..sessions import COMPACT
 from ..cards import parse_decision
 from ..engines.claude import NOISE
@@ -30,11 +31,11 @@ class ThreadsMixin:
         for p in self._turn_paths(num):
             try:
                 r = json.loads(p.read_text())
-                fs = [{"name": Path(f).name, "size": Path(f).stat().st_size if Path(f).is_file() else 0,
-                       "url": f"{self.web_prefix}/dl/{r['id']}/{i}"} for i, f in enumerate(r.get("files", []))]
+                fs = [{"name": f.name, "size": f.stat().st_size, "url": f"{self.web_prefix}/dl/{r['id']}/{i}"}
+                      for i, f in self._attachments(r, "files").items()]
                 out.append({"id": r["id"], "title": r.get("title", ""), "request": r.get("request", ""), "started": r.get("started"), "ended": r.get("ended"), "links": self.links_of(r), "files": fs,
                             "checkpoint_before": r.get("checkpoint_before", ""), "checkpoint_after": r.get("checkpoint_after", ""), "codex_turn_id": r.get("codex_turn_id", ""), "model": r.get("model", ""), "effort": r.get("effort", ""), "nfiles": len(r.get("changed_files") or []), "ncmds": len(r.get("commands") or []),
-                            "images": [f"{self.px}/t/{r['id']}/img/{i}" for i in range(len(r.get("images", [])))],
+                            "images": [f"{self.px}/t/{r['id']}/img/{i}" for i in self._attachments(r, "images")],
                             "final_text": r.get("final_text", ""), "translated": r.get("translated", "")})
             except (OSError, json.JSONDecodeError, KeyError):
                 continue
@@ -63,9 +64,13 @@ class ThreadsMixin:
             if any(e.get("imgs") for e in tl if e.get("kind") == "you"):   # 带图的话：图按“这一轮/第几张”从 uimg 取
                 k = 0
                 for e in (e for e in tl if e.get("kind") == "you"):
-                    n = len(e.get("imgs") or [])
-                    items.append({"who": "you", "text": "" if n and e["text"] == "（见图）" else e["text"], **({"imgs": [f"{p.stem}/{i}" for i in range(k, k + n)]} if n else {})})
-                    k += n
+                    paths = e.get("imgs") or []
+                    refs = [f"{p.stem}/{i}" for i, path in enumerate(paths, k) if not self._inbox_expired(Path(path))]
+                    text = e["text"]
+                    if paths and text == "（见图）":
+                        text = "" if refs else "（图片已过期）"
+                    items.append({"who": "you", "text": text, **({"imgs": refs} if refs else {})})
+                    k += len(paths)
             else:
                 items += [{"who": "you", "text": t} for t in said if t]
             proc = [{"k": e["kind"], "text": str(e.get("text", ""))[:1500], **({"detail": e["detail"]} if e.get("detail") else {}), **({"sub": e["sub"]} if e.get("sub") else {})}
@@ -226,7 +231,7 @@ class ThreadsMixin:
 
     async def _saved_items(self, s, *, full: bool = False):
         num = s.num
-        key = (await asyncio.to_thread(self._search_key, s), s.updated, full)
+        key = (await asyncio.to_thread(self._search_key, s), s.updated, full, int(time.time() // 3600))
         cached = self._threads.get(num)
         if cached and cached[0] == key:
             return [dict(it) for it in cached[1]]
@@ -390,6 +395,15 @@ class ThreadsMixin:
         finally:
             self._zh_busy.discard(key)
 
+    def _inbox_expired(self, path: Path) -> bool:
+        inbox = self.turns_dir.parent / "inbox"
+        if not path.is_relative_to(inbox):
+            return False
+        try:
+            return attachment_expired(path.stat().st_mtime)
+        except OSError:
+            return True
+
     def _record_image(self, num: int, ref: str) -> tuple[bytes, str] | None:
         """记录在小E 这边的对话（GPT、Kimi）里你发过的图：ref = 那一轮的编号/第几张；只认收件目录里的文件。"""
         stem, _, k = ref.partition("/")
@@ -403,23 +417,23 @@ class ThreadsMixin:
         if int(k) >= len(paths):
             return None
         f, inbox = Path(paths[int(k)]).resolve(), (self.turns_dir.parent / "inbox").resolve()
-        if not f.is_relative_to(inbox) or not f.is_file():
+        if not f.is_relative_to(inbox) or self._inbox_expired(f):
             return None
-        return f.read_bytes(), mimetypes.guess_type(f.name)[0] or "image/png"
+        try:
+            return f.read_bytes(), mimetypes.guess_type(f.name)[0] or "image/png"
+        except OSError:
+            return None
 
     async def _api_uimg(self, request: web.Request) -> web.Response:
         """对话里你发过的图。"""
         s = self.bridge.registry.get(int(request.match_info["num"]))
         ref = f"{request.match_info['uuid']}/{request.match_info['k']}"
-        if not s or ref in self._uimg_miss or not (s.claude_id or engines.get(s.engine).history == "records"):
+        if not s or not (s.claude_id or engines.get(s.engine).history == "records"):
             raise web.HTTPNotFound()
         if engines.get(s.engine).history == "records":   # GPT、Kimi：图是小E 收件时存下的文件，路径记在那一轮里
-            got = self._uimg.get(ref) or await asyncio.to_thread(self._record_image, s.num, ref)
+            got = await asyncio.to_thread(self._record_image, s.num, ref)
         else:
-            got = self._uimg.get(ref) or await asyncio.to_thread(thread.user_image, s.claude_id, s.cwd, ref)
+            got = await asyncio.to_thread(thread.user_image, s.claude_id, s.cwd, ref)
         if not got:
-            self._uimg_miss.add(ref)
             raise web.HTTPNotFound()
-        self._uimg[ref] = got
-        self._uimg = dict(list(self._uimg.items())[-60:])
-        return web.Response(body=got[0], content_type=got[1], headers={"Cache-Control": "private, max-age=86400"})
+        return web.Response(body=got[0], content_type=got[1], headers={"Cache-Control": "private, no-cache"})

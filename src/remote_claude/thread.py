@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 
 from .cards import step_label
+from .cleanup import attachment_expired
 
 PROCESS_KEEP = 15  # 最近几轮带“工作过程”（再早的看过程页），免得一个长对话整页太重
 
@@ -81,12 +82,22 @@ def full_messages(session_id: str, cwd: str | None, times: dict | None = None):
     return out
 
 
+def _remote_image_expired(content: list, sent_at: float) -> bool:
+    return bool(sent_at and attachment_expired(sent_at) and any(
+        isinstance(block, dict) and block.get("type") == "text" and block.get("text", "").startswith(IMG_PATHS)
+        for block in content
+    ))
+
+
 def user_image(session_id: str, cwd: str | None, ref: str) -> tuple[bytes, str] | None:
     """你发过的某张图（ref = 消息编号/第几张）：从对话记录里取出来给网页显示。"""
     import base64
     uuid, _, k = ref.partition("/")
-    for m in full_messages(session_id, cwd):
+    times: dict = {}
+    for m in full_messages(session_id, cwd, times):
         if getattr(m, "uuid", "") == uuid and isinstance(m.message, dict) and isinstance(m.message.get("content"), list):
+            if _remote_image_expired(m.message["content"], times.get(uuid, 0)):
+                return None
             imgs = [b for b in m.message["content"] if isinstance(b, dict) and b.get("type") == "image"]
             if k.isdigit() and int(k) < len(imgs):
                 src = imgs[int(k)].get("source") or {}
@@ -139,7 +150,10 @@ def history(messages, limit: int | None = 300, times: dict | None = None) -> lis
                 # 带图的话：网页上直接显示图（/_x/api/uimg/…），文字里去掉“[图片]”占位
                 body = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
                                  and not b.get("text", "").startswith(IMG_PATHS)).strip()
-                items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
+                if _remote_image_expired(content, (times or {}).get(m.uuid, 0)):
+                    items.append({"who": "you", "text": body or "（图片已过期）"})
+                else:
+                    items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
             else:
                 items.append({"who": "you", "text": text.strip()})
             if getattr(m, "uuid", ""):

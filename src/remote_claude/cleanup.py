@@ -1,18 +1,20 @@
 """定期清理，免得越用越占地方：小E 每天看一次。
-- 对话里的截图、文件副本（outbox / inbox）不删：它们是对话内容的一部分。
+- 远窗收发附件副本和 PDF 预览保留 30 天。
 - Claude Code 的对话记录（~/.claude/projects/*/*.jsonl）：超过 90 天没动的压缩归档到 ~/.claude/projects-archive/（gzip，能解开），
   小E 里还登记着的对话不动。"""
 from __future__ import annotations
 
 import gzip
+import json
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-KEEP_FILES_DAYS = 60
+KEEP_FILES_DAYS = 30
 ARCHIVE_AFTER_DAYS = 90
 PROJECTS = Path.home() / ".claude" / "projects"
 ARCHIVE = Path.home() / ".claude" / "projects-archive"
@@ -25,23 +27,59 @@ def _old(p: Path, days: int, now: float) -> bool:
         return False
 
 
+def attachment_expired(sent_at: float, now: float | None = None) -> bool:
+    return (time.time() if now is None else now) - sent_at >= KEEP_FILES_DAYS * 86400
+
+
+def purge_attachments(data_dir: Path, now: float | None = None) -> tuple[int, int]:
+    """只清远窗自己的附件存储，不沿符号链接访问用户文件夹。"""
+    now = time.time() if now is None else now
+    removed = freed = 0
+    turn_times: dict[str, float] = {}
+    for sub in ("inbox", "outbox", "pdfpages"):
+        base = data_dir / sub
+        if base.is_symlink() or not base.is_dir():
+            continue
+        for root, _, names in os.walk(base, topdown=False, followlinks=False):
+            folder = Path(root)
+            tid = folder.relative_to(base).parts[0] if folder != base else ""
+            if sub == "pdfpages":
+                tid = tid.rpartition("-")[0]
+            if sub != "inbox" and tid and tid not in turn_times:
+                try:
+                    rec = json.loads((data_dir / "turns" / f"{tid}.json").read_text())
+                    turn_times[tid] = float(rec.get("ended") or rec.get("started") or 0)
+                except (OSError, ValueError, TypeError, AttributeError):
+                    turn_times[tid] = 0
+            for name in names:
+                path = folder / name
+                try:
+                    if path.is_symlink() or not path.is_file():
+                        continue
+                    stat = path.stat()
+                    sent_at = turn_times.get(tid) if sub != "inbox" else None
+                    if attachment_expired(sent_at or stat.st_mtime, now):
+                        path.unlink()
+                        removed += 1
+                        freed += stat.st_size
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    log.warning("清理远窗附件失败", exc_info=True)
+            if folder != base and _old(folder, KEEP_FILES_DAYS, now):
+                try:
+                    folder.rmdir()
+                except OSError:
+                    pass  # 仍有附件，或有新请求正在写入
+    if removed:
+        log.info("远窗附件清理：删了 %d 个过期副本，释放 %d 字节", removed, freed)
+    return removed, freed
+
+
 def run(data_dir: Path, keep_ids: set[str], now: float | None = None,
         projects: Path = PROJECTS, archive: Path = ARCHIVE) -> dict:
     now = now or time.time()
-    removed = archived = 0
-    freed = 0
-    for sub in ():   # 2026-10-28 庄毅：对话内容不删（截图、文件副本是对话的一部分，删了旧对话里的图就没了）
-        base = data_dir / sub
-        if not base.is_dir():
-            continue
-        for p in list(base.rglob("*")):
-            if p.is_file() and _old(p, KEEP_FILES_DAYS, now):
-                freed += p.stat().st_size
-                p.unlink()
-                removed += 1
-        for d in sorted((x for x in base.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
-            if not any(d.iterdir()):
-                d.rmdir()
+    archived = freed = 0
     if projects.is_dir():
         for f in projects.glob("*/*.jsonl"):
             if f.stem in keep_ids or not _old(f, ARCHIVE_AFTER_DAYS, now):
@@ -53,9 +91,9 @@ def run(data_dir: Path, keep_ids: set[str], now: float | None = None,
             freed += f.stat().st_size - dest.stat().st_size
             f.unlink()
             archived += 1
-    if removed or archived:
-        log.info("定期清理：删了 %d 个旧副本，归档 %d 段旧对话，腾出约 %.0f MB", removed, archived, freed / 1e6)
-    return {"removed": removed, "archived": archived, "freed": freed}
+    if archived:
+        log.info("定期清理：归档 %d 段旧对话，腾出约 %.0f MB", archived, freed / 1e6)
+    return {"removed": 0, "archived": archived, "freed": freed}
 
 
 SCRATCH_DAYS = 60

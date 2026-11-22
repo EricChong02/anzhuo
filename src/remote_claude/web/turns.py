@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 from aiohttp import web
 
+from ..cleanup import attachment_expired
 from ..folders import display
 from .common import _md
 
@@ -31,7 +32,7 @@ class TurnsMixin:
             try:
                 out.mkdir(parents=True, exist_ok=True)
                 target = out / Path(src).name
-                shutil.copy2(src, target)
+                shutil.copyfile(src, target)
                 dest.append(str(target))
             except OSError:
                 dest.append(src)
@@ -83,6 +84,13 @@ class TurnsMixin:
             return json.loads((self.turns_dir / f"{tid}.json").read_text())
         except (OSError, json.JSONDecodeError):
             return None
+
+    @staticmethod
+    def _attachments(rec: dict, key: str) -> dict[int, Path]:
+        sent = rec.get("ended") or rec.get("started")
+        if sent and attachment_expired(sent):
+            return {}
+        return {i: path for i, value in enumerate(rec.get(key) or []) if (path := Path(value)).is_file()}
 
     async def _index(self, request: web.Request) -> web.Response:
         """历史记录：按对话列（不是按每一轮）。点对话名回到那个对话接着聊；展开“每一轮”看各轮的完整过程页。"""
@@ -146,13 +154,13 @@ class TurnsMixin:
             out.append("<h2>托管命令实际状态</h2><div class='card'>" + ''.join(rows) + '</div>')
         if r.get("final_text"):
             out.append(f"<h2>结果</h2><div class='card say'>{_md(r['final_text'])}</div>")
-        if r.get("images"):
+        if images := self._attachments(r, "images"):
             out.append("<h2>截图</h2>" + "".join(f'<img src="{self.px}/t/{r["id"]}/img/{i}" loading="lazy">'
-                                                for i in range(len(r["images"]))))
-        if r.get("files"):
+                                                for i in images))
+        if files := self._attachments(r, "files"):
             out.append("<h2>交给你的文件</h2><ul>" + "".join(
-                f'<li><a href="{self.px}/t/{r["id"]}/file/{i}">{html.escape(Path(f).name)}</a></li>'
-                for i, f in enumerate(r["files"])) + "</ul>")
+                f'<li><a href="{self.px}/t/{r["id"]}/file/{i}">{html.escape(f.name)}</a></li>'
+                for i, f in files.items()) + "</ul>")
         if r.get("changed_files"):
             out.append("<h2>改了哪些文件</h2><ul>" + "".join(
                 f"<li><code>{html.escape(display(Path(f)))}</code></li>" for f in r["changed_files"]) + "</ul>")
@@ -175,19 +183,19 @@ class TurnsMixin:
     async def _turn_image(self, request: web.Request) -> web.StreamResponse:
         r = self._turn(request.match_info["tid"])
         i = int(request.match_info["i"])
-        if not r or not 0 <= i < len(r.get("images", [])) or not Path(r["images"][i]).is_file():
+        if not r or not (path := self._attachments(r, "images").get(i)):
             raise web.HTTPNotFound()
-        return web.FileResponse(r["images"][i], headers={"Cache-Control": "private, max-age=3600"})
+        return web.FileResponse(path, headers={"Cache-Control": "private, no-cache"})
 
     async def _turn_file(self, request: web.Request) -> web.StreamResponse:
         r = self._turn(request.match_info["tid"])
         i = int(request.match_info["i"])
-        if not r or not 0 <= i < len(r.get("files", [])) or not Path(r["files"][i]).is_file():
+        if not r or not (path := self._attachments(r, "files").get(i)):
             raise web.HTTPNotFound()
-        name = Path(r["files"][i]).name
+        name = path.name
         inline = Path(name).suffix.lower() == ".pdf" and request.query.get("download") != "1"
-        return web.FileResponse(r["files"][i], headers={
-            "Cache-Control": "private, max-age=3600",
+        return web.FileResponse(path, headers={
+            "Cache-Control": "private, no-cache",
             **({"Content-Type": "application/pdf"} if inline else {}),
             "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}"})
 
@@ -195,10 +203,9 @@ class TurnsMixin:
     def _pdf_dir(self, request: web.Request) -> tuple[Path, Path]:
         r = self._turn(request.match_info["tid"])
         i = int(request.match_info["i"])
-        if not r or not 0 <= i < len(r.get("files", [])):
+        if not r or not (src := self._attachments(r, "files").get(i)):
             raise web.HTTPNotFound()
-        src = Path(r["files"][i])
-        if src.suffix.lower() != ".pdf" or not src.is_file():
+        if src.suffix.lower() != ".pdf":
             raise web.HTTPNotFound()
         return src, self.store_path.parent / "pdfpages" / f"{r['id']}-{i}"
 
@@ -222,7 +229,7 @@ class TurnsMixin:
         name = request.match_info["name"]
         if not re.fullmatch(r"p-\d+\.png", name) or not (out / name).is_file():
             raise web.HTTPNotFound()
-        return web.FileResponse(out / name, headers={"Cache-Control": "private, max-age=86400"})
+        return web.FileResponse(out / name, headers={"Cache-Control": "private, no-cache"})
 
     # ---------- 网页对话框的接口 ----------
     def _turn_paths(self, num: int) -> list[Path]:

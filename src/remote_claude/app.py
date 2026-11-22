@@ -425,6 +425,7 @@ class Bridge:
             subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         except FileNotFoundError:
             pass
+        asyncio.create_task(housekeeping.attachment_loop(self))
         if self.cfg.auto_cleanup:   # 每天清理、每月体检（配置 auto_cleanup）
             asyncio.create_task(housekeeping.cleanup_loop(self))
         asyncio.create_task(self.quota.loop())

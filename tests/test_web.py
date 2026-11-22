@@ -717,16 +717,18 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
     """先读到最终文字、稍后才归档附件：缓存与实时事件都必须更新。"""
     from types import SimpleNamespace as NS
     from remote_claude.sessions import Session
-    from remote_claude import thread
+    from remote_claude import cleanup, thread
+    from remote_claude.web import turns
 
     async def go():
-        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=120)
+        now = int(time.time())
+        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=now)
         w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
                       runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
                                 busy=lambda n: False, queued=lambda n: []), relays=NS(writing={}, targets=lambda s: []))
         monkeypatch.setattr(thread, "full_messages", lambda *a: [])
-        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
+        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": now - 1}])
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
@@ -737,15 +739,21 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
             img, pdf = tmp_path / "图.png", tmp_path / "文件.pdf"
             img.write_bytes(b"\x89PNG")
             pdf.write_bytes(b"%PDF-1.4")
-            tid = w.save_turn("#6 交付", Turn(started=100, ended=120, final_text="图片和文件已做好",
+            tid = w.save_turn("#6 交付", Turn(started=now - 20, ended=now, final_text="图片和文件已做好",
                                          images=[str(img)], files=[str(pdf)]), str(tmp_path), "完成")
-            assert s.updated == 120 and w._sig_thread(6) != before
+            assert s.updated == now and w._sig_thread(6) != before
             data = await (await c.get("/_x/api/thread/6")).json()
             reply = data["items"][0]
             assert reply["tid"] == tid and len(reply["images"]) == len(reply["files"]) == 1
             for url, expected in [(reply["images"][0], img.read_bytes()), (reply["files"][0]["url"], pdf.read_bytes())]:
                 r = await c.get(url)
                 assert r.status == 200 and await r.read() == expected
+            monkeypatch.setattr(turns, "attachment_expired", lambda sent_at: cleanup.attachment_expired(
+                sent_at, now + cleanup.KEEP_FILES_DAYS * 86400))
+            assert not w._records(6)[0]["files"] and not w._records(6)[0]["images"]
+            assert (await c.get(reply["files"][0]["url"])).status == 404
+            assert (await c.get(reply["images"][0])).status == 404
+            assert img.is_file() and pdf.is_file()
         finally:
             await c.close()
     asyncio.run(go())
