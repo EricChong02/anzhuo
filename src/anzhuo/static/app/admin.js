@@ -90,7 +90,7 @@ function drawUsage(col, d) {
   const facts = [wk(u, u.total_cost) ? `估算周额度 ${wk(u, u.total_cost)}` : '', `${turns} 轮`, gptToks ? `Codex ${tokn(gptToks)}` : ''].filter(Boolean);
   const convs = u.conversations, shown = admAllConvs ? convs : convs.slice(0, 8);
   col.innerHTML = `<div class="adm-h"><span>额度</span></div><div class="aq-grid">${quotaPlate('Claude', d.limits) + quotaPlate('Codex', d.limits_gpt) + others}</div>
-    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
+    <div class="adm-h"><span>消耗</span><div class="adm-tabs" id="admDays">${['week', 7, 14, 30, 90].map(n => `<button data-d="${n}" class="${n === admDays ? 'on' : ''}">${n === 'week' ? '本周' : n + ' 天'}</button>`).join('')}</div></div>
     ${d.period === 'week' && !d.week_available ? '<div class="ac-empty">本周数据暂不可用</div>' : ''}
     <div class="plate"><div class="au-big"><b class="num">${tokn(toks)}</b><span>tokens · ${facts.join(' · ')}</span></div>${legend}
       <div class="au-chart" id="auChart"><svg id="auSvg" role="img" aria-label="每天用掉的周额度"></svg><div class="au-tip" id="auTip" hidden></div></div></div>
@@ -107,6 +107,8 @@ function drawUsage(col, d) {
   $('#admDays').onclick = e => { const b = e.target.closest('button'); if (!b) return; admDays = b.dataset.d === 'week' ? 'week' : +b.dataset.d; loadAdmin(); };
   if ($('#acMore')) $('#acMore').onclick = () => { admAllConvs = true; drawUsage(col, d); };
   col.querySelectorAll('.ac[data-n]').forEach(b => b.onclick = () => openSession(+b.dataset.n));
+  if (d.value?.md) col.insertAdjacentHTML('beforeend', `<div class="adm-h"><span>额度换来了什么 · 按周</span><span>${esc(ago(d.value.at))}更新</span></div>
+    <div class="plate adm-value"><div class="md">${md(d.value.md)}</div><p class="av-note">周报在本地统计。未分类的轮次标作“未判”，返工只统计已分类的轮次。出错和停下的统计跳过额度暂停。</p></div>`);
   drawChart(d);
 }
 // 每天一根柱子，按账号叠（主账号在下）；段与段之间留 2px 缝，只有顶端是圆角；悬停 / 点一下看当天
@@ -201,4 +203,3 @@ function pwSheet(account) {
   el.querySelector('#pwOk').onclick = save; inp.onkeydown = e => { if (e.key === 'Enter') save(); };
   el.querySelector('#pwNo').onclick = () => el.remove();
 }
-

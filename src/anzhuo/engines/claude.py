@@ -1,5 +1,5 @@
 """Claude 引擎：claude-agent-sdk 的 ClaudeSDKClient。PreToolUse 钩子拦危险命令（走 policy）、受限账号的护栏、
-总管不亲自干活的拒绝钩子、Stop 钩子（角色的 on_stop）；进程内 MCP 工具交图、交文件、列步骤、委派生图。"""
+按角色拒绝工具的钩子、Stop 钩子（角色的 on_stop）；进程内 MCP 工具交图、交文件、列步骤、委派生图。"""
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import os
 import re
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ from claude_agent_sdk.types import TaskNotificationMessage, TaskProgressMessage,
 
 from ..cards import step_label
 from ..folders import display
+from . import fence as fence_mod
 from . import policy
 from .base import CONFIRM_WAIT, Engine, check_folders, role
 
@@ -31,14 +33,16 @@ log = logging.getLogger(__name__)
 
 # 给每个对话追加的固定要求。这几条是远窗与对话之间的“约定”（交图、交文件、列步骤、“要你定”的写法），
 # 网页和手机上的按钮、进度条都靠它们工作，所以内置；你自己的习惯和授权写进配置的 extra_instructions，不要改这里。
-RULES = """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
-代码协作：只有可独立拆清、交接成本值得的成块后端、算法、数据处理或性能任务，才调用 delegate_code 委派 GPT；先定接口、允许改动的相对路径、测试和验收标准并说明委派理由。前端、视觉、文案、整体拆解与最终验收自己做；一两行修补、普通问答、强依赖当前上下文的小任务自己完成，不因 GPT 有额度就派活。工具会检查 GPT 最新额度，额度未知或不足就自己处理。子任务在隔离副本执行；等待期间不要修改同一范围。返回后必须读补丁和报告，审查后用 git apply --check 检查原项目冲突再整合，自己跑测试，不凭 GPT 自述当作验收。仅有明确问题才带 job_id 追加修正，最多三轮，通过即停止。Claude 中途额度耗尽不得让 GPT 自动接管。
+from ..collaboration import RULES as COLLABORATION_RULES
+
+RULES = COLLABORATION_RULES + """需要AI生图或改图时，调用 generate_images 工具委派 Codex，传清楚提示词、参考图绝对路径及输出目录；不要用占位图冒充生成图。工具成功会自动登记图片附件，不要重复调用 send_images；仍需检查画面是否符合要求；失败应如实说明，不声称已经发出。
+代码协作：只有可独立拆清、交接成本值得的成块后端、算法、数据处理或性能任务，才调用 delegate_code 委派 GPT；先定接口、允许改动的相对路径、测试和验收标准并说明委派理由。前端、视觉、文案、整体拆解与最终验收自己做；一两行修补、普通问答、强依赖当前上下文的小任务自己完成，不因 GPT 有额度就派活。工具会检查 GPT 最新额度，额度未知或不足就自己处理。子任务在隔离副本执行；等待期间不要修改同一范围。返回后必须读补丁和报告，审查后用 git apply --check 检查原项目冲突再整合，自己跑测试，不凭 GPT 自述当作验收。仅有明确问题才带 job_id 追加修正，最多追加一次，通过即停止。Claude 中途额度耗尽不得让 GPT 自动接管。
 做了截图、或有能说明结果的图片时，调用 send_images 工具把图片的绝对路径交出去（最多 6 张）。
 需要用户在几个方案里选一个时，先把各方案做成截图并用 send_images 交出，回复第一行写“要你定：”加一句问题，然后列出选项和你的推荐，停下等回复。
 选项每个单独一行，写成“A. 一句话说明”“B. …”（最多 4 个）；推荐单独一行，写成“推荐：A，理由”。
 用户要文件（PDF、文档、表格、原件等）时，用 send_files 把文件原样交给用户，不要只发截图；截图只用于看效果。
 动手做事、且要多次操作才能完成时（改几处文件、查资料再改、做完再验证等），第一个动作先调用 mcp__anzhuo__update_plan 列出步骤（3—8 步，每步一句 12 字以内的人话，第一步标 doing），之后每开始或做完一步就再调一次更新状态，最后全部标 done 再写回复。用户人在外面，只能靠这份清单知道你做到哪了。只聊天、一两条命令就能答完的不用列。
-这一轮回复发出后，本轮里开的后台命令（run_in_background）和 Monitor 都会被停掉，也收不到它们的完成通知。要跑得比这一轮长的活（上线、完整验收、长时间生成），用 nohup … > 日志文件 2>&1 & 脱离启动，回复里写清大约多久、用户下次问时你去看哪个日志；不要说“我盯着、完成后告诉你”。
+耗时验收、上线和长命令调用 run_command 托管并等真实结果；工具执行期间用户能看见任务状态，日志、心跳和退出码独立保存。不要用 Bash 的 run_in_background、nohup 或 & 启动这些活再结束回复；启动不代表完成。run_command 返回后检查 exit_code 与日志，失败、中断、超时都不能算通过。用 command_status 可查当前对话先前的托管任务，不自动重复运行。长期预览服务与 Monitor 不作为验收结果。
 """
 
 
@@ -48,11 +52,14 @@ def build_instructions(language: str = "简体中文", extra: str = "") -> str:
     return lang + RULES + (extra.strip() + "\n" if extra.strip() else "")
 
 
-def build_user_instructions(root: str, language: str = "简体中文", extra: str = "") -> str:
+def build_user_instructions(root: str, language: str = "简体中文", extra: str = "", read_only: list[str] = ()) -> str:
     """受限账号（role = user）的对话：只能在自己的文件夹里干活。不给生图委派（Codex 在沙箱外跑），不提远窗自己怎么重启。"""
-    text = build_instructions(language, extra)
-    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "anzhuo" not in ln) + (
-        f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n")
+    text = build_instructions(language, extra).replace(COLLABORATION_RULES, "")
+    return "".join(ln + "\n" for ln in text.splitlines() if "generate_images" not in ln and "delegate_code" not in ln and "run_command" not in ln and "anzhuo" not in ln) + (
+        f"只在当前工作文件夹（{root}）里工作：读、写、运行命令都限于这个文件夹，不访问它外面的文件。\n"
+        + (f"另外这些文件夹可以只读参考，不能改：{'、'.join(read_only)}。\n" if read_only else "")
+        + "临时文件放 $TMPDIR（只有你能读写），不要放 /tmp。node、npx、python3、pdftotext、pandoc 可以直接用；"
+          "python3 里装好了 python-docx、PyMuPDF（import pymupdf）、pypdf、openpyxl、numpy、Pillow；不能联网安装新的包。\n")
 
 
 # 受限对话能用的工具；别的（定时、远程触发、工作树、Monitor 等）一律拦下
@@ -145,6 +152,9 @@ class ClaudeEngine(Engine):
     def guard(runner: "Runner", s: "Session", turn: "Turn"):
         """Bash 跑之前：危险的交给 policy 问人；同意就明确放行，不同意就拒并告诉它别绕过去。"""
         async def hook(data, tool_use_id, context):
+            if (data.get('tool_input') or {}).get('run_in_background'):
+                return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                        'permissionDecisionReason': '普通后台命令会在回复结束时被清理。长验收请调用 run_command 等结果；受限账号使用前台 Bash。'}}
             cmd = str((data.get("tool_input") or {}).get("command") or "")
             allow = await policy.approve(runner, s, turn, policy.EXECUTE, cmd)
             if allow is None:
@@ -169,7 +179,7 @@ class ClaudeEngine(Engine):
 
     @staticmethod
     def deny(names: set[str], reason: str = ""):
-        """不让这个对话用某些工具（总管不亲自干活）。"""
+        """不让这个对话用某些工具。"""
         async def hook(data, tool_use_id, context):
             name = str(data.get("tool_name") or "")
             if name not in names:
@@ -179,14 +189,16 @@ class ClaudeEngine(Engine):
         return hook
 
     @staticmethod
-    def fence(s: "Session"):
-        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。"""
+    def fence(s: "Session", extra_read: list = (), tmp: Path | None = None):
+        """受限对话的护栏：只放行 USER_TOOLS；带路径的工具，路径必须在它的文件夹里（跟着符号链接算真实位置）。
+        自己的临时目录可读写；extra_read（账号的 read_dirs）只读。"""
         root = Path(s.root).expanduser().resolve()
+        write_ok = [root] + ([tmp.resolve()] if tmp else [])
+        read_ok = write_ok + [Path(d).resolve() for d in extra_read]
 
-        def inside(raw: str) -> bool:
+        def resolve(raw: str) -> Path:
             p = Path(str(raw)).expanduser()
-            p = (p if p.is_absolute() else Path(s.cwd) / p).resolve()
-            return p == root or p.is_relative_to(root)
+            return (p if p.is_absolute() else Path(s.cwd) / p).resolve()
 
         async def hook(data, tool_use_id, context):
             name = str(data.get("tool_name") or "")
@@ -196,11 +208,15 @@ class ClaudeEngine(Engine):
                 why = f"这个工具（{name}）在这里不能用。"
             else:
                 paths = [args[k] for k in PATH_KEYS if args.get(k)]
+                if name in {"mcp__anzhuo__send_images", "mcp__anzhuo__send_files"}:
+                    paths.extend(args.get("paths") or [])
                 pat = str(args.get("pattern") or "") if name == "Glob" else ""
                 if pat.startswith(("/", "~")):
                     paths.append(pat.split("*")[0] or "/")
-                if any(not inside(p) for p in paths):
-                    why = f"只能在 {display(root)} 里面读写，这个路径在外面。"
+                allowed = write_ok if name in EDIT_TOOLS else read_ok
+                if any(not fence_mod.inside(resolve(p), allowed) for p in paths):
+                    why = (f"只能在 {display(root)} 里面读写" + ("（另有几个只读参考文件夹）" if extra_read else "")
+                           + "，这个路径在外面。")
             if not why:
                 return {}
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
@@ -208,11 +224,21 @@ class ClaudeEngine(Engine):
         return hook
 
     @staticmethod
-    def fence_options(s: "Session") -> dict:
-        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹、连不上本机端口），家目录里别的东西读写都拒绝。"""
+    def fence_options(s: "Session", extra_read: list = (), tmp: Path | None = None) -> dict:
+        """受限对话额外的设置：命令在沙箱里跑（只能写自己的文件夹和临时目录、连不上本机端口），家目录里别的东西读写都拒绝；
+        extra_read 和本机工具链只读放行。admin 的 /tmp/claude-<uid> 和别的账号的临时目录读不到。"""
         root = Path(s.root).expanduser().resolve()
         home = Path.home().resolve()
         deny: list[str] = []
+        readable = [root, *[Path(d).resolve() for d in extra_read], *fence_mod.tool_dirs()]
+        if root.is_relative_to(home):
+            no_read = fence_mod.siblings_to_deny(readable, home)
+        else:
+            under = [p for p in readable if p.is_relative_to(home)]
+            no_read = fence_mod.siblings_to_deny(under, home) if under else [home]
+        no_read += [Path("/Volumes"), Path("/Users/Shared")]
+        for p in no_read:
+            deny += [f"Read(/{p})", f"Read(/{p}/**)"]
         outside = [Path("/Volumes"), Path("/Users/Shared")]
         if root.is_relative_to(home):   # 从文件夹往上到家目录，每一层的兄弟都挡掉
             cur = root
@@ -225,10 +251,13 @@ class ClaudeEngine(Engine):
         else:
             outside.append(home)
         for p in outside:
-            for t in ("Read", "Edit"):
-                deny += [f"{t}(/{p})", f"{t}(/{p}/**)"]
+            deny += [f"Edit(/{p})", f"Edit(/{p}/**)"]
+        uid = os.getuid()
+        fs = {"denyRead": [f"/private/tmp/claude-{uid}", f"/tmp/claude-{uid}", str(fence_mod.TMP_BASE)]}
+        if tmp:
+            fs |= {"allowWrite": [str(tmp)], "allowRead": [str(tmp)]}
         return {
-            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False},
+            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "filesystem": fs},
             "settings": json.dumps({"permissions": {"deny": deny}}),
         }
 
@@ -294,7 +323,7 @@ class ClaudeEngine(Engine):
                     result = {"state": "failed", "images": [], "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
-        @tool("delegate_code", "将值得独立交接的成块后端、算法、数据或性能工作委派 GPT。必须明确理由、接口、范围、验收；小修补自己做。额度确认充足才派，返回隔离补丁供你审查测试，原项目不自动修改。job_id 仅用于同任务最多三轮追加修正。",
+        @tool("delegate_code", "将值得独立交接的成块后端、算法、数据或性能工作委派 GPT。必须明确理由、接口、范围、验收；小修补自己做。额度确认充足才派，返回隔离补丁供你审查测试，原项目不自动修改。job_id 仅用于同任务最多一次追加修正。",
               {"type": "object", "properties": {
                   "kind": {"type": "string", "enum": ["backend", "algorithm", "data", "performance"]},
                   "task": {"type": "string"}, "why": {"type": "string"},
@@ -308,8 +337,77 @@ class ClaudeEngine(Engine):
                 result = {"state": "failed", "error": str(exc)[:500]}
             return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": result["state"] != "completed"}
 
-        extra = role(runner, session).get("tools", []) if session else []
-        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images, delegate_code]) + extra)
+        from ..command_jobs import CommandJobs
+
+        def jobs():
+            return CommandJobs(runner.registry.path.parent / 'command_jobs')
+
+        @tool('run_command', '托管耗时命令并等待真实退出结果。保存独立日志、心跳和退出码，页面持续显示运行状态。不能用来启动永久服务，不能用后台 &；最长一小时。危险操作仍经审核。',
+              {'type': 'object', 'properties': {'command': {'type': 'string'}, 'title': {'type': 'string'},
+               'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 3600}}, 'required': ['command', 'title']})
+        async def run_command(args):
+            def progress(data):
+                state = data['state']
+                last = {'running': '运行中', 'completed': '命令通过', 'failed': '命令失败',
+                        'timeout': '超时', 'interrupted': '已中断'}.get(state, state)
+                a = turn.agents.setdefault('command:' + data['job_id'], dict(name=data['title'], kind='命令',
+                                          t0=data['started'], t1=0))
+                a.update(status='running' if state == 'running' else 'done' if state == 'completed' else 'failed',
+                         last=last + (' · ' + data.get('tail', '').strip().split('\n')[-1][:160] if data.get('tail', '').strip() else ''),
+                         job_id=data['job_id'], log=data['log'], exit_code=data.get('exit_code'))
+                if state != 'running':
+                    a['t1'] = data.get('ended', time.time())
+                if a.get('_state') != state:
+                    a['_state'] = state
+                    turn.timeline.append(dict(t=time.time(), kind='do', text=data['title'] + '：' + last,
+                                              detail=f"任务 {data['job_id']}；退出码 {data.get('exit_code')}；日志 {data['log']}"))
+
+            try:
+                if not session or session.root or turn.interrupted:
+                    raise ValueError('当前对话不能运行托管命令')
+                command = str(args.get('command') or '')
+                if not command.strip() or len(command) > 64000:
+                    raise ValueError('命令为空或过长')
+                if role(runner, session).get('disallowed'):
+                    raise ValueError('当前角色不能亲自执行命令')
+                if await policy.approve(runner, session, turn, policy.EXECUTE, command) is False:
+                    raise ValueError('命令未通过审核，不得改写后绕过')
+                turn.commands.append(command[:200])
+                task = asyncio.create_task(jobs().run(session.num, session.cwd, command, str(args.get('title') or '托管命令'),
+                                          max(1, min(3600, int(args.get('timeout', 3600)))), progress))
+                # 复用生图/代码委派的父任务取消机制，手机的“停止”也能停掉命令。
+                tasks = runner.image_tasks.setdefault(session.num, set())
+                tasks.add(task)
+                try:
+                    result = await task
+                except asyncio.CancelledError:
+                    if not turn.interrupted:
+                        raise
+                    result = {'state': 'interrupted', 'error': '用户已停止托管命令'}
+                finally:
+                    tasks.discard(task)
+                    if not tasks:
+                        runner.image_tasks.pop(session.num, None)
+            except (ValueError, OSError) as exc:
+                result = {'state': 'failed', 'error': str(exc)[:300]}
+            return {'content': [{'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}],
+                    'isError': result['state'] != 'completed'}
+
+        @tool('command_status', '读取当前对话托管任务的真实状态。传 job_id 可查末尾日志；不传则列最近十条，不重跑任务。',
+              {'type': 'object', 'properties': {'job_id': {'type': 'string'}}})
+        async def command_status(args):
+            try:
+                if not session or session.root:
+                    raise ValueError('当前对话不能读取托管命令')
+                result = (jobs().status(session.num, str(args['job_id'])) if args.get('job_id')
+                          else {'jobs': jobs().recent(session.num)})
+            except (ValueError, OSError) as exc:
+                result = {'state': 'failed', 'error': str(exc)[:300]}
+            return {'content': [{'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}]}
+
+        from ..collaboration import tools as collaboration_tools
+        extra = (role(runner, session).get("tools", []) if session else []) + collaboration_tools(runner, session, turn)
+        return create_sdk_mcp_server("anzhuo", tools=[send_images, send_files, update_plan] + ([] if session and session.root else [generate_images, delegate_code, run_command, command_status]) + extra)
 
     # ---------- 跑一轮 ----------
     # ---------- 换后端的引擎（DeepSeek 等，同样是 Claude Code）改这几处 ----------
@@ -319,6 +417,9 @@ class ClaudeEngine(Engine):
     def env(self, runner: "Runner", s: "Session") -> dict:
         """给 Claude Code 进程的环境变量。"""
         return {"ENABLE_TOOL_SEARCH": "false",   # 交图、交文件、步骤清单这几个工具一开始就给它，不用先搜（搜到了它也常忘了用）
+                # 不加载 claude.ai 账号上的连接器：它连上、掉线都会改工具列表，整段提示缓存作废重写
+                # （11-07～11-20 实测 195 次、约占 Claude 消耗两成；这些连接器在远窗里一次没用过）
+                "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
                 # 子代理默认用便宜一档的模型（只是默认：派的时候点名模型、或 fork 照旧跟主对话）
                 **({"CLAUDE_CODE_SUBAGENT_MODEL": runner.subagent_model} if runner.subagent_model else {})}
 
@@ -333,14 +434,17 @@ class ClaudeEngine(Engine):
             Path(s.cwd).mkdir(parents=True, exist_ok=True)
         hooks = [*self.extra_hooks(runner, s), HookMatcher(matcher="Bash", hooks=[self.guard(runner, s, turn)], timeout=CONFIRM_WAIT + 60)]
         rl = role(runner, s)
+        extra_read, tmp = [], None
         if fenced:
-            hooks.insert(0, HookMatcher(matcher=None, hooks=[self.fence(s)], timeout=60))
+            extra_read = fence_mod.read_dirs((getattr(runner.cfg, "accounts", None) or {}).get(s.owner))
+            tmp = fence_mod.ensure_tmp(s.owner)
+            hooks.insert(0, HookMatcher(matcher=None, hooks=[self.fence(s, extra_read, tmp)], timeout=60))
         if rl.get("disallowed"):   # 光靠 disallowed_tools 挡不住（bypassPermissions 下照样执行），用钩子拒掉
             hooks.insert(0, HookMatcher(matcher=None, hooks=[self.deny(set(rl["disallowed"]), rl.get("deny_reason", ""))], timeout=60))
         options = ClaudeAgentOptions(
             cwd=s.cwd,
             add_dirs=s.add_dirs,
-            model=self.model_for(s),
+            model=job.model_override or self.model_for(s),
             effort=s.effort or runner.default_effort or None,
             resume=s.claude_id,
             resume_session_at=(s.rewind_at or None) if s.claude_id else None,   # 你点过“回到这里”：从那条接着，后面的不带上
@@ -349,12 +453,14 @@ class ClaudeEngine(Engine):
             setting_sources=[] if fenced else ["user", "project", "local"],
             permission_mode="bypassPermissions",
             system_prompt={"type": "preset", "preset": "claude_code",
-                           "append": build_user_instructions(display(Path(s.root).expanduser()), runner.language, runner.extra_instructions)
+                           "append": build_user_instructions(display(Path(s.root).expanduser()), runner.language, runner.extra_instructions,
+                                                     [display(d) for d in extra_read])
                            if fenced else build_instructions(runner.language, runner.extra_instructions) + rl.get("append", "")},
             disallowed_tools=list(rl.get("disallowed", [])),
-            tools=rl.get("builtin"),   # 只给这几个内置工具（总管：读文件、找文件）；None = 照常全给
+            tools=rl.get("builtin"),   # 只给这几个内置工具；None = 照常全给
             mcp_servers={"anzhuo": self.tools(runner, turn, s)},
-            env=self.env(runner, s),
+            env={**self.env(runner, s), **({"TMPDIR": str(tmp), "CLAUDE_CODE_TMPDIR": str(tmp), "PATH": fence_mod.path_env()}
+                                            if fenced else {})},
             stderr=lambda line: log.debug("claude: %s", line),
             max_buffer_size=64 * 1024 * 1024,  # 默认 1MB：Claude 看一张大截图就超，整轮报错（10-25 #6 实际遇到）
             thinking={"type": "adaptive", "display": "summarized"},
@@ -362,7 +468,7 @@ class ClaudeEngine(Engine):
             # 删东西、推代码、改数据库这类先问你（见 policy.py）；等你点的时间算在钩子里，超时就当不同意
             hooks={"PreToolUse": hooks, **({"Stop": [HookMatcher(matcher=None, hooks=[self.stop_check(runner, s, turn)], timeout=60)]}
                                            if rl.get("on_stop") else {})},
-            **(self.fence_options(s) if fenced else {}),
+            **(self.fence_options(s, extra_read, tmp) if fenced else {}),
         )
         last_text = ""
         async with ClaudeSDKClient(options=options) as client:
@@ -377,6 +483,11 @@ class ClaudeEngine(Engine):
                     log.debug("取上下文用量失败", exc_info=True)
             finally:
                 runner.live.pop(s.num, None)
+                for a in turn.agents.values():
+                    if a.get('kind') == '命令' and a.get('status') == 'running':
+                        a.update(status='stopped', t1=time.time(), last='连接已结束，未取得完整退出结果')
+                        turn.is_error = True
+                        turn.error = '后台命令中断，没有完整验收结果'
         turn.final_text = "\n\n---\n\n".join(dict.fromkeys(results)) if len(results) > 1 else last_text
         turn.effort = s.effort or runner.default_effort
 
@@ -392,6 +503,7 @@ class ClaudeEngine(Engine):
         last_text = ""
         results: list[str] = []
         seen_injected = 0
+        continuing = False
         after_result = False
         wait_more = 4
         stream = client.receive_messages().__aiter__()
@@ -415,11 +527,14 @@ class ClaudeEngine(Engine):
                 ev = msg.event or {}
                 if msg.parent_tool_use_id is None:
                     if ev.get("type") == "content_block_start":
-                        turn.partial = ""
+                        if (ev.get('content_block') or {}).get('type') == 'text' and not continuing:
+                            turn.partial = ""
                     elif ev.get("type") == "content_block_delta" and (ev.get("delta") or {}).get("type") == "text_delta":
-                        turn.partial = (turn.partial + ev["delta"].get("text", ""))[-6000:]
+                        turn.partial += ev["delta"].get("text", "")
             elif isinstance(msg, AssistantMessage):
-                turn.partial = ""
+                main = msg.parent_tool_use_id is None
+                if main:
+                    turn.partial = ""
                 if msg.model and msg.parent_tool_use_id is None:
                     turn.model = msg.model
                 elif msg.model:
@@ -428,14 +543,21 @@ class ClaudeEngine(Engine):
                             agent.update(model=msg.model, model_source="observed")
                 for b in msg.content:
                     if isinstance(b, ThinkingBlock) and b.thinking.strip():
-                        turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000]})
+                        turn.timeline.append({"t": time.time(), "kind": "think", "text": b.thinking[:4000],
+                                              **({'sub': sub_name(turn, msg.parent_tool_use_id)} if not main else {})})
+                sub = sub_name(turn, msg.parent_tool_use_id)
                 texts = [b.text for b in msg.content if isinstance(b, TextBlock) and b.text.strip()]
                 if texts:
-                    last_text = "\n".join(texts)
-                    turn.timeline.append({"t": time.time(), "kind": "say", "text": last_text[:6000]})
-                sub = sub_name(turn, msg.parent_tool_use_id)
+                    text = "\n\n".join(texts)
+                    if main:
+                        last_text = last_text + '\n\n' + text if continuing else text
+                        continuing = True
+                    turn.timeline.append({"t": time.time(), "kind": "say", "text": text,
+                                          **({'sub': sub} if sub else {})})
                 for b in msg.content:
                     if isinstance(b, ToolUseBlock):
+                        if main:
+                            continuing = False
                         remember_agent_tool(turn, b, self.model_for(s) if self.key == "deepseek" else subagent_model or turn.model or s.model)
                         if label := step_label(b.name, b.input or {}):
                             turn.steps.append(label)
@@ -471,8 +593,10 @@ class ClaudeEngine(Engine):
                     turn.is_error = True
                     turn.error = (msg.result or "; ".join(msg.errors or []) or msg.subtype or "未知错误")[:300]
                 elif msg.result:
-                    last_text = msg.result
-                    results.append(msg.result)
+                    if not continuing or not last_text:
+                        last_text = msg.result
+                    results.append(last_text)
+                    continuing = False
                 if turn.injected > seen_injected and not turn.interrupted:
                     seen_injected = turn.injected
                     after_result = True
@@ -495,6 +619,8 @@ def remember_agent_tool(turn, block, default_model="") -> None:
             model = default_model or ""
         meta = {"kind": "助手", "name": inp.get("name") or inp.get("description") or "助手",
                 "model": MODELS.get(model, model), "model_source": "configured" if model else ""}
+        from ..agent_models import fingerprint
+        meta["prompt_hash"] = fingerprint(inp.get("prompt"))
     turn.agent_tools[block.id] = meta
     for agent in turn.agents.values():
         if agent.get("tool") == block.id:
@@ -506,10 +632,15 @@ def track_agent(turn, msg) -> None:
     a = turn.agents.get(msg.task_id)
     if isinstance(msg, TaskStartedMessage):
         meta = turn.agent_tools.get(msg.tool_use_id, {})
+        tool_id = msg.tool_use_id
+        if not meta:
+            hits = [(key, value) for key, value in turn.agent_tools.items() if value.get('name') == msg.description]
+            if len(hits) == 1:
+                tool_id, meta = hits[0]
         kind = meta.get("kind") or ("命令" if any(x in (msg.task_type or "").lower() for x in ("bash", "command", "shell")) else "助手")
         turn.agents[msg.task_id] = {"name": meta.get("name") or msg.description or "助手", "kind": kind,
                                     "model": meta.get("model", ""), "model_source": meta.get("model_source", ""),
-                                    "t0": time.time(), "t1": 0, "status": "running", "last": "", "tool": msg.tool_use_id}
+                                    "t0": time.time(), "t1": 0, "status": "running", "last": "", "tool": tool_id}
         return
     if a is None:
         return

@@ -51,16 +51,16 @@ function planHTML(list, compact) {
   return `<div class="plan" data-p="plan"><div class="ah">共 ${list.length} 步 · 做完 ${done} 步</div>${shown.map(([x, i]) => row(x, i)).join('')}${rest > 0 ? `<div class="ps more"><span class="n">…</span><span class="an">还有 ${rest} 步</span></div>` : ''}</div>`;
 }
 // 助手与后台命令分开计数，运行项全部显示；名称、模型和当前动作分开。
-function agentsHTML(list) {
+function agentsHTML(list, commandsOpen = false) {
   const active = list.filter(a => a.status === 'running');
   const agents = active.filter(a => a.kind !== '命令');
   const commands = active.filter(a => a.kind === '命令');
   const rows = items => items.map(a => {
     const model = a.kind === '命令' ? '后台命令' : (a.model || '模型未报告') + (a.model_source === 'configured' ? '（配置）' : '');
-    return `<div class="ag ${a.status}"><i class="spin"></i><span class="an" style="white-space:normal;overflow-wrap:anywhere"><b>${esc(a.name)}</b><small style="display:block;color:var(--mute)">${esc(model)}${a.last ? ' · ' + esc(a.last) : ''}</small></span><span class="am">${dur(a.secs)}</span></div>`;
+    return `<div class="ag running"><i class="spin"></i><span class="an" style="white-space:normal;overflow-wrap:anywhere"><b>${esc(a.name)}</b><small style="display:block;color:var(--mute)">${esc(model)}${a.last ? ' · ' + esc(a.last) : ''}</small></span><span class="am">${dur(a.secs)}</span></div>`;
   }).join('');
   return (agents.length ? `<div class="agents"><div class="ah">${agents.length} 个助手在跑</div>${rows(agents)}</div>` : '')
-    + (commands.length ? `<details class="agents"><summary class="ah">${commands.length} 条后台命令在运行</summary>${rows(commands)}</details>` : '');
+    + (commands.length ? `<details class="agents command-jobs"${commandsOpen ? ' open' : ''}><summary class="ah">${commands.length} 条后台命令在运行</summary>${rows(commands)}</details>` : '');
 }
 
 function procHTML(list, pid, tid) {
@@ -72,16 +72,27 @@ function procHTML(list, pid, tid) {
     : `<div class="pi do${e.sub ? ' sub' : ''}">${ICON.step}<span class="pt">${e.sub ? `<em class="who">${esc(e.sub)}</em>` : ''}<b>${esc(e.text)}</b>${e.detail && e.detail !== e.text ? `<code class="pd ${unclamp.has(ck(e.detail)) ? '' : 'clamp'}" data-c="${ck(e.detail)}">${esc(e.detail)}</code>` : ''}</span></div>`).join('')}${tid ? `<a class="pfull" href="/_x/t/${tid}" target="_blank">完整过程</a>` : ''}${pid === 'live' ? '<button class="pjump" type="button">↓ 回到底部</button>' : ''}</div>`;
 }
 let limitsGpt = [], hasGpt = false;
-let limits = [], usageOpen = false, prevStatus = null, noticeTimer = null;
+let limits = [], usageOpen = false, prevStatus = null, noticeTimer = null, noticeUntil = 0;
+
+function dismissNotice() {
+  clearTimeout(noticeTimer); noticeTimer = null; noticeUntil = 0;
+  const el = $('#notice'); if (!el) return;
+  el.classList.remove('on'); el.hidden = true; el.onclick = null;
+}
+function expireNotice() { if (noticeUntil && Date.now() >= noticeUntil) dismissNotice(); }
+addEventListener('visibilitychange', expireNotice);
+addEventListener('pageshow', expireNotice);
 
 // 网页里的提醒：某个对话做完、等你回答或出错时，顶上轻轻弹一条（点一下进去）；标签页标题写着几件要你看
 function notice(s) {
+  dismissNotice();
   const el = $('#notice'), word = {awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你定', error: '出错了', paused: '额度用完了', idle: s.suggest ? '做完了 · 有建议' : '做完了'}[s.status] || '有新进展';
-  el.className = 'notice ' + s.status;
+  el.hidden = false; el.className = 'notice ' + s.status + ' on';
   el.innerHTML = `<span class="dot"></span><span>${esc(s.name)} · ${word}</span>`;
-  el.onclick = () => { el.classList.remove('on'); openSession(s.num); };
-  requestAnimationFrame(() => el.classList.add('on'));
-  clearTimeout(noticeTimer); noticeTimer = setTimeout(() => el.classList.remove('on'), 5000);
+  el.onclick = () => { dismissNotice(); openSession(s.num); };
+  // 手机后台会暂停动画帧与计时器；不用延迟动画帧重新显示，回到前台也按绝对到期时间检查。
+  noticeUntil = Date.now() + 4000;
+  noticeTimer = setTimeout(dismissNotice, 4000);
 }
 function watchStatus() {
   const now = Object.fromEntries(sessions.map(s => [s.num, s.status]));
@@ -96,7 +107,7 @@ function watchStatus() {
 }
 const size = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 let me = {name: '', role: 'admin', root: ''};
-let stick = false, sessions = [], folders = [], autoWhere = true, sel = null, lastKey = '', pending = {}, opened = new Set(), lastSaid = {}, lastYou = {};
+let stick = false, sessions = [], folders = [], autoWhere = true, sel = null, lastKey = '', pending = {}, lastSaid = {}, lastYou = {};
 const coarsePhone = () => matchMedia('(pointer:coarse) and (max-width:600px)').matches || (matchMedia('(pointer:coarse) and (max-height:500px)').matches && !document.documentElement.classList.contains('ipad'));
 const saidBase = (num, text) => lastSaid[num] ? lastSaid[num](text.trim()) : 0;   // 发出时记录里已有几条同样的话
 
@@ -165,7 +176,7 @@ function ago(t) {
   if (s < 2 * 86400) return '昨天';
   return (d.getMonth() + 1) + '月' + d.getDate() + '日';
 }
-const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ? '正在压缩上下文' : `在做 · 第 ${s.steps} 步`, queued: '排队中',
+const statusText = s => ({running: (s.detail || '').startsWith('正在压缩') ? '正在压缩上下文' : s.progress ? `在做 · ${s.progress}` : '在做', queued: '排队中',
   awaiting: (s.detail || '').startsWith('等你确认') ? '等你确认' : '等你定', error: '出错了', paused: s.detail}[s.status]
   || (s.suggest ? '有建议 · ' + ago(s.updated) : s.unread ? '做完了 · ' + ago(s.updated) : ago(s.updated)));
 

@@ -23,6 +23,44 @@ async function fetchFile(url, onp, signal) {
   for (;;) { const {done, value} = await rd.read(); if (done) break; parts.push(value); got += value.length; onp(got, total); }
   return new Blob(parts, {type});
 }
+// 取文件属于页面级任务；关闭预览只取消订阅，不取消传输。
+// iOS 挂起网页后不保证继续运行，保存大文件应使用浏览器下载入口。
+const fileTransfers = new Map();
+const transferShelf = document.createElement('div');
+transferShelf.className = 'file-transfers';
+transferShelf.setAttribute('aria-label', '文件传输');
+document.body.appendChild(transferShelf);
+function takeFile(url, name, onp) {
+  let task = fileTransfers.get(url);
+  if (!task) {
+    const ac = new AbortController(), row = document.createElement('div');
+    const open = document.createElement('button'), close = document.createElement('button');
+    open.className = 'transfer-open'; close.textContent = '×';
+    close.setAttribute('aria-label', '取消取文件或移除已完成文件');
+    row.append(open, close); transferShelf.appendChild(row);
+    task = {listeners: new Set(), got: 0, total: 0, row, ac};
+    fileTransfers.set(url, task);
+    const forget = () => {
+      clearTimeout(task.timer); ac.abort(); row.remove();
+      if (fileTransfers.get(url) === task) fileTransfers.delete(url);
+    };
+    close.onclick = forget;
+    open.onclick = () => viewFile(url, name, true);
+    open.textContent = '正在取：' + name;
+    task.promise = fetchFile(url, (got, total) => {
+      task.got = got; task.total = total;
+      open.textContent = name + ' · ' + (total ? Math.floor(got * 100 / total) + '%' : size(got));
+      task.listeners.forEach(fn => fn(got, total));
+    }, ac.signal).then(blob => {
+      open.textContent = name + ' · 已就绪，点此分享';
+      // 仅短时保留原件，避免大文件长期占内存。
+      task.timer = setTimeout(forget, 5 * 60 * 1000);
+      return blob;
+    }, err => { forget(); throw err; });
+  }
+  task.listeners.add(onp); onp(task.got, task.total);
+  return {promise: task.promise, detach: () => task.listeners.delete(onp)};
+}
 const progressHTML = (got, total) => total
   ? `正在取文件… ${size(got)} / ${size(total)}（${Math.floor(got * 100 / total)}%）<div class="bar"><i style="width:${(got * 100 / total).toFixed(1)}%"></i></div>`
   : `正在取文件… 已取 ${size(got)}`;
@@ -46,13 +84,22 @@ async function viewFile(url, name, shareOnly = false) {
   el.innerHTML = `<span class="nm">${esc(name)}</span><button class="sh" hidden>分享</button><button class="x" aria-label="关闭"><b>×</b>完成</button><div class="tip">正在取文件…</div>`;
   document.body.appendChild(el); history.pushState({lb: 1}, '', location.hash || location.pathname);
   let u = '';
-  const ac = new AbortController();
+  let transfer;
   el.querySelector('.x').onclick = () => history.back();
-  new MutationObserver((_, ob) => { if (!el.isConnected) { ac.abort(); el.querySelectorAll('audio,video').forEach(a => { a.pause(); a.removeAttribute('src'); a.load(); }); if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  new MutationObserver((_, ob) => { if (!el.isConnected) { if (transfer) transfer.detach(); el.querySelectorAll('audio,video').forEach(a => { a.pause(); a.removeAttribute('src'); a.load(); }); if (u) URL.revokeObjectURL(u); ob.disconnect(); } }).observe(document.body, {childList: true});
+  const nativeURL = new URL(url, location.href);
+  nativeURL.searchParams.set('download', '1');
+  const native = document.createElement('a');
+  native.className = 'native-download'; native.href = nativeURL.href;
+  native.target = '_blank'; native.rel = 'noopener'; native.download = name;
+  native.textContent = '直接下载到文件';
+  el.appendChild(native);
   const sh = el.querySelector('.sh'), tipOf = () => el.querySelector('.tip');
   const ext = (name.split('.').pop() || '').toLowerCase();
   const pull = async () => {
-    const blob = await fetchFile(url, (g, t) => { const tp = tipOf(); if (tp) tp.innerHTML = progressHTML(g, t); }, ac.signal);
+    transfer = takeFile(url, name, (g, t) => { const tp = tipOf(); if (tp) tp.innerHTML = progressHTML(g, t) + '<p>可以点完成返回聊天，取文件会继续。切换应用可能暂停；保存大文件可用上方直接下载。</p>'; });
+    const blob = await transfer.promise;
+    transfer.detach();
     const type = blob.type && blob.type !== 'application/octet-stream' ? blob.type : ({doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', txt: 'text/plain', csv: 'text/csv', zip: 'application/zip', pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'}[ext] || blob.type);
     return new File([blob], name, {type});
   };

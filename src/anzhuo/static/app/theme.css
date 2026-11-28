@@ -109,6 +109,11 @@ svg{stroke-width:1.6}
   background:linear-gradient(90deg,transparent 0,transparent 35%,var(--acc-glow) 46%,var(--acc-hi) 50%,transparent 50.5%,transparent 100%) 0 0/200% 100% no-repeat;
   animation:comet 2.2s cubic-bezier(.45,.05,.55,.95) infinite}
 .pbar i.doing::after{width:8px;height:8px;margin-top:-4px;box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 6px 1px var(--acc-glow);animation:node 2.2s ease-in-out infinite}
+.pbar-activity{cursor:default}
+.pbar-activity i.doing{background-size:100% 1px}
+.pbar-activity i.doing::before{right:0}
+.pbar-activity i.doing::after{content:none}
+@media (prefers-reduced-motion:reduce){.pbar-activity i.doing::before{background-position:center}}
 @keyframes comet{from{background-position:100% 0}to{background-position:-100% 0}}
 @keyframes node{0%,100%{box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 2px 0 var(--acc-glow)}50%{box-shadow:inset 0 0 0 1.5px var(--acc-hi),0 0 9px 2px var(--acc-glow)}}
 .plan,.agents,.live .plist{background:var(--glass-lo);box-shadow:inset 0 0 0 .5px var(--line)}
@@ -135,7 +140,7 @@ svg{stroke-width:1.6}
 .blank .mk{display:block;width:64px;height:64px;margin:0 auto 20px;border-radius:15px;overflow:hidden;box-shadow:0 8px 24px rgba(24,44,64,.14),inset 0 0 0 .5px rgba(255,255,255,.5)}
 .blank b{font-family:var(--fd);font-weight:300;font-size:28px;letter-spacing:.28em;margin:0 0 8px .28em}
 .newv h1{font-family:var(--fd);font-weight:300;font-size:var(--t6);letter-spacing:.06em;margin-bottom:24px}
-.opening{background:var(--sky) var(--bg);background-attachment:fixed}  /* 要盖住底下的新对话表单，不能透明，否则发出瞬间两层字叠在一起 */
+.opening{background:transparent}
 
 /* ── 正文 ── */
 .cl .md{line-height:1.85}

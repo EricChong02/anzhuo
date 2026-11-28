@@ -26,7 +26,7 @@ function renderModel(st, onPick, isNew) {
   const claude = modelOpts.map(m => m[0]).filter(k => k !== 'gpt' && !alt.includes(k));
   if (!isNew && st.model && st.model !== 'gpt' && !alt.includes(st.model) && !claude.includes(st.model)) claude.push(st.model);
   const gptChat = !isNew && st.model === 'gpt', altChat = !isNew && alt.includes(st.model);
-  const list = isNew ? row('auto') + `<div class="lb">Claude${hot(modelLimits(limits, 'opus'))}</div>${claude.map(row).join('')}<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` + altRows(alt)
+  const list = isNew ? (me.role === 'admin' ? row('auto') : '') + `<div class="lb">Claude${hot(modelLimits(limits, 'opus'))}</div>${claude.map(row).join('')}${modelOpts.some(m => m[0] === 'gpt') ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}` : ''}` + altRows(alt)
     : gptChat ? `<div class="lb">GPT${hot(limitsGpt)}</div>${row('gpt')}`
     : altChat ? altRows([st.model])
     : `<div class="lb">Claude${hot(modelLimits(limits, 'opus'))}</div>${claude.map(row).join('')}`;

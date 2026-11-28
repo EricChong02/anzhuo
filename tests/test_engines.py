@@ -252,3 +252,31 @@ def test_deepseek_context_pct_uses_1m_window():
     assert DEEPSEEK.context_pct(usage) == 10.0
     assert CLAUDE.context_pct(usage) == 50.0
     assert DEEPSEEK.context_pct({"totalTokens": 0, "percentage": 3.0}) == 3.0
+
+
+def test_model_feedback_waits_and_does_not_merge(monkeypatch):
+    from anzhuo.engines import MODELS
+    async def go():
+        runner = Runner(None, lambda *a: None)
+        monkeypatch.setattr(runner, '_ensure_worker', lambda n: None)
+        s = Session(num=1, name='课', cwd='/tmp', model=MODELS['opus'])
+        runner.turns[1] = Turn(started=time.time(), request='正在做')
+        runner.turns[1].accepting = True
+        runner.submit(s, Job(text='第一批', via='feedback', model_override=MODELS['sonnet']))
+        runner.submit(s, Job(text='第二批', via='feedback', model_override=MODELS['opus']))
+        assert [j.model_override for j in runner.queued(1)] == [MODELS['sonnet'], MODELS['opus']]
+        assert s.model == MODELS['opus'] and not runner.tasks
+    asyncio.run(go())
+
+
+def test_inherited_gpt_default_upgrades_without_overriding_explicit_choice(tmp_path):
+    import json
+    from anzhuo.sessions import Registry
+    path = tmp_path / 'sessions.json'
+    path.write_text(json.dumps({"sessions": {
+        "1": {"num": 1, "name": "旧默认", "cwd": "/tmp", "engine": "codex", "codex_id": "old-thread"},
+        "2": {"num": 2, "name": "手选", "cwd": "/tmp", "engine": "codex", "model": "gpt-6.1-sol"}}}))
+    reg = Registry(path)
+    assert reg.get(1).model == 'gpt-6.2-sol'
+    assert reg.get(1).codex_id == 'old-thread'
+    assert reg.get(2).model == 'gpt-6.1-sol'

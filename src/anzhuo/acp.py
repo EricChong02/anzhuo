@@ -51,13 +51,6 @@ async def probe(engine: str, cwd: str) -> None:
         await conn.close()
 
 
-async def probe_all(cwd: str) -> None:
-    Path(cwd).mkdir(parents=True, exist_ok=True)
-    for engine in ENGINES:
-        if available(engine):
-            await probe(engine, cwd)
-
-
 def command(engine: str) -> list[str] | None:
     spec = ENGINES.get(engine)
     if not spec:

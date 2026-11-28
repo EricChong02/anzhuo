@@ -1,5 +1,5 @@
-"""引擎目录：引擎名 → 实现与能力；“选的模型”（网页菜单、话里的“用 gpt”、定时任务、总管的 engine 参数）→ 引擎。
-Claude 的型号表 MODELS 和深度表 EFFORTS 也放这里，网页、总管查它们不用反过来 import app。"""
+"""引擎目录：引擎名 → 实现与能力；“选的模型”（网页菜单、话里的“用 gpt”、定时任务）→ 引擎。
+Claude 的型号表 MODELS 和深度表 EFFORTS 也放这里，网页查它们不用反过来 import app。"""
 from __future__ import annotations
 
 from .. import acp as acp_conn
@@ -10,7 +10,7 @@ from .codex import CodexEngine
 from .deepseek import DeepSeekEngine
 
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-2"}
-HELPER_MODEL = MODELS["haiku"]   # 远窗自己的小活（起标题、分类、翻译、分派判断）用的模型
+HELPER_MODEL = MODELS["haiku"]   # 兼容旧扩展；内置辅助任务已不再调用 Claude
 EFFORTS = {"低": "low", "中": "medium", "高": "high", "很高": "xhigh", "最高": "max", "默认": None}
 
 CLAUDE = ClaudeEngine()

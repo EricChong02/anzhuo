@@ -132,18 +132,13 @@ def test_router_parse():
 
 
 def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
-    """判断档位先问 DeepSeek；它出错或答非所问再问 Haiku。"""
+    """判断档位只问 DeepSeek；失败沿用本地规则，不偷偷调用 Claude。"""
     import asyncio
     import requests
-    from claude_agent_sdk import AssistantMessage, TextBlock
     from anzhuo import deepseek_api
     router = pytest.importorskip("anzhuo.router")
     asked = []
 
-    async def haiku(*, prompt, options):
-        asked.append(prompt)
-        yield AssistantMessage(content=[TextBlock(text="dev")], model="haiku")
-    monkeypatch.setattr(router, "query", haiku)
     monkeypatch.setattr(deepseek_api, "key", lambda: "k")
     monkeypatch.setattr(deepseek_api, "chat", lambda *a, **k: " Design\n")
     assert asyncio.run(real_classify_kind("设计一节课")) == "design" and not asked
@@ -152,8 +147,8 @@ def test_classify_kind_prefers_deepseek(monkeypatch, real_classify_kind):
         raise requests.Timeout()
     for bad in (down, lambda *a, **k: "我觉得是开发"):
         monkeypatch.setattr(deepseek_api, "chat", bad)
-        assert asyncio.run(real_classify_kind("加个功能")) == "dev"
-    assert len(asked) == 2
+        assert asyncio.run(real_classify_kind("加个功能")) is None
+    assert not asked
 
 
 def test_needs_translation(monkeypatch):
@@ -333,7 +328,7 @@ def test_compact_queue():
 
 
 def test_cleanup(tmp_path):
-    """60 天前的副本删掉、新的留着；90 天前的对话记录压缩归档，登记着的不动。"""
+    """附件按 30 天清理；90 天前的原生对话压缩归档，登记着的保留。"""
     import gzip
     import os
     import time
@@ -343,14 +338,27 @@ def test_cleanup(tmp_path):
     old, new = data / "outbox" / "4-1" / "a.png", data / "inbox" / "web" / "b.png"
     for f in (old, new):
         f.parent.mkdir(parents=True); f.write_bytes(b"x" * 10)
-    os.utime(old, (now - 61 * 86400,) * 2)
+    os.utime(old, (now - 30 * 86400,) * 2)
+    original = tmp_path / "工作文件.png"
+    original.write_text("原件")
+    (new.parent / "link.png").symlink_to(original)
+    os.utime(original, (now - 40 * 86400,) * 2)
+    pdf = data / "pdfpages" / "4-1-0" / "p-1.png"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"page")
+    rec = data / "turns" / "4-1.json"
+    rec.parent.mkdir()
+    rec.write_text('{"ended": %s}' % (now - 30 * 86400))
+    assert cleanup.purge_attachments(data, now) == (2, 14)
+    assert not old.exists() and not pdf.exists() and new.exists()
+    assert original.read_text() == "原件"
+    assert cleanup.purge_attachments(data, now) == (0, 0)
     (proj / "p").mkdir(parents=True)
     for name in ("old", "keep", "fresh"):
         (proj / "p" / f"{name}.jsonl").write_text('{"a":1}\n' * 100)
     for name in ("old", "keep"):
         os.utime(proj / "p" / f"{name}.jsonl", (now - 91 * 86400,) * 2)
     r = cleanup.run(data, {"keep"}, now, proj, arch)
-    assert old.exists() and new.exists()   # 对话里的截图、文件副本不删
     assert not (proj / "p" / "old.jsonl").exists() and (proj / "p" / "keep.jsonl").exists() and (proj / "p" / "fresh.jsonl").exists()
     assert gzip.open(arch / "p" / "old.jsonl.gz").read().count(b"\n") == 100
     assert r["removed"] == 0 and r["archived"] == 1
@@ -482,6 +490,19 @@ def test_said_has_relay_first_message():
     assert _said_has(rec, "推不上的原因：钩子跑 doctor")
     assert _said_has("批准本会话编辑：a", "批准本会话编辑：a")
     assert not _said_has(rec, "别的话")
+
+
+def test_said_has_matches_full_messages_in_a_merged_batch():
+    from anzhuo.web import _said_has
+
+    first = "安装步骤"
+    second = "老师电脑也要装吗？\n\n我想先确认用途。"
+    third = "可以等下次"
+    recorded = f"{first}\n\n{second}\n\n{third}\n\n（附件已存到：/tmp/example.pdf）"
+    assert all(_said_has(recorded, text) for text in (first, second, third))
+    assert _said_has(recorded, second.replace("\n", "\r\n"))
+    assert not _said_has(recorded, "老师电脑也要装")
+    assert not _said_has(recorded, "可以等")
 
 
 def test_waiting_cleared_when_cancelled(tmp_path):

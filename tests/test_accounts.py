@@ -139,6 +139,8 @@ def test_fence_hook_and_settings(tmp_path, monkeypatch):
     for name, args in [("Read", {"file_path": str(home / "Projects/x")}), ("Read", {"file_path": "../Projects/x"}),
                        ("Read", {"file_path": str(root / "sneaky/x")}), ("Glob", {"pattern": str(home) + "/**/*.md"}),
                        ("Grep", {"pattern": "a", "path": str(home)}), ("Edit", {"file_path": "~/.zshrc"}),
+                       ("mcp__anzhuo__send_files", {"paths": [str(home / "Projects/x")]}),
+                       ("mcp__anzhuo__send_images", {"paths": [str(root / "sneaky/x")]}),
                        ("CronCreate", {}), ("mcp__anzhuo__generate_images", {}), ("Skill", {})]:
         out = run(name, args)
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny", (name, args)
@@ -302,3 +304,41 @@ def test_rate_does_not_count_end_of_turn_cost_twice(tmp_path):
     assert usage.rate(rows,0,spend)==1  # 6个百分点 / 6，不能除以重复累计的9
     spend.buckets={};spend._idx=None
     assert usage.rate(rows,0,spend)==1  # 本机记录缺失时才整体退回对话口径
+
+
+def test_fence_read_dirs_tools_and_private_tmp(tmp_path, monkeypatch):
+    """2026-11-21：受限账号可只读课标目录和本机工具链，临时文件有自己的目录；写仍只限自己的文件夹。"""
+    home = tmp_path.resolve() / "home"
+    root = home / "Projects/04/work/course"
+    std = home / "Projects/05/课标"
+    for d in (root, std, home / "Projects/05/私人", home / "Projects/04/other", home / ".local/bin",
+              home / ".local/share/node", home / ".local/share/anzhuo", home / ".ssh"):
+        d.mkdir(parents=True)
+    (std / "a.md").write_text("x")
+    tmp = tmp_path.resolve() / "rwtmp"
+    tmp.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HOME", str(home))
+    from anzhuo.engines import CLAUDE
+    from anzhuo.engines import fence as fm
+    assert fm.read_dirs({"read_dirs": [str(std), str(home / "nope"), 3]}) == [std.resolve()]
+    s = Session(num=1, name="x", cwd=str(root), owner="jll", root=str(root))
+    hook = CLAUDE.fence(s, [std], tmp)
+    run = lambda name, args: asyncio.run(hook({"tool_name": name, "tool_input": args}, "id", None))
+    deny = lambda out: out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+    assert run("Read", {"file_path": str(std / "a.md")}) == {} and run("Grep", {"pattern": "x", "path": str(std)}) == {}
+    assert run("Read", {"file_path": str(tmp / "b.png")}) == {} and run("Write", {"file_path": str(tmp / "c.py")}) == {}
+    assert deny(run("Edit", {"file_path": str(std / "a.md")})) and deny(run("Write", {"file_path": str(std / "n.md")}))
+    assert deny(run("Read", {"file_path": str(home / "Projects/05/私人/x")}))
+    assert deny(run("Read", {"file_path": "/tmp/claude-501/x.png"}))
+    opts = CLAUDE.fence_options(s, [std], tmp)
+    rules = json.loads(opts["settings"])["permissions"]["deny"]
+    reads = {r for r in rules if r.startswith("Read(")}
+    assert f"Read(/{home}/Projects/05/私人)" in reads and f"Read(/{home}/Projects/04/other)" in reads
+    assert f"Read(/{home}/.ssh)" in reads and f"Read(/{home}/.local/share/anzhuo)" in reads
+    assert not any(str(std) in r or str(root) in r or "/.local/bin" in r or "/.local/share/node" in r for r in reads)
+    assert f"Edit(/{home}/Projects/05)" in rules and f"Edit(/{home}/.local)" in rules   # 只读的照样不能写
+    fs = opts["sandbox"]["filesystem"]
+    assert fs["allowWrite"] == [str(tmp)] and str(fm.TMP_BASE) in fs["denyRead"]
+    assert any(d.startswith("/private/tmp/claude-") for d in fs["denyRead"])
+    assert fm.private_tmp("j/../x") == fm.TMP_BASE / "j____x"

@@ -5,7 +5,7 @@ import time
 import pytest
 
 from anzhuo import app as appmod
-from anzhuo import relay, superagent
+from anzhuo import relay
 from anzhuo.app import Bridge
 from anzhuo.config import Config
 from anzhuo.engines import CODEX, MODELS
@@ -129,45 +129,6 @@ def test_note_hits_limit_falls_back_to_handoff(tmp_path, monkeypatch, codex_ok):
         new = b.registry.get(old.relay_to)
         assert new and new.model == MODELS["opus"] and "交接材料" in new.relay_note and "额度用完了" in new.unsent
         assert 6 not in b.relays.writing
-    asyncio.run(go())
-
-
-def test_router_worker_hits_limit_waits(tmp_path, monkeypatch, codex_ok):
-    """总管派的活额度耗尽也只报告等待，不自动转给 GPT。"""
-    runs = []
-
-    async def fake_run(self, s, job, turn):
-        runs.append((s.num, s.engine, job.via, job.text[:30]))
-        if s.role == "router":
-            turn.final_text = "好的"
-        elif s.engine == "claude":
-            s.claude_id = "sid"
-            turn.is_error, turn.error = True, "You've hit your session limit"
-        else:
-            s.codex_id = "cid"
-            turn.final_text = "改好了"
-
-    async def no_usage(self, force=False):
-        pass
-    monkeypatch.setattr(Runner, "_run", fake_run)
-    monkeypatch.setattr(Runner, "refresh_usage", no_usage)
-    monkeypatch.setattr(Runner, "refresh_gpt_usage", no_usage)
-    monkeypatch.setattr(appmod, "limit_reset", lambda text, now=None: time.time() + 3 * 3600 if "limit" in (text or "") else None)
-
-    async def go():
-        b = Bridge(_cfg(tmp_path, super_agent=True), FakeDT(), data_dir=tmp_path / "data")
-        boss = superagent.find(b)
-        w = b.registry.add(Session(num=b.registry.reserve_num(), name="活", cwd=str(tmp_path), boss=boss.num, model=MODELS["sonnet"]))
-        await b.submit(w, "做件事", superagent._incoming("做件事", superagent.VIA))
-        for _ in range(40):
-            await asyncio.sleep(0.1)
-            if any(r[0] == boss.num for r in runs):
-                break
-        new = b.registry.get(w.relay_to)
-        assert new is None and w.engine == "claude" and w.limit_until > time.time()
-        told = [r for r in runs if r[0] == boss.num]
-        assert told and "额度" in told[0][3]
-        assert not any(r[1] == "codex" for r in runs)
     asyncio.run(go())
 
 

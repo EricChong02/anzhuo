@@ -38,15 +38,16 @@ async def approve_command(runner: "Runner", s: "Session", turn: "Turn", method: 
 
 
 class CodexEngine(Engine):
+    DEFAULT_MODEL = "gpt-6.2-sol"
     name, label, tool, key = "codex", "GPT", "Codex", "gpt"
-    pick_model = "own"   # 型号用 Codex 自己报的（model/list）；不选就用 ~/.codex/config.toml 里的
+    pick_model = "own"   # 型号用 Codex 自己报的（model/list）；新对话未指定时用 DEFAULT_MODEL
     can_steer = can_rewind = can_fork = has_quota = has_tools = stop_hook = True
 
     def available(self) -> bool:
         return codex_conn.codex_bin() is not None
 
     def models(self) -> tuple[list[str], str]:
-        return list(codex_conn.MODELS_SEEN), codex_conn.configured_model() or "Codex 自己配置的模型"
+        return list(codex_conn.MODELS_SEEN), self.DEFAULT_MODEL
 
     def limits(self, runner: "Runner") -> dict:
         return runner.limits_gpt
@@ -75,6 +76,8 @@ class CodexEngine(Engine):
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:
         """开或接着会话 → 开一轮 → 把事件翻成和 Claude 一样的步骤、说明、回复；正在写的回复边写边给网页。
         只能写对话所在的文件夹（workspace-write，可联网）。"""
+        if not s.model:
+            s.model = self.DEFAULT_MODEL
         await check_folders(s)
         checkpoints = Checkpoints(runner.registry.path.parent / "checkpoints")
         if job.text != COMPACT:
@@ -84,6 +87,7 @@ class CodexEngine(Engine):
                 log.warning("#%s 文件快照未建立", s.num)
         effort = s.effort or runner.default_effort or "medium"
         texts: list[str] = []
+        finals: list[str] = []
         started_cmds: set[str] = set()
 
         def on_event(method: str, prm: dict) -> None:
@@ -91,7 +95,7 @@ class CodexEngine(Engine):
             item = prm.get("item") or {}
             kind = item.get("type")
             if method == "item/agentMessage/delta":
-                turn.partial = (turn.partial + str(prm.get("delta") or ""))[-6000:]
+                turn.partial += str(prm.get("delta") or "")
             elif method == "item/started" and kind == "commandExecution":
                 cmd = str(item.get("command") or "")
                 cmd = re.sub(r"^/bin/(?:zsh|bash) -lc ", "", cmd).strip("'\"")
@@ -103,7 +107,10 @@ class CodexEngine(Engine):
             elif method == "item/completed" and kind == "agentMessage" and (item.get("text") or "").strip():
                 turn.partial = ""
                 texts.append(item["text"].strip())
-                turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"][:6000]})
+                if item.get('phase') == 'final_answer':
+                    finals.append(item['text'])
+                turn.timeline.append({"t": time.time(), "kind": "say", "text": item["text"],
+                                      **({'phase': item['phase']} if item.get('phase') else {})})
             elif method == "item/completed" and kind == "reasoning":
                 summ = item.get("summary") or []
                 text = "\n".join(x if isinstance(x, str) else str(x.get("text", "")) for x in summ).strip()
@@ -150,7 +157,7 @@ class CodexEngine(Engine):
                 return {"decision": "accept"}
             if method == "applyPatchApproval":
                 return {"decision": "approved"}
-            if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具（总管派活的汇报、退回）
+            if method == "item/tool/call" and (h := handlers.get(str(prm.get("tool") or ""))):   # 远窗给它的工具
                 args = prm.get("arguments") if isinstance(prm.get("arguments"), dict) else {}
                 if label := step_label(f"mcp__anzhuo__{prm.get('tool')}", args):
                     turn.steps.append(label)
@@ -160,8 +167,11 @@ class CodexEngine(Engine):
                 return {"contentItems": [{"type": "inputText", "text": text}], "success": not res.get("isError")}
             return None
 
-        # 特殊角色（总管派出去的对话）的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
-        rl = role(runner, s)
+        # 特殊角色的工具和约定：Codex 用 dynamicTools 交给它（只在新开会话时能带上）
+        rl = dict(role(runner, s))
+        from ..collaboration import tools as collaboration_tools, RULES as collaboration_rules
+        rl["tools"] = [*(rl.get("tools") or []), *collaboration_tools(runner, s, turn)]
+        rl["append"] = rl.get("append", "") + collaboration_rules
         handlers = {t.name: t.handler for t in rl.get("tools") or []}
         specs = [{"type": "function", "name": t.name, "description": t.description, "inputSchema": t.input_schema}
                  for t in rl.get("tools") or []]
@@ -201,12 +211,14 @@ class CodexEngine(Engine):
                 # Codex 没有 Stop 钩子：做完再看一眼（unfinished），该汇报没汇报就接着补一轮；回复仍用补之前那段
                 if conn.turn_status == "completed" and not turn.interrupted and (why := self.unfinished(runner, s, turn, False)):
                     kept = list(texts)
+                    kept_finals = list(finals)
                     conn.done.clear()
                     conn.turn_status = ""
                     turn.codex_turn_id = await conn.start_turn(why, [], effort, s.model or None)
                     await conn.done.wait()
                     if kept:
                         texts[:] = kept
+                        finals[:] = kept_finals
         except codex_conn.CodexError as e:
             turn.is_error = True
             turn.error = str(e)[:300]
@@ -227,7 +239,7 @@ class CodexEngine(Engine):
             turn.error = ("Codex 中途退出了：" + conn.stderr_tail())[:300]
         turn.partial = ""
         if job.text != COMPACT:
-            turn.final_text = texts[-1] if texts else ""
+            turn.final_text = '\n\n'.join(finals) if finals else (texts[-1] if texts else "")
         turn.final_text, imgs, files = handoff(turn.final_text, s.cwd)
         turn.images += imgs
         turn.files += files

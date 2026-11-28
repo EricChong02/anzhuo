@@ -1,4 +1,4 @@
-"""扩展：私有功能（比如做课）放在 extensions/名字/ 里，核心只留挂接点；导出开源版时整个目录不带，核心照样能跑。
+"""扩展放在 extensions/名字/ 里，核心通过挂接点调用已启用的扩展。
 
 一个扩展是 extensions/名字/__init__.py 里的 setup(api, conf) -> Extension | None：
   conf 是配置里 [ext.名字] 那一节（没写这一节就不加载；写了 enabled = false 也不加载）。
@@ -107,7 +107,7 @@ class Api:
 
     # ---- 对话 ----
     def sessions(self, owner: str = "admin") -> list["Session"]:
-        return [s for s in self._b.registry.visible() if s.owner == owner]
+        return list(self._b.registry.visible(owner))
 
     def session(self, num: int) -> "Session | None":
         return self._b.registry.get(num)
@@ -151,17 +151,32 @@ class Api:
         return Incoming(sender_id=self._b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
                         local_images=list(images), via=via or self.name)
 
-    async def send(self, num: int, text: str, images: list[str] = (), via: str = "") -> None:
-        """替你在 #num 里说一句（正在做就插话，没在做就开一轮）。"""
+    async def send(self, num: int, text: str, images: list[str] = (), via: str = "", model: str = "") -> None:
+        """替你在 #num 里说一句；model 指定本轮型号时排队，其余照常插话。"""
         from .commands import Cmd
-        await self._b.message(Cmd("message", num=num, text=text), self._incoming(text, images, via), routed=True)
+        inc = self._incoming(text, images, via)
+        inc.model_override = model
+        await self._b.message(Cmd("message", num=num, text=text), inc, routed=True)
 
     async def new(self, folder: str, text: str, images: list[str] = (), kind: str | None = None, note: str = "",
-                  via: str = "") -> "Session | None":
+                  via: str = "", model: str = "") -> "Session | None":
         """在 folder 里新开一个对话，开头就说 text；kind = design / dev / simple（照分工表选模型）。返回新对话。"""
         before = self._b.registry.next_num
-        await self._b.new_session([folder] if folder else [], text, self._incoming(text, images, via), note=note, kind=kind)
+        inc = self._incoming(text, images, via)
+        inc.model_override = model
+        await self._b.new_session([folder] if folder else [], text, inc, note=note, kind=kind, **({"model": model} if model else {}))
         return self._b.registry.get(before)
+
+    def account(self, request) -> dict:
+        """当前登录账号的配置副本；不包含密码指纹。"""
+        w = self._b.web
+        return {k: v for k, v in w.accounts.get(request.get("acct", ""), {}).items() if k != "hash"}
+
+    async def send_fenced(self, request, text: str, images: list[str], num=None, model=""):
+        """扩展沿用受限账号发送入口：额度、图片落盘、归属与执行沙箱保持一致。"""
+        return await self._b.web._send_fenced(request, request["acct"],
+                                             {"text": text, "images": images, "num": num, "model": model}, text, [],
+                                             model_override=model)
 
     def on(self, event: str, fn: Callable, order: int = 50) -> None:
         """订阅核心事件（见 events.py）。"""

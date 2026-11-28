@@ -1,6 +1,6 @@
 """远窗本体：收到你的话（网页或钉钉）→ 找对话 → 交给 Claude / Codex → 一轮做完把结果推回网页、手机通知和钉钉。
 旁支各在自己的模块里，都持有这个 Bridge：钉钉收消息和文字指令（dingtalk_chat）、钉钉卡片（dingtalk_cards）、
-额度监视（quota_watch）、定时任务（schedule_jobs）、后台维护（housekeeping）、接力（relay）、总管（superagent）。"""
+额度监视（quota_watch）、定时任务（schedule_jobs）、后台维护（housekeeping）、接力（relay）。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .localspend import LocalSpend
-from . import engines, ext, folders, housekeeping, report, split, superagent, translate, usage
+from . import engines, ext, folders, housekeeping, report, split, translate, usage
 from .events import Bus
 from .commands import Cmd
 from .config import DATA_DIR, Config, web_accounts, write_web_hash
@@ -72,7 +72,6 @@ class Bridge:
         _sch.set_timezone(cfg.timezone)
         self.runner.auto_title = True
         self.runner.on_usage = self._usage
-        self.runner.role = lambda s: superagent.role(self, s)
         self.spend = LocalSpend(data_dir / "localspend.json")   # 本机全部 Claude Code 的消耗：换算周额度 % 用
         try:
             if n := usage.migrate(data_dir / "usage.jsonl"):
@@ -89,7 +88,6 @@ class Bridge:
         self.events = Bus()
         self.relays = Relays(self)   # 接力（含换家、额度用完时远窗拼交接材料）；订阅 turn_done
         self.jobs = ScheduleJobs(self)   # 定时任务落到对话上；订阅 turn_done 记结果
-        superagent.attach(self)   # 总管：回报（turn_report）、接力后交接派活关系（relayed）
         self.quota = QuotaWatch(self)   # 额度分档、撞线后到点接着做；订阅 quota 记日志
         self.dcards = DingCards(self)   # 钉钉卡片：工作台、确认、要你定、回复
         self.ding = DingChat(self)      # 钉钉收消息和文字指令
@@ -99,14 +97,9 @@ class Bridge:
         self.chat_at = 0.0  # 最近一次远窗直接回答的时间
         self.work_at = 0.0  # 最近一次把话交给对话的时间
         self.user_id = cfg.allowed_user_ids[0] if cfg.allowed_user_ids else "local"
-        self.interrupted = []   # 重启前在做 / 排队的（总管派出去的活重启后接着做）
         for s in self.registry.sessions.values():
             if s.status in ("running", "queued"):
                 s.status = "error"
-                self.interrupted.append(s.num)
-        if cfg.super_agent:
-            superagent.ensure(self)
-            self.runner.use_spare = True
         self.registry.save()
 
     def _usage(self, s: Session, turn: Turn) -> None:
@@ -117,6 +110,7 @@ class Bridge:
         if rec := usage.row(s, turn, engines.get(s.engine).limits(self.runner), last=last):
             usage.append(self.data_dir / "usage.jsonl", rec)
             self.registry.save()
+        self.web.reindex_later(s)   # 这一轮做完了：后台更新这个对话的搜索索引
 
     # ---------- 发消息 ----------
     def record(self, who: str, text: str, **extra) -> None:
@@ -193,7 +187,8 @@ class Bridge:
             if self.web.enabled and turn.via != "dingtalk":
                 return   # 网页里点的压缩，网页上看得到结果
             return await self.say("压缩好了", f"{s.label} 压缩好了：上下文 {span}。之前聊过的要点都还记得。")
-        if translate.needs_translation(turn.final_text):
+        turn.original_text = turn.original_text or turn.final_text
+        if not turn.is_error and translate.needs_translation(turn.final_text):
             if done := await translate.to_chinese(turn.final_text):
                 turn.final_text, turn.translated = done
         title, body = report.build(s.label, turn, s.cwd, self._limits(s))
@@ -218,7 +213,7 @@ class Bridge:
             await self.quota.hit_limit(s, until)   # 撞上 5 小时额度：恢复后一分钟自动接着做
         self.registry.save()
         if await self.events.claim("turn_report", s, turn):
-            return   # 别人接了（总管派的活：先回报给总管，由总管告诉你）
+            return   # 别人接了，由它告诉你
         # 通知：你正开着这个对话看就都不发；不然先弹手机通知，弹不出去才用钉钉说一句（带链接）。
         # 钉钉里说的话、或没开网页时，照旧把完整结果发回钉钉。
         viewing = self.web.enabled and self.web.watching(s.num)
@@ -296,18 +291,18 @@ class Bridge:
 
     async def start_session(self, num: int, cwd: Path, add_dirs: list[Path], text: str, inc: Incoming, note: str = "",
                             kind: str | None = None, model: str | None = None, effort: str | None = None,
-                            owner: str = "admin", root: str = "", boss: int = 0, engine_model: str | None = None,
+                            owner: str = "admin", root: str = "", engine_model: str | None = None,
                             engine: str | None = None) -> None:
         """对外接口：在 cwd 里开好编号为 num 的新对话并交出第一句话。
         model / effort 是网页里选好的（模型全名、深度英文），优先于按任务类型挑的和话里说的；
-        engine = 点名了哪家但没点型号（总管写 engine=claude），分工表只在这家里挑。"""
+        engine = 点名了哪家但没点型号（比如定时任务写 engine=claude），分工表只在这家里挑。"""
         name = report.brief(text, 16) or "新对话"
         project = _looks_like_project(cwd)
         if kind is None:
             kind = "dev" if project else "simple"   # 判断失败时：代码仓里按开发算，别处按简单任务
             if router and text and not model and not inline_overrides(text)[0]:
                 kind = await router.classify_kind(text) or kind   # 按内容区分工作文档、前端设计与其他开发
-        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root, boss=boss)
+        s = Session(num=num, name=name, cwd=str(cwd), add_dirs=[str(p) for p in add_dirs], owner=owner, root=root)
         said_model, said_effort = inline_overrides(text)
         chosen = None
         if not (model or said_model):   # 没指定时照分工表挑（首选用不了换备选）
@@ -317,7 +312,7 @@ class Bridge:
         alt = engines.engine_of(model or said_model)   # 选的是别家（GPT、Kimi 等）：换引擎，模型那一栏不再是 Claude 的型号
         if root and alt and not engines.get(alt).fenced_ok:   # 受限账号只用 Claude
             model = said_model = alt = None
-        if alt:   # ACP 引擎（Kimi 等）的 engine_model 是它自己的模型名（总管指定的）；GPT 用 Codex 自己配置的
+        if alt:   # ACP 引擎（Kimi 等）的 engine_model 是它自己的模型名；GPT 用 Codex 自己配置的
             s.engine, model, said_model = alt, None, None
             s.model = (engine_model or said_engine_model(alt, text)) if engines.get(alt).pick_model == "own" else None
         s.model = model or said_model or s.model
@@ -335,7 +330,7 @@ class Bridge:
         await self.submit(s, text, inc, opening=f"开工 · {s.label}\n\n{meta}")
 
     async def message(self, cmd: Cmd, inc: Incoming, routed: bool = False) -> None:
-        """对外接口：一句话交给哪个对话（带编号的直接给；没带的按自动判断 / 总管），最后走 submit。"""
+        """对外接口：一句话交给哪个对话（带编号的直接给；没带的按自动判断），最后走 submit。"""
         if not routed and await self.jobs.from_text(cmd, inc):
             return   # 说的是定时安排：建好任务就完了
         num = cmd.num
@@ -347,8 +342,7 @@ class Bridge:
             waiting = sorted((x for x in self.registry.visible() if x.awaiting), key=lambda x: -x.updated)
             if waiting:  # “按C来做”“好的”这类回复，交给正在等你回答的那个对话（最近问的那个）
                 num = waiting[0].num
-        # 开了总管（super_agent）就由总管分派，分派员让开，免得两个都来判断
-        auto_route = router and self.cfg.auto_route and not self.cfg.super_agent
+        auto_route = router and self.cfg.auto_route
         if num is None and cmd.text and not routed and auto_route and (chatting or not _is_reply(cmd.text)):
             recent = [(q, a) for t, q, a in self.chat if time.time() - t < CHAT_MEMORY]
             busy = {n for n in self.registry.sessions if self.runner.busy(n)}
@@ -394,11 +388,7 @@ class Bridge:
 
     async def submit(self, s: Session, text: str, inc: Incoming, opening: str = "") -> None:
         """对外接口：把一句话（连同图片、附件）交给已定好的对话 s。正在干活就插话，否则排队。
-        网页、总管、接力、扩展都经这里发话，不要绕过它直接碰 runner。"""
-        if s.role == superagent.ROUTER and self.cfg.super_agent:
-            if inc.via in superagent.HUMAN and not inc.image_codes and not inc.local_images and await superagent.direct(self, s, text):
-                return   # “#N 话”：直接交给 #N，总管不用跑一轮
-            text = superagent.take_notes(s, text)   # 总管开口前先看“期间的情况”
+        网页、接力、扩展都经这里发话，不要绕过它直接碰 runner。"""
         s.awaiting, s.awaiting_kind, s.limit_until = "", "", 0.0
         if text.strip() and text != COMPACT:
             shown = text.split("\n\n（下面是引用的内容")[0].strip()
@@ -411,7 +401,7 @@ class Bridge:
         for i, (code, fname) in enumerate(inc.files):
             path = await self.dt.download(code, inbox / f"{stamp}-{i}-{Path(fname).name}")
             text += f"\n\n（附件已存到：{path}）"
-        job = Job(text=text, images=images, via=inc.via)
+        job = Job(text=text, images=images, via=inc.via, model_override=inc.model_override)
         self.work_at = time.time()
         ahead = self.runner.submit(s, job)
         if ahead == -1:
@@ -429,25 +419,23 @@ class Bridge:
         client = self.ding.client() if self.cfg.dingtalk_enabled else None
         if self.web.enabled:
             await self.web.start()
+            asyncio.create_task(asyncio.to_thread(self.web.reindex_all))   # 搜索索引：补上记录变过的对话
         # 插着电时别让 Mac 睡着（远窗退出就自动失效）；合盖或用电池时照常睡。Windows / Linux 没有 caffeinate，跳过
         try:
             subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
         except FileNotFoundError:
             pass
+        asyncio.create_task(housekeeping.attachment_loop(self))
         if self.cfg.auto_cleanup:   # 每天清理、每月体检（配置 auto_cleanup）
             asyncio.create_task(housekeeping.cleanup_loop(self))
         asyncio.create_task(self.quota.loop())
         asyncio.create_task(housekeeping.spend_loop(self))
+        asyncio.create_task(housekeeping.value_loop(self))   # 每周“额度换来了什么”
         asyncio.create_task(self.jobs.loop())
         asyncio.create_task(self.runner.title_all(self.data_dir / "turns"))   # 旧对话补上短名字
         from .codex import codex_bin, probe_models
-        if codex_bin():   # 记下 Codex 能用哪些型号（Sol / Terra / Luna …），网页、总管选型号用
+        if codex_bin():   # 记下 Codex 能用哪些型号（Sol / Terra / Luna …），网页菜单用
             asyncio.create_task(probe_models())
-        if self.cfg.super_agent:   # 记下各个 ACP 助手有哪些模型，总管派活时能挑
-            from .acp import probe_all
-            asyncio.create_task(probe_all(str(self.data_dir / "router")))
-        if self.cfg.super_agent and self.interrupted:   # 总管派出去、重启前没做完的活：带恢复提示接着做
-            asyncio.create_task(superagent.recover(self, self.interrupted))
         self.quota.resume_waiting()   # 重启前撞了额度在等恢复的，接着等
         log.info("远窗启动，已登记 %d 个对话%s", len(self.registry.sessions), "" if client else "（钉钉已停用，只用网页）")
         if client:

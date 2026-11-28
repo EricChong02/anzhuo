@@ -20,6 +20,7 @@ from aiohttp import web
 
 from .. import thread, usage
 from ..push import Push
+from ..searchindex import SearchIndex
 from ..speech import Speech
 from ..ext import STATIC_FILE, Routes
 from .common import COOKIE, PAGE, PREFIX, PUBLIC, USER_ROUTES
@@ -79,16 +80,14 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
         self._group_busy: set[str] = set()
         self._group_attempt: dict[str, float] = {}
         self._threads: dict[int, tuple[tuple, list[dict]]] = {}
-        self._zh_path = data_dir / "translations.json"
+        self._zh_path = data_dir / "translations-v2.json"  # 旧缓存可能被错误提示或不完整译文污染
         try:
             self._zh: dict[str, str] = json.loads(self._zh_path.read_text())
         except (OSError, json.JSONDecodeError):
             self._zh = {}
         self._zh_busy: set[str] = set()
-        self._uimg: dict[str, tuple[bytes, str]] = {}   # 你发过的图，最近取过的留在内存
-        self._uimg_miss: set[str] = set()
-        self._zh_failed: set[str] = set()
-        self._search_cache: dict[int, tuple] = {}  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self._zh_failed: set[str] = set()  # 译不出来的不再反复试（免得英文、“翻译中”来回闪）
+        self.search_index = SearchIndex(data_dir / "search.db")   # 搜索用：各对话里说过的话
         self.watch: dict[int, float] = {}  # 你正开着看的对话 → 网页最近一次报“我在看”的时间
         self._quick_pending: dict[str, dict] = {}  # 快捷指令一次分享多个文件时先攒着
 
@@ -170,7 +169,7 @@ class Web(AuthMixin, AudioMixin, TurnsMixin, ThreadsMixin, ListingMixin, Actions
 
     def quota(self, acct: str) -> dict | None:
         """受限账号本周额度用了多少（admin 不限，返回 None）。顺手把推出来的换算比例存下，数据少的时候接着用。"""
-        if self.role(acct) == "admin":
+        if self.role(acct) == "admin" or self.accounts.get(acct, {}).get("quota_exempt") is True:
             return None
         limits = getattr(getattr(self.bridge, "runner", None), "limits", {}) or {}
         week = limits.get("seven_day")
@@ -278,7 +277,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             if s.owner != owner:
                 continue
             t = b.runner.turns.get(s.num)
-            out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t), len(t.steps) if t else 0,
+            out.append((s.num, s.updated, s.awaiting, s.seen > s.updated, bool(t),
+                        (len(t.steps), t.steps[-1:], t.plan) if t else None,
                         bool(t and t.confirm), b.runner.busy(s.num), s.hidden, s.pinned, s.name, s.task_group, s.task_group_manual, s.limit_until,
                         s.rewind_at, s.auto_resume))
         return json.dumps(out, ensure_ascii=False, default=str)
@@ -299,8 +299,11 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
         recs = len(list(self.turns_dir.glob(f"{num}-*.json"))) if s else 0
         cc_mtime = self._cc_mtime(s)
         return json.dumps([s.updated if s else 0, s.relay_to if s else 0, len(t.timeline) if t else -1, bool(t and t.confirm),
+                           (len(t.steps), t.steps[-1:], t.plan) if t else None,
                            len(b.outgoing.get(num, [])), recs, s.rewind_at if s else "", len(b.runner.queued(num)),
-                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime])
+                           s.limit_until if s else 0, s.auto_resume if s else True, cc_mtime, int(time.time() // 3600),
+                           [(k,a.get('status'),a.get('model'),a.get('last')) for k,a in t.agents.items()] if t else [],
+                           int(time.monotonic()//5) if t and any(a.get('status')=='running' and a.get('model_source')!='observed' for a in t.agents.values()) else 0])
 
     async def _api_events(self, request: web.Request) -> web.StreamResponse:
         """实时推送（Server-Sent Events）：列表变了发 s，打开的对话有新步骤 / 做完了发 t，正在写的回复发 p（带全文）。
@@ -353,7 +356,8 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
             request["acct"], request["owner"] = self._admin(), "admin"
         owner, admin = request["owner"], self.role(request["acct"]) == "admin"
         route = request.match_info.route.resource.canonical if request.match_info.route.resource else ""
-        if not admin and route not in self.user_routes:
+        if not admin and route not in self.user_routes and not any(
+                getattr(e, "allows_account_request", lambda r: False)(request) for e in self.exts):
             raise web.HTTPForbidden(text="这个账号用不了这里")
         if route.startswith(f"{self.px}/admin") or route.startswith(f"{self.px}/api/admin"):
             if not admin:

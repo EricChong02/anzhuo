@@ -49,6 +49,20 @@ USER_ROUTES = {f"{PREFIX}/", PREFIX, "/", f"{PREFIX}/api/push/key", f"{PREFIX}/a
                f"{PREFIX}/api/presence", f"{PREFIX}/t/{{tid}}", f"{PREFIX}/t/{{tid}}/img/{{i}}", f"{PREFIX}/t/{{tid}}/file/{{i}}",
                "/dl/{tid}/{i}", "/dl/{tid}/{i}/pages", "/dl/{tid}/{i}/p/{name}"}
 
+
+def work_progress(plan: list[dict], operations: int) -> str:
+    """按清单里的实际状态显示进度，工具操作单独计数。"""
+    if not plan:
+        return f"已记录 {operations} 项操作" if operations else ""
+    total = len(plan)
+    done = sum(step["status"] == "done" for step in plan)
+    active = [i for i, step in enumerate(plan, 1) if step["status"] == "doing"]
+    if len(active) == 1:
+        return f"第 {active[0]}/{total} 步"
+    label = f"已完成 {done}/{total} 步"
+    return f"{label} · {len(active)} 步进行中" if active else label
+
+
 def display_model(model_id: str) -> str:
     """统一网页名称，保留未知型号；兼容早先保存的 GPT（实际型号）。"""
     wrapped = re.fullmatch(r"GPT[（(](.*)[）)]", model_id or "")
@@ -64,9 +78,8 @@ def display_model(model_id: str) -> str:
 
 
 def model_options() -> list[list[str]]:
-    from ..codex import configured_model
     return [[key, display_model(MODELS[key])] for key in ("opus", "sonnet", "haiku", "fable")] + [
-        [e.key, (display_model(configured_model()) or e.label) if e is engines.CODEX else e.label]
+        [e.key, (display_model(engines.CODEX.DEFAULT_MODEL) or e.label) if e is engines.CODEX else e.label]
         for e in engines.known() if e.pick_model == "own" and (e is engines.CODEX or e.available())]
 
 def _md(text: str) -> str:
@@ -128,8 +141,9 @@ _RELAY_MARK = "用户这次说：\n\n"
 
 
 def _said_has(recorded: str, sent: str) -> bool:
-    """记录里的这句是不是你发的那句。接力对话的第一句，记录里是“交接说明 + 用户这次说：+ 原话”。"""
-    head = sent.strip()[:40]
-    if recorded.startswith(head):
-        return True
-    return recorded.startswith("（这是接力的新对话") and _RELAY_MARK in recorded and recorded.split(_RELAY_MARK, 1)[1].startswith(head)
+    """合并排队消息和附加附件说明时用空行分隔，按边界核对完整原话。"""
+    recorded = recorded.strip().replace("\r\n", "\n")
+    sent = sent.strip().replace("\r\n", "\n")
+    if recorded.startswith("（这是接力的新对话") and _RELAY_MARK in recorded:
+        recorded = recorded.split(_RELAY_MARK, 1)[1]
+    return bool(sent) and f"\n\n{sent}\n\n" in f"\n\n{recorded}\n\n"

@@ -46,12 +46,14 @@ def test_frontend_shows_all_six_agents_and_separate_commands():
     function = source[source.index("function agentsHTML("):source.index("function procHTML(")]
     rows = [{"name": f"助手{i}", "kind": "助手", "status": "running", "model": "Opus 5.5", "secs": 5} for i in range(6)]
     rows += [{"name": "Wait for acceptance", "kind": "命令", "status": "running", "secs": 2} for _ in range(10)]
-    program = "const esc=s=>String(s??'').replaceAll('<','&lt;');const dur=s=>s+'秒';" + function + "console.log(agentsHTML(" + json.dumps(rows) + "))"
-    html = subprocess.check_output([shutil.which("node"), "-e", program], text=True)
+    program = "const esc=s=>String(s??'').replaceAll('<','&lt;');const dur=s=>s+'秒';" + function
+    program += f"const rows = {json.dumps(rows)}; console.log(JSON.stringify([agentsHTML(rows), agentsHTML(rows, true)]));"
+    html, expanded = json.loads(subprocess.check_output([shutil.which("node"), "-e", program], text=True))
     assert "6 个助手在跑" in html and "10 条后台命令在运行" in html
     assert html.count("Opus 5.5") == 6
     assert all(f"助手{i}" in html for i in range(6))
-    assert "<details" in html
+    assert '<details class="agents command-jobs">' in html
+    assert '<details class="agents command-jobs" open>' in expanded
 
 
 def test_actual_stream_keeps_parent_model_and_observes_child_model():

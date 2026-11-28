@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from . import folders
 from .dingtalk import Incoming
-from .engines import MODELS
 
 if TYPE_CHECKING:
     from .app import Bridge
@@ -29,6 +28,40 @@ async def spend_loop(b: Bridge) -> None:
         except Exception:  # noqa: BLE001
             log.warning("读本机 Claude Code 消耗失败", exc_info=True)
         await asyncio.sleep(600)
+
+
+async def value_loop(b: Bridge) -> None:
+    """每周“额度换来了什么”（value_report）：启动后算一次；之后每 6 小时看一眼，周额度重置、上一周结束了就重算并推送一句。"""
+    from . import value_report
+    path = b.data_dir / "value_report.json"
+    await asyncio.sleep(120)
+    while True:
+        try:
+            old = value_report.saved(path) or {}
+            done = [w for w in value_report.weeks(b.spend.snaps) if time.time() - w[1] > 3600]
+            fresh = time.time() - old.get("at", 0) < 86400
+            if done and (not fresh or not any(r["start"] == done[-1][0] for r in old.get("weeks", []))):
+                reps = await asyncio.to_thread(value_report.build, b.data_dir, b.registry.sessions, b.spend.snaps, b.spend)
+                new_week = not any(r["start"] == done[-1][0] and time.time() - r["end"] > 3600 for r in old.get("weeks", []))
+                value_report.save(path, reps)
+                last = next((r for r in reversed(reps) if r["start"] == done[-1][0]), None)
+                if new_week and last and old and b.web.enabled:
+                    await b.web.notify("admin", "上周额度换来了什么", value_report.summary_line(last))
+        except Exception:  # noqa: BLE001
+            log.warning("算每周额度报告失败", exc_info=True)
+        await asyncio.sleep(6 * 3600)
+
+
+async def attachment_loop(b: Bridge) -> None:
+    """启动后清一次收发附件，此后每小时检查。"""
+    from .cleanup import purge_attachments
+
+    while True:
+        try:
+            await asyncio.to_thread(purge_attachments, b.data_dir)
+        except Exception:  # noqa: BLE001
+            log.exception("远窗附件清理失败")
+        await asyncio.sleep(3600)
 
 
 async def cleanup_loop(b: Bridge) -> None:
@@ -65,7 +98,7 @@ async def monthly_checkup(b: Bridge) -> None:
     num = b.registry.reserve_num()
     inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=CHECKUP)
     await b.start_session(num, Path.home(), [], CHECKUP, inc, note="（每月清理体检，自动派的）", kind="simple",
-                          model=MODELS["sonnet"], effort="low")
+                          model='gpt', engine_model='gpt-6.1-sol', effort="low")
     if s := b.registry.get(num):
         s.name, s.renamed = f"{time.strftime('%-m')} 月清理体检", True
         b.registry.save()

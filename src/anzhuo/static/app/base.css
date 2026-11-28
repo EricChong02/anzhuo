@@ -86,6 +86,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
   max-width:min(92vw,440px);padding:10px 16px;border-radius:var(--r2);background:var(--glass);-webkit-backdrop-filter:saturate(1.4) blur(18px);backdrop-filter:saturate(1.4) blur(18px);
   border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t3);transition:transform .25s ease,opacity .25s,visibility .25s;cursor:pointer;visibility:hidden}
 .notice.on{transform:translate(-50%,0);opacity:1;visibility:visible} .notice .dot{flex:none} .notice span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notice[hidden]{display:none}
 .usage{position:absolute;right:16px;top:60px;z-index:6;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);padding:14px 16px;width:260px;display:flex;flex-direction:column;gap:12px}
 .usage .qh{margin:0} .usage .w{font-size:var(--t2);color:var(--amber);line-height:1.5} .usage .pill{margin-top:2px}
 @keyframes pulse{50%{opacity:.35}}
@@ -101,7 +102,7 @@ mark{background:rgba(255,196,0,.35);color:inherit;border-radius:3px;padding:0 1p
 .pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:var(--rf);border:1px solid var(--line);background:var(--panel);font-size:var(--t2);color:var(--ink)}
 .pill:hover{border-color:var(--acc)} .pill svg{width:16px;height:16px}
 .back{display:none}
-.feed{flex:1;overflow:auto;padding:24px 20px calc(150px + var(--kb,0px));scroll-behavior:auto}
+.feed{flex:1;overflow:auto;overflow-anchor:none;padding:24px 20px calc(150px + var(--kb,0px));scroll-behavior:auto}
 .col{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
 .you{align-self:flex-end;max-width:82%;background:var(--bubble);border-radius:var(--r3);padding:10px 16px;white-space:pre-wrap;word-break:break-word}
 .you.pending{opacity:.85}
@@ -207,8 +208,6 @@ code{font:14px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 5
 .jump{pointer-events:auto;margin:0 auto 8px;height:36px;padding:0 14px;border-radius:var(--rf);
   background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);font-size:var(--t2);display:none;align-items:center;gap:4px}
 .jump.on{display:inline-flex} .jump svg{width:16px;height:16px}
-.fold .md{max-height:16em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
-.more{margin-top:6px;font-size:var(--t3);color:var(--acc)}
 .fab{display:none;position:fixed;right:20px;bottom:calc(22px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--acc);color:var(--on-acc);
   box-shadow:0 8px 24px var(--acc-shadow);place-items:center;z-index:5} .fab svg{width:24px;height:24px}
 .composer{pointer-events:auto;max-width:760px;margin:0 auto;background:var(--panel);
@@ -344,7 +343,6 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .md details.code summary::-webkit-details-marker{display:none} .md details.code summary span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .md details.code summary small{flex:none;font-family:-apple-system,"PingFang SC",sans-serif} .md details.code[open] summary small::after{content:" · 收起"}
 .md details.code:not([open]) summary small::after{content:" · 展开"}
-.cl.fold .md{max-height:5.4em}
 /* 在做卡片：一大行说清进度，其余收着 */
 .live .lh .lt{flex:1;min-width:0;font-weight:500;font-size:var(--t4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .live .lsub{margin-top:4px;font-size:var(--t2)} .live .lsub .tick{font-weight:500;color:var(--ink)}
@@ -367,13 +365,13 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 .hint{color:var(--amber);font-size:var(--t2);padding:2px 8px 6px}
 /* 接力到新对话 */
 .relay{display:flex;align-items:center;gap:8px;background:var(--accsoft);color:var(--ink);border-radius:var(--r1);padding:8px 8px 8px 12px;margin:0 0 6px;font-size:var(--t2);line-height:1.55}
-.relay .rt{flex:1;min-width:0}
-.relay button.x{width:30px;padding:0;display:grid;place-items:center;background:none;color:var(--mute);flex:none} .relay button.x svg{width:16px;height:16px}
 .usage .uh{font-size:var(--t1);color:var(--mute);line-height:1.55}
-.usage .ua{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px} .usage .ua .pill{width:100%;justify-content:center;margin:0}
-.usage .ua .pill.on{background:var(--acc);color:var(--on-acc);border-color:var(--acc)}
-.relay button{flex:none;height:30px;padding:0 12px;border-radius:var(--rf);background:var(--panel);color:var(--acc);font-size:var(--t2);font-weight:500}
-.relay button.on{background:var(--acc);color:var(--on-acc)}
+.usage .ua{display:grid;grid-template-columns:1fr auto;gap:6px} .usage .ua .pill{justify-content:center;margin:0}
+.usage .ux{display:flex;align-items:center;gap:4px;font-size:var(--t1);color:var(--faint);margin-top:-6px}
+.usage .ux .lk{background:none;border:0;padding:2px 6px;color:var(--acc);font-size:var(--t1);border-radius:var(--rf)}
+@media (hover:hover){.usage .ux .lk:hover{background:var(--accsoft)}}
+.usage .ql em{font-style:normal;color:var(--faint);margin-left:8px}
+.usage .usep{height:1px;background:var(--hair,var(--line));margin:2px 0}
 .relay.running{background:none;color:var(--mute);padding:2px 8px 6px}
 /* 回到这里 */
 .rwbody{font-size:var(--t3);color:var(--ink);padding:2px 12px 10px;line-height:1.6}
@@ -479,9 +477,17 @@ details.code summary .cpy{flex:none;margin:-4px -8px -4px 0}
 
 
 /* 看过程：只许上下滑；往上翻时出“回到底部”，点了就继续跟着最新 */
-.live .plist{overflow-x:hidden;overscroll-behavior:contain} .live .plist .pi{min-width:0} .live .plist .pt,.live .plist code.pd{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
+.live .plist{overflow-x:hidden;overscroll-behavior-x:contain} .live .plist .pi{min-width:0} .live .plist .pt,.live .plist code.pd{max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
 .pjump{display:none;position:sticky;bottom:2px;align-self:center;flex:none;border:0;border-radius:var(--rf,999px);padding:6px 14px;font-size:var(--t2);background:var(--acc);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer}
 .plist[data-reading="1"] .pjump{display:block}
 
 .usage{max-height:calc(100dvh - 100px);overflow-y:auto}
 .mmenu .mo .mh{margin-left:8px;font-weight:400} .mmenu .mh.cool{color:var(--faint)}
+
+/* 传输入口在预览下方，返回聊天仍可找到进度；不覆盖底部输入条。 */
+.file-transfers{position:fixed;top:calc(64px + env(safe-area-inset-top));right:12px;z-index:49;max-width:min(360px,calc(100vw - 24px));max-height:30vh;overflow:auto}
+.file-transfers>div{display:flex;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);margin-bottom:8px}
+.file-transfers button{min-height:44px;padding:8px 12px;color:var(--acc)}
+.file-transfers .transfer-open{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:var(--t2)}
+.fv{padding-top:calc(116px + env(safe-area-inset-top))}
+.fv .native-download{position:absolute;top:calc(64px + env(safe-area-inset-top));min-height:44px;padding:8px 16px;color:#fff;border:1px solid #666;border-radius:var(--r1)}

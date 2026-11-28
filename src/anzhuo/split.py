@@ -204,7 +204,7 @@ async def auto_choose(bridge, kind: str | None, paths=(), fenced: bool = False, 
 
 
 def describe(cfg) -> str:
-    """一行说清分工表（给总管看）：设计与前端用 opus，工作与文档用 gpt（备选 deepseek），开发用 sonnet。"""
+    """一行说清分工表：设计与前端用 opus，工作与文档用 gpt（备选 deepseek），开发用 sonnet。"""
     table = getattr(cfg, "split", None) or normalize(None)
     parts = []
     for kind, name in KINDS.items():

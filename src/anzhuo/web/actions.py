@@ -170,11 +170,24 @@ class ActionsMixin:
                 log.exception("扩展 %s 新开前处理出错", e.name)
         return None
 
-    async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str]) -> web.Response:
+    async def _send_fenced(self, request: web.Request, acct: str, data: dict, text: str, streamed: list[str],
+                           *, model_override: str = "") -> web.Response:
         """受限账号说话：只能在自己的对话里接着说，或在自己的文件夹里新开；不分派、不排定时、不用 GPT。"""
         b = self.bridge
+        self._check_account_model(acct, data)
         if why := self.over_quota(acct):
             return web.json_response({"ok": False, "error": why}, status=429)
+        account = self.accounts.get(acct, {})
+        owner = self.owner_key(acct)
+        root = Path(self.root_of(acct)).expanduser()
+        num = data.get("num")
+        if num:
+            session = b.registry.mine(int(num), owner)
+            if not session:
+                raise web.HTTPNotFound()
+            if account.get("course") and (
+                    not session.root or Path(session.root).expanduser().resolve() != root.resolve()):
+                return web.json_response({"ok": False, "error": "课程目录已迁移，请从试课页重新提交反馈"}, status=409)
         inbox = self._inbox(request)
         images = await self._save_images(data, inbox)
         uploaded = streamed + await self._save_files(data, inbox)
@@ -184,21 +197,30 @@ class ActionsMixin:
             return web.json_response({"ok": False, "error": "没写内容"}, status=400)
         inc = Incoming(sender_id=b.user_id, sender_nick="", conversation_type="1", kind="text", text=text,
                        local_images=images, via="web")
-        owner = self.owner_key(acct)
-        if num := data.get("num"):
-            if not b.registry.mine(int(num), owner):
-                raise web.HTTPNotFound()
+        if model_override:
+            if model_override not in ("opus", "sonnet", "fable"):
+                raise web.HTTPBadRequest()
+            self._check_account_model(acct, {"model": model_override})
+            inc.model_override = MODELS[model_override]
+        if num:
             busy = int(num) in b.runner.turns
             await b.message(Cmd("message", num=int(num), text=text), inc, routed=True)
             return web.json_response({"ok": True, "injected": busy})
-        root = Path(self.root_of(acct)).expanduser()
         root.mkdir(parents=True, exist_ok=True)
-        model, effort = self._model_effort(data)
+        model, effort = self._model_effort({**data,
+            "model": data.get("model") or account.get("default_model", ""),
+            "effort": data.get("effort") or account.get("default_effort", "")})
         before = b.registry.reserve_num()
         b.record(f"你（网页 · {acct}）", text, images=len(images), num=before)
         await b.start_session(before, root, [], text, inc, kind="simple", model=None if engines.engine_of(model) else model, effort=effort,
                        owner=owner, root=str(root))
         return web.json_response({"ok": True, "num": before})
+
+    def _check_account_model(self, acct, data):
+        allowed = self.accounts.get(acct, {}).get("allowed_models")
+        selected = str(data.get("model") or "")
+        if allowed and selected and selected not in allowed and selected not in [MODELS.get(k) for k in allowed]:
+            raise web.HTTPForbidden(text="这个账号不能使用该模型")
 
     @staticmethod
     def _model_effort(data: dict) -> tuple[str | None, str | None]:
@@ -213,7 +235,9 @@ class ActionsMixin:
         s = self.bridge.registry.get(int(request.match_info["num"]))
         if not s:
             raise web.HTTPNotFound()
-        model, effort = self._model_effort(await request.json())
+        data = await request.json()
+        self._check_account_model(request.get("acct", ""), data)
+        model, effort = self._model_effort(data)
         if not engines.can_switch_model(s.engine, model):
             model = None   # 一个对话从头到尾用同一家：中途不在 Claude 和 GPT 之间换
         s.model = model or s.model

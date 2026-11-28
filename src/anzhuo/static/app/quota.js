@@ -22,11 +22,11 @@ function quotaPace(l, now = Date.now()) {
   const day = d.toDateString() === new Date(now).toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
   return {text: `按这速度${day} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 用完`, warn: true};
 }
-function qcell(l, hot = 80) {
-  const reset = quotaResetLabel(l), pace = quotaPace(l);
-  const h = l.pct != null && l.pct >= hot || pace?.warn;
-  return `<div class="qm ${h ? 'hot' : ''}" title="${reset ? esc(reset) + ' 重置' : ''}"><div class="ql"><span>${esc(l.name)}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
-    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${reset ? `<div class="qr">${esc(reset)} 重置</div>` : ''}${pace?.warn ? `<div class="qr qp">${esc(pace.text)}</div>` : ''}</div>`;
+// 上下文小窗里的一行：名字和重置时间同一行，下面一条细进度条；偏紧时再补一句何时用完
+function qline(l, hot = 80) {
+  const reset = quotaResetLabel(l), pace = quotaPace(l), h = l.pct != null && l.pct >= hot || pace?.warn;
+  return `<div class="qm ${h ? 'hot' : ''}"><div class="ql"><span>${esc(l.name)}${reset ? `<em>${esc(reset)} 重置</em>` : ''}</span><b>${l.pct == null ? '—' : l.pct + '%'}</b></div>
+    <div class="qb"><i style="width:${Math.max(l.pct ? 2 : 0, Math.min(100, l.pct || 0))}%"></i></div>${pace?.warn ? `<div class="qr qp">${esc(pace.text)}</div>` : ''}</div>`;
 }
 function quotaGroups() {
   return [['Claude', limits], ...(limitsGpt.length && hasGpt ? [['Codex', limitsGpt]] : [])].filter(([, ls]) => ls.length);
@@ -84,38 +84,22 @@ let usageRelay = {num: 0, targets: []};   // 点了接力、还在这个对话�
 async function startRelay(num, to = '', go = false) {
   if (!to && relayReady !== num) return;
   relayReady = 0;
-  document.querySelectorAll('#relayGo, #relayBtn, [data-relay]').forEach(b => { b.disabled = true; });
+  document.querySelectorAll('#relayBtn, [data-relay]').forEach(b => { b.disabled = true; });
   relayWait = num;
   const r = await api('relay/' + num, to ? {to, go} : {}).catch(() => null);
   if (!r) { relayWait = 0; toast('没交出去，再点一次'); }
   else { if (!r.ok) relayWait = 0; if (r.message) toast(r.message); }
   lastKey = ''; loadThread(); loadSessions();
 }
-// 对话长了、或隔了一个多小时回来：在输入框上方提示接力到新对话（点“不用”就记住，直到对话再长一截或又隔了一阵）
+// 输入框上方的状态条：只在正在写交接说明时出现。接力、压缩都在右上角“上下文”小窗里手动点，不主动提示
 function renderRelay(d) {
   const el = $('#relay'); if (!el) return;
-  const r = d.limit ? null : d.usage && d.usage.relay;   // 额度用完了：同一家接力也接不上，只看额度卡片上的“换一家接着做”
+  const running = !d.limit && d.usage?.relay?.kind === 'running';
   relayReady = d.can_relay && !d.live && !d.usage?.busy && !d.limit ? d.num : 0;
   usageRelay = {num: d.num, targets: d.can_relay && !d.live && !d.limit ? d.relay_targets || [] : []};   // 换模型接力放进“上下文”小窗
   if (relayWait === d.num && d.relay_to) { relayWait = 0; el.hidden = true; return setTimeout(() => followRelay(d.relay_to)); }
-  const off = !r || (r.key && localStorage.getItem('relayOff:' + d.num) === r.key);
-  el.hidden = off; el.className = 'relay' + (r && r.kind === 'running' ? ' running' : '');
-  if (off) return;
-  if (r.kind === 'running') { el.innerHTML = '<i class="spin"></i> 正在整理上下文…'; return; }
-  // 一句话说清现在该做什么，只给一个主按钮；换模型、另一种做法都在右上角“上下文”小窗里
-  const t = wan(r.tokens), squeeze = r.kind === 'compact';
-  el.innerHTML = `<span class="rt">${r.kind === 'cold' ? `隔了 ${r.hours} 小时，缓存已过期。要换件事，接力到新对话更省。`
-    : squeeze ? `上下文用了 ${r.pct}%，快满了。没做完先压缩，做完了再接力。`
-    : `对话已约 ${t} token。这一段做完了，就接力到新对话。`}</span>
-    <button class="on" id="${squeeze ? 'relayCompact' : 'relayGo'}">${squeeze ? '压缩' : '接力'}</button>
-    <button class="x" id="relayNo" aria-label="不用" title="不用">${ICON.close || '×'}</button>`;
-  if ($('#relayGo')) $('#relayGo').onclick = e => { e.currentTarget.disabled = true; startRelay(d.num); };
-  if ($('#relayCompact')) $('#relayCompact').onclick = async e => {
-    e.currentTarget.disabled = true; localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true;
-    const res = await api('compact/' + d.num, {}).catch(() => null); toast(res?.message || (res ? '已交给它，进度看对话里' : '没交出去，再点一次'));
-    lastKey = ''; loadThread();
-  };
-  $('#relayNo').onclick = () => { localStorage.setItem('relayOff:' + d.num, r.key); el.hidden = true; };
+  el.hidden = !running; el.className = 'relay' + (running ? ' running' : '');
+  if (running) el.innerHTML = '<i class="spin"></i> 正在整理上下文…';
 }
 
 // 换到别家 / 别的型号接力的按钮：那家额度偏紧、告急时悬停说一声
@@ -128,19 +112,19 @@ function bindRelayAlts(root, num, go = false) {
 function renderUsage(u) {
   const el = $('#usageBox'); if (!el || !u) return;
   const ctxWarn = u.context != null && u.context >= 70;
-  const ls = u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
+  const ls = u.has_quota === false ? [] : u.mkey === 'gpt' ? limitsGpt : modelLimits(limits, u.mkey);
   const hotL = ls.filter(l => l.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
   const label = hotL ? `${u.mkey === 'gpt' ? 'Codex ' : ''}${esc(hotL.name)} ${hotL.pct}%` : u.context != null ? `<span class="um">上下文 </span>${u.context}%` : '用量';
   const running = u.relay?.kind === 'running', canRelay = !u.busy && !running && usageRelay.num === sel;
-  const relayBtns = running ? '<button class="pill" disabled><i class="spin"></i>正在写交接说明</button>'
-    : `<button class="pill ${u.relay_suggested ? 'on' : ''}" id="relayBtn" ${canRelay ? '' : 'disabled'}>${u.busy ? '回答结束后才能接力' : '接力到新对话'}</button>`
-      + (canRelay ? usageRelay.targets.map(a => relayAlt(a, '接力并换 ' + a.label, 'pill')).join('') : '');
-  el.innerHTML = `<button class="pill ${hotL || ctxWarn || u.relay_suggested ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
-    + (usageOpen ? `<div class="usage">${qcell({name: '这个对话的上下文', pct: u.context}, 70)}
-      ${u.tokens ? `<div class="uh">约 ${wan(u.tokens)} token，每说一句都要重读一遍。一段做完就接力，没做完嫌长就压缩。</div>` : ''}
-      <div class="ua">${relayBtns}<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
-        u.compacting === 'running' ? '<i class="spin"></i>正在压缩' : u.compacting === 'queued' ? '已排队压缩' : '压缩上下文'}</button></div>
-      <div class="qh">${u.mkey === 'gpt' ? 'GPT' : 'Claude'} 额度</div>${ls.map(l => qcell(l)).join('')}</div>` : '');
+  const relayBtn = running ? '<button class="pill" disabled><i class="spin"></i>写交接说明</button>'
+    : `<button class="pill" id="relayBtn" ${canRelay ? '' : 'disabled'} title="${u.busy ? '回答结束后才能接力' : '写交接说明，换到新对话接着做'}">接力到新对话</button>`;
+  const compactBtn = `<button class="pill" id="compactBtn" ${u.compacting || u.busy ? 'disabled' : ''}>${
+    u.compacting === 'running' ? '<i class="spin"></i>压缩中' : u.compacting === 'queued' ? '已排队' : '压缩'}</button>`;
+  const alts = canRelay && usageRelay.targets.length ? `<div class="ux">换模型接力${usageRelay.targets.map(a => relayAlt(a, a.label, 'lk')).join('')}</div>` : '';
+  const ctx = u.context != null ? qline({name: u.tokens ? `上下文 · 约 ${wan(u.tokens)} token` : '上下文', pct: u.context}, 70) : '';
+  el.innerHTML = `<button class="pill ${hotL || ctxWarn ? 'warn' : ''}" id="usagePill" title="上下文和额度">${label}</button>`
+    + (usageOpen ? `<div class="usage">${ctx}<div class="ua">${relayBtn}${compactBtn}</div>${alts}
+      ${u.has_quota === false ? '<div class="uh">按量计费，不占订阅额度</div>' : ls.length ? `<div class="usep"></div>${ls.map(l => qline(l)).join('')}` : ''}</div>` : '');
   $('#usagePill').onclick = e => { e.stopPropagation(); usageOpen = !usageOpen; renderUsage(u); };
   if ($('#relayBtn')) $('#relayBtn').onclick = e => { e.stopPropagation(); usageOpen = false; startRelay(sel); };
   bindRelayAlts(el, sel);

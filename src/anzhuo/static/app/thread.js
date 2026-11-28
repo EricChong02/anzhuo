@@ -3,13 +3,30 @@ const dur = sec => { sec = Math.max(0, Math.floor(sec)); return sec < 60 ? `${se
 setInterval(() => { document.querySelectorAll('.tick').forEach(t => { t.textContent = dur(Date.now() / 1000 - +t.dataset.t0); }); tickSilence(); }, 1000);
 // 你发的图：气泡里一排小图，点开看大图
 const youImgs = us => us.length ? `<div class="imgs yimgs">${us.map(u => `<a href="${esc(u)}"><img src="${esc(u)}"></a>`).join('')}</div>` : '';
+const progressMessages = updates => (updates || []).map(text =>
+  `<div class="cl progress-message"><div class="md">${md(text)}</div></div>`).join('');
 function renderThread(d) {
   const feed = $('#feed'); if (!feed) return;
-  const near = stick, savedTop = feed.scrollTop;
   const saidList = d.items.filter(i => i.who === 'you' && !i.pending).map(i => i.text.trim().replace(/^\[(?:\d+ 张)?图片\]\s*/, ''));
-  const relayTail = x => x.startsWith('（这是接力的新对话') && x.includes('用户这次说：\n\n') ? x.split('用户这次说：\n\n').pop() : x;   // 接力对话第一句：记录里带着交接说明
-  // 记录里可能多了“（附件已存到…）”，按开头比；只发图或文件时网页摆的是“[图片]”，记录里是空的或“（见图）”，对不上字——就按“记录里你说的话多了一条”算
-  const sayCount = t => { const k = /^\[(?:图片|附件)\]$/.test(t) ? '' : t.slice(0, 40); return saidList.filter(x => x.startsWith(k) || relayTail(x).startsWith(k)).length; };
+  const relayMark = '用户这次说：\n\n';
+  const recorded = saidList.map(text => {
+    text = text.replace(/\r\n/g, '\n');
+    const at = text.startsWith('（这是接力的新对话') ? text.indexOf(relayMark) : -1;
+    return '\n\n' + (at < 0 ? text : text.slice(at + relayMark.length)) + '\n\n';
+  });
+  const sayCount = text => {
+    // 纯附件没有可对照的原文，仍按历史中的用户消息条数计。
+    if (/^\[(?:图片|附件)\]$/.test(text)) return saidList.length;
+    const message = text.trim().replace(/\r\n/g, '\n');
+    if (!message) return 0;
+    const needle = '\n\n' + message + '\n\n';
+    let count = 0;
+    for (const row of recorded) {
+      // 相邻两条共用中间的空行，合成一条存档时也各算一次。
+      for (let at = row.indexOf(needle); at >= 0; at = row.indexOf(needle, at + needle.length - 2)) count++;
+    }
+    return count;
+  };
   lastSaid[d.num] = sayCount;
   lastYou[d.num] = saidList.filter(Boolean).slice(-1)[0] || '';
   d.items.forEach(i => { if (i.pending) i.cls = 'pending'; });
@@ -21,24 +38,27 @@ function renderThread(d) {
   pending[d.num] = (pending[d.num] || []).filter(p => !(sayCount(p.text.trim()) > (p.base || 0)));   // 比发出时多出一条才算进了记录，同一句话再发不会被旧的那条顶替
   const localShow = pending[d.num].filter(p => !inSrv(p.text.trim()));
   d.items.forEach(i => { if (i.pending && !(i.imgs || []).length && localImgs.has(i.text.trim())) i.local = localImgs.get(i.text.trim()); });
-  d.items = d.items.flatMap(saSplit);
+  d = {...d, items: d.items.flatMap(saSplit)};
   const replies = d.items.filter(i => i.who === 'claude');
-  const keep = new Set(replies.slice(-2));
-  // 新回复来了、你正跟着看（在底部或刚才它在干活）：停在新回复开头，从头读；后面的图再加载也不会把你挤走
-  const prevN = replyCount[d.num], fresh = prevN !== undefined && replies.length > prevN && (near || wasLive[d.num]);
-  replyCount[d.num] = replies.length; wasLive[d.num] = !!d.live;
+  feedScroll.sync();
+  // 新回复来了、你正跟着看：停在新回复开头，从头读。
+  const near = stick, prevN = replyCount[d.num], fresh = prevN !== undefined && replies.length > prevN;
+  replyCount[d.num] = replies.length;
   const queued = new Set(d.queue || []);
   const shownQ = new Set(d.items.filter(i => i.pending).map(i => i.text.slice(0, 80)));
   // 你某句话之前的那条回复：回退、分叉都从那里接着。前面没有回复 = ''（第一句）；那条在压缩之前 = null（回不去）
   const prevEnd = k => { for (let j = k - 1; j >= 0; j--) if (d.items[j].historical || d.items[j].handoff !== undefined) return null; else if (d.items[j].who === 'claude') return d.items[j].end || null; return ''; };
   let h = d.items.map((it, idx) => {
     // 总管收到的回报、退回、提问、重启提示（super_agent）：不是你说的话，折成一张卡，展开按 Markdown 显示；总管接着会说
+    const match = it.search_hit ? ' data-search-hit="1"' : '';
+    const key = `${it.source_num || d.num}:${it.who}:${it.end || it.tid || (it.ts ? `t${it.ts}` : `i${idx}`)}`;
+    const row = ` data-message="${esc(key)}"${match}`;
     const tag = it.who === 'you' && SA_TAGS.find(t => it.text.startsWith(t));
     if (tag) {
       const [head, ...rest] = it.text.slice(tag.length).split('\n\n');
-      return `<details class="note rpt"><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
+      return `<details class="note rpt"${row}${match ? ' open' : ''}><summary>${tag.slice(1, -1)} · ${esc(head)}</summary><div class="md">${md(rest.join('\n\n') || '（没有内容）')}</div></details>`;
     }
-    if (it.who === 'note' && it.sa) return `<details class="note rpt"><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
+    if (it.who === 'note' && it.sa) return `<details class="note rpt"${row}${match ? ' open' : ''}><summary>${esc(it.text)}</summary><div class="md">${md(it.sa)}</div></details>`;
     if (it.who === 'you') {
       const isQ = it.pending && queued.has(it.text.slice(0, 80));
       // 你发出去的话下面写清楚它现在怎么样了：排着、插进去了、还是已经在做——不用猜要不要守着
@@ -46,18 +66,18 @@ function renderThread(d) {
       const tag = !it.pending ? '' : isQ ? '排队中' : d.live ? (req && it.text.startsWith(req) ? '' : '插话') : (it.age > 30 ? '没开工' : '已送到');
       const before = prevEnd(idx);
       const btns = ib('copy', '复制') + (it.historical ? ib('bring', '带给当前会话') : '') + (!it.historical && (isQ || (!it.pending && before)) ? ib('back', '回退') : '') + (!it.historical && !it.pending && before !== null ? ib('fork', '分叉') : '');
-      return `<div class="yw" data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
+      return `<div class="yw"${row} data-y="${idx}" data-q="${isQ ? 1 : ''}"><div class="you ${it.pending ? 'pending' : ''}">${youImgs(it.local || (it.imgs || []).map(r => `/_x/api/uimg/${it.source_num || d.num}/${r}`))}${esc(it.text)}</div>
         <div class="ymeta"><span class="ibs">${btns}</span>${tag ? `<span class="ys">${tag}</span>` : ''}</div></div>`;
     }
-    if (it.who === 'note' && it.handoff !== undefined) return `<details class="note"><summary>${esc(it.text)}</summary><div class="md">${md(it.handoff || '无交接说明')}</div></details>`;
-    if (it.who === 'note' && it.relay) return `<div class="note rw">${esc(it.text)}<button class="relaygo" data-n="${it.relay}">过去</button></div>`;
+    if (it.who === 'progress') return `<div class="cl progress-message"${row}><div class="md">${md(it.text)}</div></div>`;
+    if (it.who === 'note' && it.handoff !== undefined) return `<details class="note"${row}><summary>${esc(it.text)}</summary><div class="md">${md(it.handoff || '无交接说明')}</div></details>`;
+    if (it.who === 'note' && it.relay) return `<div class="note rw"${row}>${esc(it.text)}<button class="relaygo" data-n="${it.relay}">过去</button></div>`;
     if (it.who === 'note') return it.rewind
-      ? `<div class="note rw">${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note">${esc(it.text)}</div>`;
+      ? `<div class="note rw"${row}>${esc(it.text)}${it.fork ? '' : '<button class="rwundo">撤销</button>'}</div>` : `<div class="note"${row}>${esc(it.text)}</div>`;
     const acts = [it.tid && !(it.process && it.process.length) ? `<a class="pill" href="/_x/t/${it.tid}" target="_blank">${ICON.list}过程</a>` : '',
       ...(it.links || []).map(x => linkPill(x, it, d))].join('');
-    const id = d.num + ':' + idx, fold = !keep.has(it) && it.text.length > 160 && !opened.has(id);
     const imgs = (it.images || []).length ? `<div class="imgs">${it.images.map(u => `<a href="${u}" target="_blank"><img src="${u}" loading="lazy"></a>`).join('')}</div>` : '';
-    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><button class="file-download file-share" data-file-url="${esc(f.url)}" data-file-name="${esc(f.name)}" aria-label="分享 ${esc(f.name)}"${navigator.share ? '' : ' hidden'}>分享</button><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
+    const files = (it.files || []).map(f => `<div class="file-row"><a class="file" href="${esc(f.url)}${/\.pdf$/i.test(f.name) ? '?view=1' : ''}" target="_blank" rel="noopener">${ICON.doc}<span class="fn">${esc(f.name)}</span><span class="fs">${size(f.size)}</span></a><button class="file-download file-share" data-file-url="${esc(f.url)}" data-file-name="${esc(f.name)}" aria-label="分享 ${esc(f.name)}"${navigator.share ? '' : ' hidden'}>分享</button><a class="file-download" href="${esc(f.url)}?download=1" download="${esc(f.name)}" target="_blank" rel="noopener" aria-label="下载 ${esc(f.name)}">下载</a></div>`).join('');
     const elapsed = Number.isFinite(it.elapsed) && it.elapsed >= 0 ? `<span class="process-time">耗时 ${dur(it.elapsed)}</span>` : '';
     const proc = it.process && it.process.length ? (() => {
       const pid = d.num + ':p' + idx, op = openProc.has(pid), thinks = it.process.filter(e => e.k === 'think').length;
@@ -67,30 +87,35 @@ function renderThread(d) {
     const facts = [it.model_label ? it.model_label.replace(/^Claude /, '') : '', it.nfiles ? `改 ${it.nfiles} 个文件` : '', (it.images || []).length ? `${it.images.length} 张图` : '',
       (it.files || []).length ? `${it.files.length} 个文件给你` : ''].filter(Boolean);
     const btns = `<span class="ibs">${ib('copy', '复制')}${it.historical ? ib('bring', '带给当前会话') : it.end ? ib('fork', '分叉') : ''}${it.tid || it.end ? ib('listen', '朗读') : ''}</span>`;
-    return `<div class="cl ${fold ? 'fold' : ''}" data-i="${idx}">${proc}${imgs}<div class="md">${md(it.text)}</div>${fold ? `<button class="more" data-id="${id}">展开全部</button>` : ''}${files}
+    return progressMessages(it.updates) + `<div class="cl"${row} data-i="${idx}">${imgs}<div class="md">${md(it.text)}</div>${files}${proc}
       <div class="acts">${btns}${facts.length ? `<span class="facts">${facts.join(' · ')}</span>` : ''}${acts}</div></div>`;
   }).join('');
   h += localShow.map(p => `<div class="you pending">${youImgs(p.imgs || [])}${esc(p.text === '[图片]' && (p.imgs || []).length ? '' : p.text)}</div>`
     + `<div class="ymeta"><span class="${p.acked ? '' : 'sending'}">${p.acked ? (Date.now() - p.t > 30000 && !d.live ? '没开工' : '已送到') : p.quick ? '3 秒后发出' : '发送中…'}</span></div>`).join('');
   if (!d.items.length && !d.live && !localShow.length) h = '<div class="note">这个对话还没有内容</div>';
   if (d.live) {
-    const L = d.live, first = L.total - L.steps.length + 1;
+    const L = d.live;
+    h += progressMessages(L.updates);
+    if (L.answer) h += `<div class="cl live-answer"><div class="md">${md(L.answer)}</div></div>`;
     if (L.compact) h += `<div class="live"><div class="lh"><i class="spin"></i><span>正在压缩上下文 · 大约一分钟</span></div></div>`;
     else {
-      // 一大行说清：第几步、在做什么、做了多久；有步骤清单按清单算，还能估个大概还要多久
-      const plan = L.plan || [], done = plan.filter(x => x.status === 'done').length, doing = plan.find(x => x.status === 'doing');
+      const plan = L.plan || [], done = plan.filter(x => x.status === 'done').length;
+      const doing = plan.filter(x => x.status === 'doing'), latest = L.steps.at(-1);
       const t0 = Date.now() / 1000 - (L.elapsed ?? L.minutes * 60);
-      const head = plan.length ? esc((doing || plan.find(x => x.status !== 'done') || plan[plan.length - 1]).text)
-        : L.total ? esc(L.steps[L.steps.length - 1] || '') : L.elapsed < 20 ? '收到了，正在开工' : '在想…';
-      const at = plan.length ? `第 ${Math.min(plan.length, done + 1)}/${plan.length} 步 · ` : L.total ? `第 ${L.total} 步 · ` : '';
+      const head = doing.length ? doing.map(step => step.text).join('、')
+        : plan.length && done === plan.length ? '步骤清单已完成'
+        : latest ? '最近操作 · ' + latest : L.elapsed < 20 ? '收到了，正在开工' : '在想…';
+      const at = L.progress ? `${esc(L.progress)} · ` : '';
       const popen = openProc.has('plan');
-      const seg = plan.length > 1 ? `<button class="pbar" data-p="plan" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>` : '';
-      const left = plan.length - done, eta = plan.length && done >= 2 && left > 0 ? Math.max(1, Math.round((L.elapsed / done) * left / 60)) : 0;
+      const progress = plan.length
+        ? `<button class="pbar" data-p="plan" aria-expanded="${popen}" aria-label="${popen ? '收起步骤' : '看全部步骤'}">${plan.map(x => `<i class="${x.status}"></i>`).join('')}</button>`
+        : '<div class="pbar pbar-activity" role="progressbar" aria-label="任务进行中"><i class="doing" aria-hidden="true"></i></div>';
       const pop = openProc.has('live');
-      h += `<div class="live"><div class="lh"><i class="spin"></i><span class="lt">${head}</span><button class="stop" id="stop">${ICON.stop}停止</button></div>
-      <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${eta ? ` · 预计还要约 ${eta} 分钟` : ''}${L.injected ? ` · 插话 ${L.injected} 次` : ''}</div>
-      ${seg}${popen && plan.length > 1 ? planHTML(plan) : ''}
-      <div class="silence" data-t0="${Date.now() / 1000 - (L.idle || 0)}"></div>${agentsHTML(L.agents || [])}
+      const commandsOpen = !!$(`#col .live[data-session="${d.num}"] .command-jobs[open]`);
+      h += `<div class="live" data-session="${d.num}"><div class="lh"><i class="spin"></i><span class="lt">${esc(head)}</span><button class="stop" id="stop">${ICON.stop}停止</button></div>
+      <div class="lsub">${at}<b class="tick" data-t0="${t0}">${dur(L.elapsed ?? L.minutes * 60)}</b>${L.injected ? ` · 插话 ${L.injected} 次` : ''}</div>
+      ${progress}${popen ? planHTML(plan) : ''}
+      <div class="silence" data-t0="${Date.now() / 1000 - (L.idle || 0)}"></div>${agentsHTML(L.agents || [], commandsOpen)}
       ${(L.process || []).length ? `<button class="ptog ${pop ? 'open' : ''}" data-p="live">${ICON.chev}看过程 · ${L.process.length} 条</button>${pop ? procHTML(L.process, 'live') : ''}` : ''}</div>`;
     }
   }
@@ -106,30 +131,31 @@ function renderThread(d) {
       `<button class="opt ${k === d.decision.recommend ? 'rec' : ''}" data-k="${k}" data-v="${esc(v)}"><span class="k">${k}</span><span class="v">${esc(v)}</span>${k === d.decision.recommend ? '<span class="tag">推荐</span>' : ''}</button>`).join('')}</div>`;
   setTimeout(showPartial);
   const pos = {};
-  document.querySelectorAll('.plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.dataset.reading !== '1' && x.scrollHeight - x.scrollTop - x.clientHeight < 4, reading: x.dataset.reading}; });
+  document.querySelectorAll('.live .plist[data-pid]').forEach(x => { pos[x.dataset.pid] = {top: x.scrollTop, end: x.dataset.reading !== '1' && scrollGap(x) < 4, reading: x.dataset.reading}; });
   $('#col').innerHTML = h;
-  document.querySelectorAll('.plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid]; if (p && !p.end) x.scrollTop = p.top; else x.scrollTop = x.scrollHeight;
+  document.querySelectorAll('.live .plist[data-pid]').forEach(x => { const p = pos[x.dataset.pid];
     if (p && p.reading) x.dataset.reading = p.reading;
-    const pause = () => { x.dataset.reading = '1'; stick = false; };
-    const resume = () => { if (x.scrollHeight - x.scrollTop - x.clientHeight < 4) delete x.dataset.reading; };
-    x.addEventListener('wheel', e => { if (e.deltaY < 0) pause(); else resume(); }, {passive: true});
-    x.addEventListener('touchmove', pause, {passive: true});
-    x.addEventListener('touchend', () => setTimeout(resume, 0), {passive: true});
-    x.addEventListener('pointerdown', pause);
-    x.addEventListener('pointerup', () => setTimeout(resume, 0));
-    x.addEventListener('keyup', resume);
-    x.addEventListener('scroll', () => { const gap = x.scrollHeight - x.scrollTop - x.clientHeight; if (gap > 40) { x.dataset.reading = '1'; stick = false; } else if (gap < 4) delete x.dataset.reading; }, {passive: true});
+    x.scrollTop = p && !p.end ? p.top : x.scrollHeight;
+    let top = x.scrollTop;
+    const pause = () => { x.dataset.reading = '1'; feedScroll.pause(); };
+    const resume = () => { delete x.dataset.reading; x.scrollTop = x.scrollHeight; top = x.scrollTop; feedScroll.resumeAtEnd(); };
+    x.addEventListener('wheel', e => { if (e.deltaY < 0 && x.scrollTop > 0) pause(); }, {passive: true});
+    x.addEventListener('scroll', () => {
+      if (!x.isConnected) return;
+      const current = Math.max(0, x.scrollTop);
+      if (current < Math.min(top, x.scrollHeight - x.clientHeight)) pause();
+      else if (current > top && scrollGap(x) < 4) resume();
+      top = x.scrollTop;
+    }, {passive: true});
     const jb = x.querySelector('.pjump');
-    if (jb) jb.onclick = e => { e.stopPropagation(); delete x.dataset.reading; x.scrollTop = x.scrollHeight; };
-    x.addEventListener('keydown', e => { if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) pause(); });
+    if (jb) jb.onclick = e => { e.stopPropagation(); resume(); };
   });
   document.querySelectorAll('.confirm [data-allow]').forEach(b => b.onclick = async () => {
     const allow = b.dataset.allow === '1'; b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
     b.innerHTML = '<i class="spin"></i>' + (allow ? '允许' : '不允许');
     await api('confirm/' + sel, {allow}).catch(() => {}); lastKey = ''; loadThread();
   });
-  document.querySelectorAll('.more').forEach(b => b.onclick = () => { opened.add(b.dataset.id); lastKey = ''; renderThread(d); });
-  document.querySelectorAll('.ptog, .plan[data-p], .pbar').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k);
+  document.querySelectorAll('.ptog, .plan[data-p], .pbar[data-p]').forEach(b => b.onclick = () => { const k = b.dataset.p; openProc.has(k) ? openProc.delete(k) : openProc.add(k);
     anchor = {sel: `.${b.classList[0]}[data-p="${CSS.escape(k)}"]`, top: b.getBoundingClientRect().top}; stick = false; lastKey = ''; renderThread(d); });
   document.querySelectorAll('.pt[data-c], .pd[data-c]').forEach(c => c.onclick = () => {
     const k = c.dataset.c; c.classList.toggle('clamp') ? unclamp.delete(k) : unclamp.add(k); });
@@ -161,7 +187,7 @@ function renderThread(d) {
   if ($('.limit')) bindRelayAlts($('.limit'), d.num, true);
   if ($('#autoRes')) $('#autoRes').onclick = async () => { await manage(d.num, 'autoresume', !d.limit.auto); lastKey = ''; loadThread(); };
   const q = $('#quick'), lastReply = replies.length ? replies[replies.length - 1].text : '';
-  const me = sessions.find(x => x.num === d.num) || {};
+  const currentSession = sessions.find(x => x.num === d.num) || {};
   const approve = (lastReply.match(/批准本会话编辑：[^\n`]+/g) || []);
   const yesNo = /(吗|么|是否|要不要|对不对|行不行|可不可以|好不好|对吧)[？?]\s*$/.test((d.awaiting || '').trim());
   // 按它最后说的给几个最可能的回答：批准编辑、是 / 不是、好的 / 按推荐、做完顺口的建议、停了或出错了就“继续”
@@ -170,8 +196,8 @@ function renderThread(d) {
     : d.awaiting_kind === 'suggest' ? [['好，做吧', '好，做吧'], ['不用了', '不用了']]
     : d.awaiting && yesNo ? [['是', '是'], ['不是', '不是'], ['先不做', '先不做']]
     : d.awaiting ? [['好的', '好的'], ['就按你推荐的', '就按你推荐的'], ['先不做', '先不做']]
-    : me.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
-  const canDismiss = !d.live && !d.limit && (d.awaiting || me.status === 'error');
+    : currentSession.status === 'error' || /\[Request interrupted|已停下|停下了/.test(lastReply.slice(-80)) ? [['继续', '继续']] : [];
+  const canDismiss = !d.live && !d.limit && (d.awaiting || currentSession.status === 'error');
   q.hidden = !quick.length && !canDismiss;
   q.innerHTML = quick.map(([t], i) => `<button data-i="${i}">${esc(t)}</button>`).join('') + (canDismiss ? '<button data-dismiss="1">不用回答了</button>' : '');
   const dm = q.querySelector('[data-dismiss]');
@@ -191,6 +217,12 @@ function renderThread(d) {
   renderUsage(d.usage);
   if (!mpOpen && d.usage) renderModel({model: d.usage.mkey || 'opus', label: d.usage.model === '默认模型' ? '' : d.usage.model, effort: d.usage.ekey || 'medium'}, st => api('settings/' + sel, st), false);
   $('#headActs').innerHTML = '';
+  if (me.course_url) {
+    const trial = new URL(me.course_url, location.origin), spot = d.ext?.course?.feedback;
+    if (spot?.section) trial.searchParams.set('xe_sec', spot.section);
+    if (Number.isInteger(spot?.screen)) trial.searchParams.set('xe_scr', spot.screen);
+    $('#headActs').innerHTML = `<a class="pill" href="${esc(trial.pathname + trial.search)}">返回试课</a>`;
+  }
   XE.emit('thread', d);   // 标题栏右边留给扩展
   $('#ta').placeholder = d.live && d.live.compact ? '说点什么…' : d.live ? '插话…' : d.awaiting && d.awaiting_kind !== 'suggest' ? '回答它的问题…' : '说点什么…';
   if ($('#stop')) $('#stop').onclick = async e => { e.currentTarget.innerHTML = '<i class="spin"></i>停止中'; e.currentTarget.disabled = true; await api('stop/' + d.num, {}); loadThread(); };
@@ -204,12 +236,52 @@ function renderThread(d) {
   tickSilence();   // 先填好“没动静”那行，再定位置
   const cls = document.querySelectorAll('#col .cl'), lastCl = cls[cls.length - 1];
   const an = anchor && document.querySelector('#col ' + anchor.sel);
-  if (an) feed.scrollTop += an.getBoundingClientRect().top - anchor.top, anchor = null;
-  else if (near && fresh && lastCl) stick = false, feed.scrollTop += lastCl.getBoundingClientRect().top - feed.getBoundingClientRect().top - 12;
-  else if (near) feed.scrollTop = feed.scrollHeight;
-  else feed.scrollTop = savedTop;
+  const hit = searchHit && $('#col [data-search-hit]');
+  const body = hit && (hit.matches('details') ? hit : hit.querySelector('.you, .md') || hit);
+  const mark = body && markSearchText(body, searchHit.q);
+  const viewTop = feed.getBoundingClientRect().top;
+  const replyTop = lastCl && lastCl.getBoundingClientRect().top - viewTop;
+  if (hit && !searchHit.jumped) {
+    searchHit.jumped = true;
+    stick = false;
+    feedScroll.setTop(feed.scrollTop + (mark || hit).getBoundingClientRect().top - viewTop - 24);
+  } else if (an) {
+    feedScroll.setTop(feed.scrollTop + an.getBoundingClientRect().top - anchor.top);
+    anchor = null;
+  } else if (near && fresh && lastCl && replyTop - 12 < scrollGap(feed) - 4) {
+    stick = false;
+    feedScroll.setTop(feed.scrollTop + replyTop - 12);
+  } else feedScroll.restore();
 }
-const replyCount = {}, wasLive = {}, sentImgs = new Map();
+function markSearchText(root, query) {
+  // Markdown 可能把一次命中拆成多个文本节点，保留原有链接和格式。
+  const text = root.textContent;
+  const start = text.toLowerCase().indexOf(query.toLowerCase());
+  if (start < 0) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const end = start + query.length;
+  const ranges = [];
+  let offset = 0;
+  for (let node; offset < end && (node = walker.nextNode());) {
+    const next = offset + node.length;
+    if (next > start) {
+      const range = document.createRange();
+      range.setStart(node, Math.max(0, start - offset));
+      range.setEnd(node, Math.min(node.length, end - offset));
+      ranges.push(range);
+    }
+    offset = next;
+  }
+  let first = null;
+  for (const range of ranges) {
+    const mark = document.createElement('mark');
+    range.surroundContents(mark);
+    first ||= mark;
+    mark.closest('details.code')?.setAttribute('open', '');
+  }
+  return first;
+}
+const replyCount = {}, sentImgs = new Map();
 
 // 回复底下的链接按钮（扩展附的）：扩展可以先改一改地址和字
 function linkPill(x0, it, d) {

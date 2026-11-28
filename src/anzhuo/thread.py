@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 
 from .cards import step_label
+from .cleanup import attachment_expired
+from .report import split_updates
 
 PROCESS_KEEP = 15  # 最近几轮带“工作过程”（再早的看过程页），免得一个长对话整页太重
 
@@ -81,12 +83,22 @@ def full_messages(session_id: str, cwd: str | None, times: dict | None = None):
     return out
 
 
+def _remote_image_expired(content: list, sent_at: float) -> bool:
+    return bool(sent_at and attachment_expired(sent_at) and any(
+        isinstance(block, dict) and block.get("type") == "text" and block.get("text", "").startswith(IMG_PATHS)
+        for block in content
+    ))
+
+
 def user_image(session_id: str, cwd: str | None, ref: str) -> tuple[bytes, str] | None:
     """你发过的某张图（ref = 消息编号/第几张）：从对话记录里取出来给网页显示。"""
     import base64
     uuid, _, k = ref.partition("/")
-    for m in full_messages(session_id, cwd):
+    times: dict = {}
+    for m in full_messages(session_id, cwd, times):
         if getattr(m, "uuid", "") == uuid and isinstance(m.message, dict) and isinstance(m.message.get("content"), list):
+            if _remote_image_expired(m.message["content"], times.get(uuid, 0)):
+                return None
             imgs = [b for b in m.message["content"] if isinstance(b, dict) and b.get("type") == "image"]
             if k.isdigit() and int(k) < len(imgs):
                 src = imgs[int(k)].get("source") or {}
@@ -104,22 +116,26 @@ def _detail(name: str, inp: dict) -> str:
     return ""
 
 
-def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]:
+def history(messages, limit: int | None = 300, times: dict | None = None) -> list[dict]:
     items: list[dict] = []
     reply, steps, process = "", 0, []
     ts = 0.0  # 回复那段话的时间
     end = ""  # 这一轮最后一条记录的编号：“回到这里”从它接着
+    reply_entries = []
+    continuing = False
 
     def flush():
-        nonlocal reply, steps, process
+        nonlocal reply, steps, process, reply_entries, continuing
         if reply and reply.strip() not in _SKIP_REPLY:
             # 最后那段话是回复本身，不算进过程
-            if process and process[-1]["k"] == "say" and process[-1]["text"] == reply[:1500]:
-                process.pop()
-            items.append({"who": "claude", "text": reply, "steps": steps, "process": process[-80:], **({"end": end} if end else {})})
+            process = [e for e in process if not any(e is part for part in reply_entries)]
+            updates, process = split_updates(process)
+            items.append({"who": "claude", "text": reply, "steps": steps, "updates": updates,
+                          "process": process[-80:], **({"end": end} if end else {})})
             if times is not None:
                 items[-1]["ts"] = ts
         reply, steps, process = "", 0, []
+        reply_entries, continuing = [], False
 
     for m in messages:
         msg = m.message if isinstance(m.message, dict) else {}
@@ -137,7 +153,10 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                 # 带图的话：网页上直接显示图（/_x/api/uimg/…），文字里去掉“[图片]”占位
                 body = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
                                  and not b.get("text", "").startswith(IMG_PATHS)).strip()
-                items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
+                if _remote_image_expired(content, (times or {}).get(m.uuid, 0)):
+                    items.append({"who": "you", "text": body or "（图片已过期）"})
+                else:
+                    items.append({"who": "you", "text": body, "imgs": [f"{m.uuid}/{k}" for k in range(n_img)]})
             else:
                 items.append({"who": "you", "text": text.strip()})
             if getattr(m, "uuid", ""):
@@ -145,16 +164,29 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
                 if times is not None:
                     items[-1]["ts"] = (times or {}).get(m.uuid, 0.0)
         elif m.type == "assistant" and isinstance(content, list):
+            if getattr(m, 'parent_tool_use_id', None):
+                continue
             end = getattr(m, "uuid", "") or end
+            texts = [b['text'] for b in content if isinstance(b, dict) and b.get('type') == 'text' and b.get('text', '').strip()]
+            if texts:
+                text = '\n\n'.join(texts)
+                reply = reply + '\n\n' + text if continuing else text
+                if not continuing:
+                    reply_entries = []
+                ts = (times or {}).get(getattr(m, 'uuid', ''), 0.0)
+                entry = {'k': 'say', 'text': text}
+                reply_entries.append(entry)
+                continuing = True
+            text_added = False
             for b in content:
                 kind = b.get("type") if isinstance(b, dict) else None
                 if kind == "thinking" and (b.get("thinking") or "").strip():
                     process.append({"k": "think", "text": b["thinking"][:1500]})
-                elif kind == "text" and b.get("text", "").strip():
-                    reply = b["text"]
-                    ts = (times or {}).get(getattr(m, "uuid", ""), 0.0)
-                    process.append({"k": "say", "text": b["text"][:1500]})
+                elif kind == 'text' and b.get('text', '').strip() and not text_added:
+                    process.append(entry)
+                    text_added = True
                 elif kind == "tool_use":
+                    continuing = False
                     steps += 1
                     label = step_label(b.get("name", ""), b.get("input") or {})
                     if label:
@@ -164,7 +196,7 @@ def history(messages, limit: int = 300, times: dict | None = None) -> list[dict]
     last_note = max((i for i, it in enumerate(items) if it["who"] == "note"), default=-1)
     for it in items[:last_note + 1]:
         it.pop("end", None)
-    out = items[-limit:]
+    out = items if limit is None else items[-limit:]
     replies = [it for it in out if it["who"] == "claude"]
     for it in replies[:-PROCESS_KEEP]:
         it.pop("process", None)
@@ -198,8 +230,20 @@ def attach_records(items: list[dict], records: list[dict]) -> list[dict]:
         it["images"] = rec.get("images", [])
         it["files"] = rec.get("files", [])
         it["nfiles"], it["ncmds"] = rec.get("nfiles", 0), rec.get("ncmds", 0)
-        if rec.get("final_text") and rec.get("translated"):
-            it["text"] = rec["final_text"]  # 钉钉里发的是译好的中文，网页也用它
+        if rec.get("final_text"):
+            from .translate import is_service_error
+            # 兼容旧记录：翻译报错曾覆盖正文，不能再用这类“译文”替换完整历史。
+            if not (rec.get('translated') and is_service_error(rec['final_text'])):
+                # Claude 一轮内收到插话时，归档可能把分开说的几段合成一份报告。
+                # 原始对话已有这些回复时，保留每段在对应插话旁的位置。
+                original = rec.get("original_text") or rec["final_text"]
+                prefix, separator, last = original.rpartition("\n\n---\n\n")
+                if separator and last == it["text"] and started:
+                    earlier = {reply["text"] for reply in replies
+                               if started <= (reply.get("ts") or 0) < (it.get("ts") or 0)}
+                    if all(part in earlier for part in prefix.split(separator)):
+                        continue
+                it["text"] = rec["final_text"]
     return items
 
 

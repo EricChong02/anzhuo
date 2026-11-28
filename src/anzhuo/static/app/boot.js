@@ -6,13 +6,22 @@ if (window.visualViewport) {
     if (scrollX || scrollY) scrollTo(0, 0);
     // 用布局高度（clientHeight）算：iPhone 的 Safari 里 innerHeight 会跟着键盘一起变矮，拿它算会得 0
     const full = document.documentElement.clientHeight || innerHeight;
-    const kb = Math.max(0, Math.round(full - vv.height - vv.offsetTop));
+    // 没有输入框在打字就不可能有键盘：iPad 从后台切回、分屏或台前调度改窗口时 visualViewport 偶尔给出过时的小高度，
+    // 又不再发 resize，--kb 卡成几百像素，输入条被顶到屏幕顶、对话区一片空白（2026-11-26）
+    const a = document.activeElement;
+    const editing = a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    const kb = editing ? Math.max(0, Math.round(full - vv.height - vv.offsetTop)) : 0;
     document.documentElement.style.setProperty('--kb', kb + 'px');
     document.documentElement.style.setProperty('--visible-height', vv.height + 'px');
     document.documentElement.classList.toggle('keyboard-open', kb > 100);
     const t = $('#ta'); if (t && t.oninput) t.oninput();   // 键盘弹起后看得见的区域变小，输入框高度跟着收
   };
-  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
+  // iOS 有时先报中间值、最终值不再发事件：每次变化后再补算两次
+  const refitSoon = () => { fit(); setTimeout(fit, 120); setTimeout(fit, 400); };
+  vv.addEventListener('resize', refitSoon); vv.addEventListener('scroll', fit); fit();
+  addEventListener('resize', refitSoon); addEventListener('orientationchange', refitSoon); addEventListener('pageshow', refitSoon);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refitSoon(); });
+  addEventListener('focusin', () => setTimeout(refitSoon, 60));
   addEventListener('focusout', () => setTimeout(fit, 60));
 }
 
@@ -74,7 +83,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   const width = Number(read('sidebar'));
   if (width >= 240 && width <= 420) root.style.setProperty('--sidebar-width', width + 'px');
   const bar = document.createElement('div'); bar.className = 'desktop-tools';
-  bar.innerHTML = '<button id="workspaceToggle" title="收起侧栏（⌘⇧L）" aria-label="收起侧栏" aria-expanded="true">☰</button><button id="workspaceHelp" title="桌面使用设置与快捷键" aria-label="桌面使用设置与快捷键">⌘</button>';
+  bar.innerHTML = '<button id="workspaceToggle" title="收起侧栏（⌘⇧L）" aria-label="收起侧栏" aria-expanded="true">☰</button>';
   app.appendChild(bar);
   const toggle = () => {
     if (tablet && innerWidth < 1000) { if ($('#app').classList.contains('in')) $('#back')?.click(); return; }
@@ -104,8 +113,8 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
     };
     el.querySelector('input').focus();
   };
-  $('#workspaceHelp').onclick = help;
-  if (tablet) { $('#workspaceHelp').title = 'iPad 使用与键盘设置'; $('#workspaceHelp').setAttribute('aria-label', 'iPad 使用与键盘设置'); }
+  window.openDesktopHelp = () => desktop() && help();   // 入口在“更多”菜单和 ⌘/，顶栏不再单放一个按钮
+  window.hasDesktopHelp = desktop;
   const grip = document.createElement('div'); grip.className = 'sidebar-grip'; grip.tabIndex = 0;
   grip.setAttribute('role', 'separator'); grip.setAttribute('aria-label', '调整侧栏宽度'); grip.setAttribute('aria-orientation', 'vertical');
   grip.setAttribute('aria-valuemin', '240'); grip.setAttribute('aria-valuemax', '420'); app.appendChild(grip);
@@ -127,7 +136,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
   let observed = null;
   const ro = new ResizeObserver(entries => {
     const feed = $('#feed');
-    if (feed) { feed.style.paddingBottom = Math.ceil($('#main').getBoundingClientRect().bottom - entries[0].target.getBoundingClientRect().top + 24) + 'px'; if (stick) feed.scrollTop = feed.scrollHeight; }
+    if (feed) {
+      feedScroll.sync();
+      feed.style.paddingBottom = Math.ceil($('#main').getBoundingClientRect().bottom - entries[0].target.getBoundingClientRect().top + 24) + 'px';
+      feedScroll.restore();
+    }
   });
   const observe = () => {
     const dock = $('#main .dock'); if (observed === dock) return;

@@ -14,7 +14,7 @@ from .. import quota, schedules, usage, task_groups
 from ..sessions import Session
 from ..folders import display, readable
 from ..report import LIMIT_CN
-from .common import DESK_FRESH, model_options
+from .common import DESK_FRESH, model_options, work_progress
 
 log = logging.getLogger(__name__)
 
@@ -87,12 +87,15 @@ class ListingMixin:
             if self._relay_latest(s).num != s.num:
                 continue
             turn = b.runner.turns.get(s.num)
+            progress = work_progress(turn.plan, len(turn.steps)) if turn else ""
             if turn and turn.confirm:
                 status, detail = "awaiting", f"等你确认：{turn.confirm['what']}"
             elif turn and b.runner.compacting(s.num) == "running":
                 status, detail = "running", "正在压缩上下文"
             elif turn:
-                status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟 · 第 {len(turn.steps)} 步"
+                status, detail = "running", f"在做 · {int((now - turn.started) // 60)} 分钟"
+                if progress:
+                    detail += f" · {progress}"
             elif b.runner.busy(s.num):
                 status, detail = "queued", "排队中"
             elif s.limit_until > now:
@@ -108,22 +111,27 @@ class ListingMixin:
                 status, detail = "idle", s.last_title or "空闲"
             unread = status in ("idle", "awaiting", "error", "paused") and bool(s.claude_id or s.codex_id) and s.updated > s.seen + 1
             rows.append({"num": s.num, "name": self._relay_chain(s)[0].name, "cwd": display(Path(s.cwd)), "status": status, "unread": unread,
-                         "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0,
+                         "detail": detail, "updated": s.updated, "steps": len(turn.steps) if turn else 0, "progress": progress,
                          "engine": getattr(s, "engine", "claude"),
                          "task_group": s.task_group or self._relay_chain(s)[0].task_group, "task_group_manual": s.task_group_manual,
-                         "pinned": s.pinned, "role": s.role,
+                         "pinned": s.pinned,
                          "suggest": s.awaiting_kind == "suggest" and status == "idle",
                          "last_step": turn.steps[-1] if turn and turn.steps else ""})
         order = {"awaiting": 0, "running": 1, "queued": 2, "error": 3, "paused": 4, "idle": 5}
         rows.sort(key=lambda r: (order[r["status"]], -r["updated"]))
         acct = request.get("acct", "")
-        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else ""}
+        me = {"name": acct, "role": self.role(acct), "root": display(Path(self.root_of(acct)).expanduser()) if fenced else "",
+              "default_model": self.accounts.get(acct, {}).get("default_model", "auto"),
+              "default_effort": self.accounts.get(acct, {}).get("default_effort", "")}
+        if fenced and (module := next((e for e in self.exts if e.name == "course"), None)):
+            if course := module.account_course(request):
+                me["course_url"] = "/studio-preview.html?course=/workspace/" + course + "/course.json"
         extra = {} if fenced else await asyncio.to_thread(self._ext_data, "sessions_extra", rows)   # 扩展可能要翻文件
         from ..app import router
         return web.json_response({"sessions": rows, "ext": extra, "me": me,
                                   "folders": [] if fenced else list(b.cfg.folders),
                                   "current": None if fenced else b.registry.current,
-                                  "models": [m for m in model_options() if not fenced or m[0] in ("opus", "sonnet", "haiku", "fable")],
+                                  "models": [m for m in model_options() if not fenced or m[0] in self.accounts.get(acct, {}).get("allowed_models", ("opus", "sonnet", "haiku", "fable"))],
                                   "limits": self._limits(b.runner.limits) if not fenced else self._my_limits(acct),
                                   "limits_gpt": [] if fenced else self._limits(getattr(b.runner, "limits_gpt", {})),
                                   "recent": [] if fenced else self._recent_folders(), "last_folder": "" if fenced else self._last_folder(),
@@ -138,7 +146,7 @@ class ListingMixin:
         home = str(Path.home())
         seen, out = {str(Path(v).expanduser()) for v in b.cfg.folders.values()}, []   # 配了短名的文件夹已经在菜单里，不再重复列
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
-            if s.owner != "admin" or s.role == "router":   # 受限账号的、总管的文件夹不算（总管的文件夹不是干活的地方）
+            if s.owner != "admin":   # 受限账号的文件夹不算
                 continue
             p = str(Path(s.cwd).expanduser())
             if p in seen or p == home or p.startswith(scratch):
@@ -154,7 +162,7 @@ class ListingMixin:
         b = self.bridge
         scratch, home = str(Path(b.cfg.scratch_root).expanduser()), str(Path.home())
         for s in sorted(b.registry.sessions.values(), key=lambda x: -x.updated):
-            if s.owner != "admin" or s.role == "router":   # 受限账号的、总管的文件夹不算（总管的文件夹不是干活的地方）
+            if s.owner != "admin":   # 受限账号的文件夹不算
                 continue
             p = str(Path(s.cwd).expanduser())
             if p == home or p.startswith(scratch):

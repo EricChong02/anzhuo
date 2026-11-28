@@ -101,8 +101,8 @@ def test_thread_history():
     items = thread.history(msgs)
     assert items == [{"who": "note", "text": "（更早的对话内容已压缩）"},
                      {"who": "you", "text": "[图片]\n把封面标题改大"},
-                     {"who": "claude", "text": "改好了", "steps": 2,
-                      "process": [{"k": "say", "text": "我先看看"}, {"k": "do", "text": "看 文件", "detail": ""},
+                     {"who": "claude", "text": "改好了", "steps": 2, "updates": ["我先看看"],
+                      "process": [{"k": "do", "text": "看 文件", "detail": ""},
                                   {"k": "do", "text": "改 文件", "detail": ""}]},
                      {"who": "you", "text": "好的"}]
     thread.attach_records(items, [{"id": "6-1", "title": "做完了", "links": [{"label": "预览", "url": "/p"}]}])
@@ -152,7 +152,7 @@ def test_chat_api(tmp_path, monkeypatch):
 
         async def message(self, cmd, inc, routed=False):
             self.sent.append((cmd.num, cmd.text, list(inc.local_images)))
-            self.outgoing.setdefault(cmd.num, []).append({"t": 0, "text": cmd.text})
+            self.outgoing.setdefault(cmd.num, []).append({"t": time.time(), "text": cmd.text})
 
         async def new_session(self, tokens, text, inc, note="", kind=None, model=None, effort=None):
             self.new.append((tokens, text))
@@ -174,19 +174,40 @@ def test_chat_api(tmp_path, monkeypatch):
             await c.get("/_x/api/thread/6")
             d = await (await c.get("/_x/api/sessions")).json()
             assert d["sessions"][0]["unread"] is False                         # 打开看过就不算了
-            assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 第 2 步")
+            assert d["sessions"][1]["detail"].startswith("在做 · 2 分钟 · 已记录 2 项操作")
             assert [{k: v for k, v in l.items() if k in ("name", "pct", "reset")} for l in d["limits"]] == [{"name": "5 小时", "pct": 37, "reset": "10月25日 21:00"}, {"name": "本周", "pct": 22, "reset": ""}]
             assert "远窗" in await (await c.get("/_x/")).text()
             t7 = await (await c.get("/_x/api/thread/7")).json()
             assert t7["live"]["steps"] == ["看 a", "跑命令：du"] and t7["decision"] is None
-            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "relay_suggested": False}
+            assert t7["live"]["progress"] == "已记录 2 项操作"
+            assert t7["usage"] == {"model": "默认模型", "effort": "中", "context": None, "mkey": "", "ekey": "medium", "compacting": "", "busy": True, "tokens": None, "relay": None, "has_quota": True}
             png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
             r = await (await c.post("/_x/api/send", json={"num": 7, "text": "顺便看看桌面", "images": [png]})).json()
             assert r == {"ok": True, "injected": True}
             assert b.sent[0][:2] == (7, "顺便看看桌面") and b.sent[0][2][0].endswith(".png")
             assert b.said == []                                                    # 钉钉不转述你在网页说的话
+            turn = b.runner.turns[7]
+            sent_at = b.outgoing[7][-1]["t"]
+            turn.timeline.extend([
+                {"kind": "say", "text": "正在清理下载", "t": sent_at - 1},
+                {"kind": "say", "text": "收到，也看桌面", "t": sent_at + 1},
+            ])
             t7 = await (await c.get("/_x/api/thread/7")).json()
-            assert {k: v for k, v in t7["items"][-1].items() if k != "age"} == {"who": "you", "text": "顺便看看桌面", "pending": True}   # 记录里还没有，也先显示
+            assert [it["text"] for it in t7["items"]] == ["正在清理下载", "顺便看看桌面", "收到，也看桌面"]
+            assert t7["items"][1]["pending"]  # 记录里还没有，也先显示
+            before = (w._sig_sessions(), w._sig_thread(7))
+            turn.plan = [{"text": "找大文件", "status": "pending"}, {"text": "检查目录", "status": "pending"},
+                         {"text": "核对结果", "status": "doing"}]
+            assert w._sig_sessions() != before[0] and w._sig_thread(7) != before[1]
+            t7 = await (await c.get("/_x/api/thread/7")).json()
+            running = (await (await c.get("/_x/api/sessions")).json())["sessions"][1]
+            assert t7["live"]["plan"] == turn.plan
+            assert t7["live"]["progress"] == running["progress"] == "第 3/3 步"
+            before = (w._sig_sessions(), w._sig_thread(7))
+            turn.plan[2]["status"] = "done"
+            assert w._sig_sessions() != before[0] and w._sig_thread(7) != before[1]
+            t7 = await (await c.get("/_x/api/thread/7")).json()
+            assert t7["live"]["progress"] == "已完成 1/3 步"
             r = await (await c.post("/_x/api/send", json={"text": "查一下天气", "folder": ""})).json()
             assert r["num"] == 8 and b.new == [([], "查一下天气")]
             # 新对话“在哪做”：远窗自动判断 / 不碰文件（“接着做某门课”见 test_ext_course.py）
@@ -467,15 +488,15 @@ def test_model_names_follow_configuration(tmp_path, monkeypatch):
     monkeypatch.setitem(MODELS, "opus", "claude-opus-7-2")
     opts = dict(model_options())
     assert opts["opus"] == "Claude Opus 7.2"
-    assert opts["gpt"] == "GPT-6.1 Sol"
+    assert opts["gpt"] == "GPT-6.2 Sol"  # 远窗默认独立于桌面 Codex 配置
     assert opts["fable"] == "Claude Fable 5.2"
     assert display_model("GPT（gpt-6.1-sol）") == "GPT-6.1 Sol"
     assert display_model("claude-haiku-5-5") == "Claude Haiku 5.5"
     assert display_model("unknown-version") == "unknown-version"
     (tmp_path / "config.toml").write_text("bad = [")
-    assert dict(model_options())["gpt"] == "GPT"
+    assert dict(model_options())["gpt"] == "GPT-6.2 Sol"
     (tmp_path / "config.toml").unlink()
-    assert dict(model_options())["gpt"] == "GPT"
+    assert dict(model_options())["gpt"] == "GPT-6.2 Sol"
 
 
 def test_fork(tmp_path, monkeypatch):
@@ -584,7 +605,7 @@ def test_codex_next_message_uses_selected_branch(tmp_path, monkeypatch):
             codex_pending_hidden=["1-200"]))
         calls = []
         class Conn:
-            def __init__(self, *args):
+            def __init__(self, *args, **kwargs):
                 self.done = asyncio.Event()
                 self.model = "gpt-6.1-sol"
                 self.turn_status = "completed"
@@ -717,16 +738,18 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
     """先读到最终文字、稍后才归档附件：缓存与实时事件都必须更新。"""
     from types import SimpleNamespace as NS
     from anzhuo.sessions import Session
-    from anzhuo import thread
+    from anzhuo import cleanup, thread
+    from anzhuo.web import turns
 
     async def go():
-        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=120)
+        now = int(time.time())
+        s = Session(num=6, name="交付", cwd=str(tmp_path), claude_id="sid6", updated=now)
         w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
         w.bridge = NS(registry=NS(get=lambda n: s, save=lambda: None), outgoing={},
                       runner=NS(turns={}, limits={}, default_effort="medium", compacting=lambda n: "",
                                 busy=lambda n: False, queued=lambda n: []), relays=NS(writing={}, targets=lambda s: []))
         monkeypatch.setattr(thread, "full_messages", lambda *a: [])
-        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": 119}])
+        monkeypatch.setattr(thread, "history", lambda *a, **kw: [{"who": "claude", "text": "图片和文件已做好", "ts": now - 1}])
         c = TestClient(TestServer(w.app()))
         await c.start_server()
         try:
@@ -737,15 +760,21 @@ def test_claude_late_archive_refreshes_attachments(tmp_path, monkeypatch):
             img, pdf = tmp_path / "图.png", tmp_path / "文件.pdf"
             img.write_bytes(b"\x89PNG")
             pdf.write_bytes(b"%PDF-1.4")
-            tid = w.save_turn("#6 交付", Turn(started=100, ended=120, final_text="图片和文件已做好",
+            tid = w.save_turn("#6 交付", Turn(started=now - 20, ended=now, final_text="图片和文件已做好",
                                          images=[str(img)], files=[str(pdf)]), str(tmp_path), "完成")
-            assert s.updated == 120 and w._sig_thread(6) != before
+            assert s.updated == now and w._sig_thread(6) != before
             data = await (await c.get("/_x/api/thread/6")).json()
             reply = data["items"][0]
             assert reply["tid"] == tid and len(reply["images"]) == len(reply["files"]) == 1
             for url, expected in [(reply["images"][0], img.read_bytes()), (reply["files"][0]["url"], pdf.read_bytes())]:
                 r = await c.get(url)
                 assert r.status == 200 and await r.read() == expected
+            monkeypatch.setattr(turns, "attachment_expired", lambda sent_at: cleanup.attachment_expired(
+                sent_at, now + cleanup.KEEP_FILES_DAYS * 86400))
+            assert not w._records(6)[0]["files"] and not w._records(6)[0]["images"]
+            assert (await c.get(reply["files"][0]["url"])).status == 404
+            assert (await c.get(reply["images"][0])).status == 404
+            assert img.is_file() and pdf.is_file()
         finally:
             await c.close()
     asyncio.run(go())
@@ -930,7 +959,7 @@ def test_relay_continuous_history_and_old_entry(tmp_path):
         listing = json.loads((await w._api_sessions({})).text)
         assert [(r["num"], r["name"]) for r in listing["sessions"]] == [(3, "完整标题")]
         before = [(s.unsent, s.codex_id, s.claude_id) for s in sessions]
-        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}))).text)
+        result = json.loads((await w._api_thread(NS(match_info={"num": "3"}, query={}))).text)
         assert result["name"] == "完整标题"
         assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["问题1", "问题2", "问题3"]
         assert [i["handoff"] for i in result["items"] if "handoff" in i] == ["交接1", "交接2"]
@@ -964,16 +993,15 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         w=Web('http://x',0,tmp_path)
         w.bridge=NS(registry=reg,runner=runner,outgoing={},cfg=None,quota_levels={},events=Bus())
         w.bridge.relays=Relays(w.bridge); w.bridge.relays.start=rejected
-        request=NS(match_info={'num':'1'},headers={},can_read_body=False)
+        request=NS(match_info={'num':'1'},query={},headers={},can_read_body=False)
         result=json.loads((await w._api_thread(request)).text)
-        assert not result['can_relay'] and not result['usage']['relay_suggested']
+        assert not result['can_relay'] and result['usage']['relay'] is None   # 再长也不主动提示
         turns.clear()
         result=json.loads((await w._api_thread(request)).text)
-        assert result['can_relay'] and result['usage']['relay_suggested']
-        assert Registry(tmp_path/'sessions.json').get(1).relay_suggested
+        assert result['can_relay'] and result['usage']['relay'] is None
         turns[1]=Turn(started=time.time())
         result=json.loads((await w._api_thread(request)).text)
-        assert not result['can_relay'] and result['usage']['relay_suggested']
+        assert not result['can_relay']
         assert (await w._api_relay(request)).status==409
         turns.clear()
         from anzhuo.sessions import Job
@@ -982,9 +1010,9 @@ def test_relay_only_after_advice_and_between_answers(tmp_path):
         assert not result['can_relay']
         assert (await w._api_relay(request)).status==409
         queued.clear()
-        s.context_tokens = 1000  # 建议触发过，即使上下文下降也保留入口
+        s.context_tokens = 1000  # 手动接力不看上下文长短
         result = json.loads((await w._api_thread(request)).text)
-        assert result['can_relay'] and result['usage']['relay_suggested']
+        assert result['can_relay']
     asyncio.run(go())
 
 
@@ -1007,7 +1035,7 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         w.bridge.relays = NS(writing={}, targets=lambda s: [])   # 不接力
         w.save_turn(parent.label, Turn(started=100, ended=101, request="设计", final_text=question), str(tmp_path), "设计")
         w.save_turn(parent.label, Turn(started=110, ended=111, request=RELAY, final_text="内部摘要"), str(tmp_path), "接力")
-        req = NS(match_info={"num": "2"})
+        req = NS(match_info={"num": "2"}, query={})
         result = json.loads((await w._api_thread(req)).text)
         assert [i["text"] for i in result["items"] if i["who"] == "you"] == ["设计"]
         assert [i["text"] for i in result["items"] if i["who"] == "claude"] == [question]
@@ -1028,6 +1056,80 @@ def test_relay_hides_maintenance_and_preserves_choice(tmp_path):
         assert w._turn("2-120")["timeline"][0]["text"] == wrapped
         assert w._turn("1-110")["request"] == RELAY
     asyncio.run(go())
+
+def test_thread_clears_merged_inserted_messages_without_clearing_a_later_send(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+
+    async def go():
+        registry = Registry(tmp_path / "sessions.json")
+        registry.add(Session(num=1, name="测试", cwd=str(tmp_path)))
+        now = time.time()
+        first = "看看安装流程"
+        second = "老师也可以在自己的电脑上做课吗？\n\n要看具体权限。"
+        combined = f"{first}\n\n{second}"
+        outgoing = [
+            {"text": first, "t": now - 60},
+            {"text": second, "t": now - 50},
+            {"text": second, "t": now - 2},
+        ]
+        runner = NS(turns={1: Turn(started=now - 3, request="检查发布包")}, limits={},
+                    default_effort="medium", compacting=lambda _: "", busy=lambda _: True, queued=lambda _: [])
+        w = Web("http://x", 0, tmp_path)
+        w.bridge = NS(registry=registry, runner=runner, outgoing={1: outgoing}, relays=NS(writing={}))
+        history = [{"who": "you", "text": combined, "ts": now - 4}]
+
+        async def read_history(*_):
+            return list(history)
+
+        monkeypatch.setattr(w, "_history_for_view", read_history)
+        request = NS(match_info={"num": "1"}, query={})
+        result = json.loads((await w._api_thread(request)).text)
+        assert result["live"]
+        assert [(item["text"], bool(item.get("pending"))) for item in result["items"]] == [
+            (combined, False), (second, True),
+        ]
+
+        history.append({"who": "you", "text": second, "ts": now - 1})
+        result = json.loads((await w._api_thread(request)).text)
+        assert [item["text"] for item in result["items"]] == [combined, second]
+        assert not any(item.get("pending") for item in result["items"])
+        assert not outgoing
+
+    asyncio.run(go())
+
+
+def test_thread_browser_reconciles_merged_messages_with_local_pending():
+    import subprocess
+    import anzhuo
+
+    path = Path(anzhuo.__file__).parent / "static/app/thread.js"
+    source = path.read_text()
+    render = source[source.index("function renderThread("):source.index("  d = {...d, items:")]
+    helpers = source[source.index("const youImgs"):source.index("function renderThread(")]
+    program = """
+const assert = require('node:assert/strict');
+const $ = () => ({scrollTop: 0});
+const sentImgs = new Map(), pending = {}, lastSaid = {}, lastYou = {};
+const stick = false;
+""" + helpers + render + """
+}
+const first = '看看安装流程', text = '老师也可以在自己的电脑上做课吗？\\n\\n要看具体权限。';
+const combined = first + '\\n\\n' + text;
+const show = (...messages) => renderThread({num: 1, items: messages.map(text => ({who: 'you', text}))});
+show();
+pending[1].push({text, base: lastSaid[1](text)});
+show(combined);
+assert.equal(pending[1].length, 0);
+pending[1].push({text, base: lastSaid[1](text)});
+show(combined, text + ' 请参考');
+assert.equal(pending[1].length, 1);
+show(combined + '\\n\\n' + text);
+assert.equal(pending[1].length, 0);
+"""
+    subprocess.run(["node", "-e", program], check=True, capture_output=True, text=True)
+
 
 def test_quota_rows_carry_eta_and_pace(monkeypatch):
     """额度格带上“按这速度何时用完”：本周过了一半已用 80% → 重置前会用完；5 小时用得慢 → 没有 eta、给到重置时的用量。"""
@@ -1059,7 +1161,7 @@ def test_codex_history_shows_sent_images(tmp_path):
     turn.timeline = [{"t": 100, "kind": "you", "text": "（见图）", "imgs": [str(pic), str(outside)]}]
     w.save_turn(session.label, turn, str(tmp_path), "测试")
     you = [x for x in w._codex_history(1) if x["who"] == "you"]
-    assert you == [{"who": "you", "text": "", "imgs": ["1-100/0", "1-100/1"]}]
+    assert you == [{"who": "you", "text": "", "imgs": ["1-100/0", "1-100/1"], "ts": 100}]
     assert w._record_image(1, "1-100/0") == (b"\xff\xd8jpg", "image/jpeg")
     assert w._record_image(1, "1-100/1") is None        # 收件目录以外的文件不给
     assert w._record_image(2, "1-100/0") is None        # 别的对话的编号不认
@@ -1139,6 +1241,75 @@ def test_shortcut_upload_without_login(tmp_path, monkeypatch):
             created.clear()
             r = await c.post(f"/_x/q/{token}?name=%E7%AC%94%E8%AE%B0.txt", data=b"hello")
             assert (await r.json())["ok"] and "笔记.txt" in created[0]["text"]
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
+def test_search_index_incremental(tmp_path):
+    """搜索索引：只在记录变了才重抽；中文两个字也能搜；对话删了索引跟着清。"""
+    from anzhuo.searchindex import SearchIndex
+
+    ix = SearchIndex(tmp_path / "search.db")
+    ix.put(1, "x1", [{"who": "you", "text": "做一张海报"}, {"who": "claude", "text": "好的，海报做好了"}])
+    ix.put(2, "x1", [{"who": "you", "text": "Hello World"}])
+    assert ix.keys() == {1: "x1", 2: "x1"}
+    assert list(ix.matches("海报", ix.keys())) == [(1, 1, "claude", "好的，海报做好了"), (1, 0, "you", "做一张海报")]
+    assert list(ix.matches("hello", {2: "x1"})) == [(2, 0, "you", "Hello World")]
+    assert list(ix.matches("hello", {1: "x1", 2: "wrong-key"})) == []
+    ix.put(1, "x2", [{"who": "you", "text": "换个话题"}])
+    assert list(ix.matches("海报", ix.keys())) == []
+    ix.drop_except({2})
+    assert ix.keys() == {2: "x1"}
+    for p in tmp_path.glob("search.db-*"):
+        p.unlink()
+    (tmp_path / "search.db").write_bytes(b"not a database")
+    assert SearchIndex(tmp_path / "search.db").keys() == {}          # 库坏了自动重建
+
+
+def test_search_jumps_to_old_relay_message(tmp_path):
+    from types import SimpleNamespace as NS
+    from anzhuo.sessions import Registry, Session
+
+    async def go():
+        reg = Registry(tmp_path / "sessions.json")
+        root = Session(num=1, name="蓝鲸记录", cwd=str(tmp_path), engine="codex", relay_to=2)
+        reg.add(root)
+        reg.add(Session(num=2, name="接力", cwd=str(tmp_path), engine="codex", relay_from=1))
+        reg.add(Session(num=3, name="蓝鲸私有", cwd=str(tmp_path), engine="codex", owner="user"))
+        w = Web("http://x.example", 0, tmp_path, user="u", pw_hash=hash_password("p", iters=1000))
+        w.bridge = NS(registry=reg, outgoing={},
+                      runner=NS(turns={}, last={}, limits={}, default_effort="medium", compacting=lambda n: "",
+                                busy=lambda n: False, queued=lambda n: []),
+                      relays=NS(writing={}, targets=lambda s: []))
+        for n in range(153):
+            w.save_turn("#1 蓝鲸记录", Turn(started=n + 1000, ended=n + 1001,
+                        request=f"第 {n} 条消息", final_text=f"第 {n} 条回复" + ("，蓝鲸" if n < 31 else "")),
+                        str(tmp_path), "完成")
+        w.save_turn("#3 蓝鲸私有", Turn(started=1000, ended=1001, request="蓝鲸私有正文", final_text="蓝鲸私有回复"),
+                    str(tmp_path), "完成")
+        c = TestClient(TestServer(w.app()))
+        await c.start_server()
+        try:
+            await c.post("/_x/login", data={"username": "u", "password": "p"})
+            first = await (await c.get("/_x/api/search", params={"q": "蓝鲸"})).json()
+            assert [r["num"] for r in first["title"]] == [1]
+            assert first["counts"]["said"] == 31 and len(first["said"]) == 30 and first["more"]
+            second = await (await c.get("/_x/api/search", params={"q": "蓝鲸", "page": 2})).json()
+            assert len(second["said"]) == 1 and not second["more"]
+            target = second["said"][0]["target"]
+            redirect = await (await c.get("/_x/api/thread/1")).json()
+            assert redirect["redirect"] == 2
+            data = await (await c.get("/_x/api/thread/2")).json()
+            assert all("第 0 条回复" not in it["text"] for it in data["items"])
+            data = await (await c.get("/_x/api/thread/2", params={"source": 1, "target": target})).json()
+            hits = [it for it in data["items"] if it.get("search_hit")]
+            assert len(hits) == 1 and hits[0]["text"] == "第 0 条回复，蓝鲸" and hits[0]["historical"]
+            # 回退隐藏归档后，不再返回已撤回的那一条。
+            root.codex_hidden.append("1-1000")
+            changed = await (await c.get("/_x/api/search", params={"q": "蓝鲸"})).json()
+            assert changed["counts"]["said"] == 30
         finally:
             await c.close()
 

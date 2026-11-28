@@ -9,7 +9,9 @@ function saSplit(it) {
   const cut = it.text.indexOf('\n\n');
   const notes = (cut < 0 ? it.text : it.text.slice(0, cut)).slice(P.length).trim();
   const rest = cut < 0 ? '' : it.text.slice(cut + 2);
-  return [{who: 'note', text: `期间的情况 · ${notes.split('\n').length} 条`, sa: notes}].concat(rest ? [{...it, text: rest}] : []);
+  const inNote = it.search_hit && (!rest || notes.toLowerCase().includes((searchHit?.q || '').toLowerCase()));
+  return [{who: 'note', text: `期间的情况 · ${notes.split('\n').length} 条`, sa: notes, search_hit: inNote}]
+    .concat(rest ? [{...it, text: rest, search_hit: it.search_hit && !inNote}] : []);
 }
 let taskGrouping = false, taskGroupAttempt = 0;
 function groupPreferences() {
@@ -25,23 +27,22 @@ async function organizeTasks(force = false) {
   } catch (_) { if (force) toast('整理暂未完成，请稍后重试'); }
   finally { taskGrouping = false; await loadSessions(); }
 }
-// 侧栏只分三块：总管（固定在最上面）、现在（要你看 / 在做 / 刚做完的，按急缓排）、任务（其余按任务收起来）
+// 侧栏分两块：现在（要你看 / 在做 / 刚做完的，按急缓排）、任务（其余按任务收起来）
 // 平时的对话一行：名字左、时间右；有状态（在做、等你、出错、做完了）才多一行说明
 const ROW_STATE = s => ['running', 'queued', 'awaiting', 'error', 'paused'].includes(s.status) ? statusText(s) : s.suggest ? '有建议' : s.unread ? '做完了' : '';
 const NOW = s => ['awaiting', 'error', 'running', 'queued', 'paused'].includes(s.status) || s.unread || s.suggest;
 const RANK = s => ['awaiting', 'error', 'running', 'queued', 'paused', 'idle'].indexOf(s.status);
 function sideRow(s) {
-  const state = ROW_STATE(s), boss = s.role === 'router';
-  return `${boss ? '' : `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button>`}<button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''} ${state ? '' : 'one'} ${boss ? 'boss' : ''}" data-n="${s.num}">
-      ${boss ? `<span class="bossic">${ICON.boss}</span>` : ''}<span class="tx"><div class="nl"><span class="nm">${esc(s.name)}</span>${engTag(s.engine)}<span class="tm">${esc(ago(s.updated))}</span></div>${state ? `<div class="st"><span class="dot"></span><span class="sx">${esc(state)}</span></div>` : ''}</span><span class="more" data-m="${s.num}">⋯</span></button>${boss ? '' : '</div>'}`;
+  const state = ROW_STATE(s);
+  return `<div class="swipe"><button class="swdel" data-d="${s.num}" tabindex="-1">删除</button><button class="item ${s.status} ${s.suggest ? 'suggest' : ''} ${s.unread && s.num !== sel ? 'unread' : ''} ${s.num === sel ? 'sel' : ''} ${state ? '' : 'one'}" data-n="${s.num}">
+      <span class="tx"><div class="nl"><span class="nm">${esc(s.name)}</span>${engTag(s.engine)}<span class="tm">${esc(ago(s.updated))}</span></div>${state ? `<div class="st"><span class="dot"></span><span class="sx">${esc(state)}</span></div>` : ''}</span><span class="more" data-m="${s.num}">⋯</span></button></div>`;
 }
 function renderSide() {
   XE.emit('side', {query});
-  if (query) { $('#boss').innerHTML = ''; return renderSearch(); }
-  const prefs = groupPreferences(), buckets = new Map(), routers = [], now = [];
+  if (query) return renderSearch();
+  const prefs = groupPreferences(), buckets = new Map(), now = [];
   for (const s of sessions) {
-    if (s.role === 'router') routers.push(s);
-    else if (NOW(s)) now.push(s);
+    if (NOW(s)) now.push(s);
     else {
       const name = s.task_group || '待整理';
       if (!buckets.has(name)) buckets.set(name, []);
@@ -55,10 +56,9 @@ function renderSide() {
     xs.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updated - a.updated);
     return `<details class="task-group" data-group="${esc(name)}" ${open ? 'open' : ''}><summary>${ICON.chev}<b>${esc(name)}</b><small>${xs.length}</small></summary><div class="task-rows">${xs.map(sideRow).join('')}</div></details>`;
   };
-  $('#boss').innerHTML = routers.map(sideRow).join('');
   const html = (now.length ? `<div class="label">现在</div>${now.map(sideRow).join('')}` : '')
     + (groups.length ? `<div class="label">${taskGrouping ? '任务 · 正在整理…' : '任务'}</div>${groups.map(group).join('')}` : '');
-  $('#list').innerHTML = html || (routers.length ? '' : `<div class="note" style="padding:10px">还没有对话</div>`);
+  $('#list').innerHTML = html || `<div class="note" style="padding:10px">还没有对话</div>`;
   document.querySelectorAll('.task-group').forEach(el => el.ontoggle = () => {
     const prefs = groupPreferences(); prefs[el.dataset.group] = el.open;
     try { localStorage.setItem('taskGroupOpen:' + (me.name || ''), JSON.stringify(prefs)); } catch (_) {}
@@ -68,7 +68,7 @@ function renderSide() {
 }
 
 // ---------- 列表：搜索、长按菜单（改名 / 删除） ----------
-let query = '', searchSeq = 0;
+let query = '', searchSeq = 0, searchPage = 1;
 // 手机上往左滑一条，后面露出“删除”，点一下就删（能撤销）；再点这条或滑别的就收回去
 let swOpen = 0, swipedAt = 0;
 const SW = 76;
@@ -93,7 +93,7 @@ async function delSession(num) {
 }
 function wireRows() {
   document.querySelectorAll('#list .swdel').forEach(d => d.onclick = e => { e.stopPropagation(); delSession(+d.dataset.d); });
-  document.querySelectorAll('#boss .item[data-n], #list .item[data-n]').forEach(b => {
+  document.querySelectorAll('#list .item[data-n]').forEach(b => {
     let timer = 0, longed = false, x0 = 0, y0 = 0, axis = '', base = 0, dx = 0;
     const sw = b.parentElement.classList.contains('swipe');
     if (sw && +b.dataset.n === swOpen) swSet(b, -SW, false);
@@ -102,8 +102,10 @@ function wireRows() {
       if (Date.now() - swipedAt < 400) return;
       if (swOpen) { swCloseAll(); return; }
       const m = e.target.closest('.more'); if (m) { e.stopPropagation(); return rowMenu(+b.dataset.n); }
-      if (b.dataset.del) return restore(+b.dataset.n, true);
-      openSession(+b.dataset.n);
+      const num = +b.dataset.n;
+      const hit = b.dataset.target ? {source: num, target: b.dataset.target, q: b.dataset.query} : null;
+      if (b.dataset.del) return restore(num, true, hit);
+      openSession(num, false, null, hit);
     };
     // 手机上长按 0.5 秒出菜单；手指挪动（在滚列表）就不算
     b.addEventListener('touchstart', e => { longed = false; axis = ''; dx = 0; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
@@ -242,8 +244,8 @@ function rowMenu(num) {
     }
   });
 }
-async function restore(num, open) {
-  if (await manage(num, 'restore') && open) { $('#q').value = ''; setQuery(''); openSession(num); }
+async function restore(num, open, hit) {
+  if (await manage(num, 'restore') && open) { $('#q').value = ''; setQuery(''); openSession(num, false, null, hit); }
 }
 let toastEl = null, toastTimer = 0;
 function toast(text, btn, fn, ms = 5000) {
@@ -256,21 +258,32 @@ function toast(text, btn, fn, ms = 5000) {
 }
 // 搜索：标题、你说过的话、它的回复；删除 30 天内的也搜得到（点一下找回）
 function setQuery(v) {
+  if (query !== v.trim()) searchPage = 1;
   query = v.trim(); $('#find').classList.toggle('has', !!v); renderSide();
 }
 const hl = (t, q) => { const i = t.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
 async function renderSearch() {
-  const q = query, seq = ++searchSeq;
+  const q = query, page = searchPage, seq = ++searchSeq;
   if (!$('#list').querySelector('.sres')) $('#list').innerHTML = '<div class="note sres" style="padding:10px">搜索中…</div>';
-  let d; try { d = await api('search?q=' + encodeURIComponent(q)); } catch (e) { return; }
+  let d; try { d = await api('search?' + new URLSearchParams({q, page})); } catch (e) { return; }
   if (seq !== searchSeq || q !== query) return;
-  const row = (r, del) => `<button class="item ${del || r.snippet ? '' : 'one'}" data-n="${r.num}" ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nl"><span class="nm">${hl(r.name, q)}</span>${engTag(r.engine)}<span class="tm">${del ? '' : esc(ago(r.updated))}</span></div>
+  const label = page > 1 ? `第 ${page} 页` : '';
+  const pager = page > 1 || d.more ? `<div class="search-pages">
+    ${page > 1 ? '<button class="pill" data-page="-1">上一页</button>' : ''}
+    ${label}${d.more ? '<button class="pill" data-page="1">下一页</button>' : ''}</div>` : '';
+  const row = (r, del) => `<button class="item ${del || r.snippet ? '' : 'one'}" data-n="${r.num}" ${r.target ? `data-target="${esc(r.target)}" data-query="${esc(q)}"` : ''} ${del ? 'data-del="1"' : ''}><span class="tx"><div class="nl"><span class="nm">${hl(r.name, q)}</span>${engTag(r.engine)}<span class="tm">${del ? '' : esc(ago(r.updated))}</span></div>
     ${del ? `<div class="st">${r.hidden_at ? agoDays(r.hidden_at).replace('动过', '') + '删除 · 点一下找回' : '已删除 · 点一下找回'}</div>` : ''}
     ${r.snippet ? `<div class="hit">${r.who === 'you' ? '你' : '回复'}：${hl(r.snippet, q)}</div>` : ''}</span></button>`;
-  const parts = [['标题里有', d.title, false], ['说过的话里有', d.said, false], ['已删除里也有', d.deleted, true]].filter(([, xs]) => xs.length);
+  const parts = [['标题里有', d.title, false, d.counts?.title], ['说过的话里有', d.said, false, d.counts?.said], ['已删除里也有', d.deleted, true, d.counts?.deleted]].filter(([, xs]) => xs.length);
   const extra = XE.collect('search', q), lib = extra.map(x => x.html || '').join('');
-  $('#list').innerHTML = `<div class="sres"></div>` + (lib + parts.map(([t, xs, del]) => `<div class="label">${t}（${xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
-    || `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>`);
+  $('#list').innerHTML = `<div class="sres"></div>` + (lib + parts.map(([t, xs, del, count]) => `<div class="label">${t}（${count ?? xs.length}）</div>` + xs.map(r => row(r, del)).join('')).join('')
+    || (page === 1 ? `<div class="note" style="padding:10px">没找到“${esc(q)}”</div>` : ''));
+  $('#list').insertAdjacentHTML('beforeend', pager);
+  $('#list').querySelectorAll('[data-page]').forEach(b => b.onclick = () => {
+    searchPage += +b.dataset.page;
+    $('#list').closest('.scroll').scrollTop = 0;
+    renderSearch();
+  });
   wireRows();
   extra.forEach(x => x.wire && x.wire());
 }
@@ -290,8 +303,18 @@ function renderSum() {
   if ($('#sum')) $('#sum').innerHTML = bits.join(' · ');
 }
 
+let sessionsRequested = 0, sessionsApplied = 0;
 async function loadSessions() {
-  try { const d = await api('sessions'); if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); } sessions = d.sessions; folders = d.folders; autoWhere = d.auto_where !== false; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts; XE.emit('sessions', d); renderSide(); renderQuota(); headStatus(); watchStatus(); if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks(); }
+  const request = ++sessionsRequested;
+  try {
+    const d = await api('sessions');
+    if (request < sessionsApplied) return;
+    sessionsApplied = request;
+    if (d.me) { me = d.me; document.documentElement.classList.toggle('fenced', me.role === 'user'); }
+    sessions = d.sessions; folders = d.folders; autoWhere = d.auto_where !== false; limits = d.limits || []; limitsGpt = d.limits_gpt || []; hasGpt = !!d.has_gpt; modelOpts = d.models || modelOpts;
+    XE.emit('sessions', d); renderSide(); renderQuota(); headStatus(); watchStatus();
+    if (d.task_grouping && me.role === 'admin' && sessions.some(s => !s.task_group)) organizeTasks();
+  }
   catch (e) { if (e.message !== 'login') console.warn(e); }
 }
 

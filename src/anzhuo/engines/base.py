@@ -27,7 +27,7 @@ async def check_folders(s: "Session") -> None:
 
 
 def role(runner: "Runner", s: "Session") -> dict:
-    """特殊角色（总管和它派出去的对话）的额外工具和约定：{"tools", "append", "disallowed", "on_stop", …}；普通对话是空的。"""
+    """特殊角色的额外工具和约定：{"tools", "append", "disallowed", "on_stop", …}；普通对话是空的。"""
     fn = getattr(runner, "role", None)
     return (fn(s) if fn else None) or {}
 
@@ -36,14 +36,14 @@ class Engine:
     name = ""          # 登记名（Session.engine）
     label = ""         # 显示名：Claude / GPT / Kimi
     tool = ""          # 干活的工具（GPT 是 Codex 在干）；空 = 就是它自己
-    key = ""           # 选它用的键（网页模型菜单、话里“用 gpt”、总管的 engine 参数）
+    key = ""           # 选它用的键（网页模型菜单、话里“用 gpt”）
     pick_model = ""    # 型号怎么选：menu = 远窗的型号表（opus…，存全名）；own = 它自己报的型号；空 = 不选，用它自己配置的
     history = "records"   # 对话记录在哪：transcript = 引擎自己的会话记录（~/.claude）；records = 远窗的每轮记录
     can_steer = False   # 干活中途能插话
     can_rewind = False  # 能“回到这里”
     can_fork = False    # 能分叉
     has_quota = False   # 能查额度
-    has_tools = False   # 能带远窗给的工具（交图、总管派活的汇报）
+    has_tools = False   # 能带远窗给的工具（交图、交文件）
     stop_hook = False   # 支持角色的 on_stop（该汇报没汇报就让它补上再结束）
     fenced_ok = False   # 受限账号能用（要有护栏和沙箱）
     cache_hint = False  # 隔久了再聊要提示“缓存过期”
@@ -65,7 +65,7 @@ class Engine:
         return ""
 
     def models(self) -> tuple[list[str], str]:
-        """pick_model = own 时能选的型号和不选时用哪个（给你、总管看的说明）。"""
+        """pick_model = own 时能选的型号和不选时用哪个（给你看的说明）。"""
         return [], f"{self.tool or self.label} 自己配置的模型"
 
     async def run(self, runner: "Runner", s: "Session", job: "Job", turn: "Turn") -> None:

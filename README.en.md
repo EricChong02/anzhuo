@@ -80,6 +80,10 @@ scripts/install_launchd.sh              # optional: start at login, restart on c
 
 Yuanchuang is an independent project, not affiliated with Anthropic, OpenAI or DingTalk. MIT licensed.
 
+## November 28, 2026 main branch update
+
+Intermediate replies from GPT and Claude now follow the order of the conversation, including messages you send during a task. The activity card follows the latest reply, and the background command list shows running commands. Teachers who also use CyberScope can enable the [optional lesson preview and feedback module](docs/CyberScope试课.md). See [CHANGELOG.md](CHANGELOG.md).
+
 ## November 8, 2026 update (0.3.0)
 
 A redesigned web UI (frosted-glass style, light and dark themes, a simpler sidebar, and reworked settings, usage and account pages). New optional features, all off by default: a coordinator conversation ("总管") that dispatches work to other conversations and collects their reports; DeepSeek and Kimi (via ACP) as extra engines; a model split table that picks models by task tier and falls back when a quota runs low; and mounting the whole site under a sub-path of another panel (`web_prefix`). Existing configs keep working. See [CHANGELOG.md](CHANGELOG.md).

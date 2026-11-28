@@ -70,7 +70,11 @@ def main() -> None:
         if a.current in d["sessions"]:
             d["current"] = int(a.current)
             path.write_text(json.dumps(d, ensure_ascii=False, indent=1))
-    subprocess.run([str(Path(__file__).parent / "install_launchd.sh")], capture_output=True)
+    plist = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    if plist.is_file():
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist)], check=True)
+    else:
+        subprocess.run([str(Path(__file__).parent / "install_launchd.sh")], check=True)
     time.sleep(15)
     cfg = load_config()
     if cfg.dingtalk_enabled and cfg.allowed_user_ids:   # 没开钉钉就不发

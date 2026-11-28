@@ -1,8 +1,4 @@
-/* 侧栏列表（list.js）：总管一行固定在最上面，下面“现在”“任务”两块；标题一个样式，平时一行、有状态才两行 */
-#boss{padding-top:4px}
-.item.boss{margin-bottom:2px}
-.item .bossic{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--accsoft);color:var(--acc)}
-.item .bossic svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round}
+/* 侧栏列表（list.js）：“现在”“任务”两块；标题一个样式，平时一行、有状态才两行 */
 .item .nl{display:flex;align-items:baseline;gap:8px;min-width:0}
 .item .nl .nm{flex:1;min-width:0}
 .item .nl .eng{align-self:center}
@@ -29,3 +25,6 @@
   .task-group>summary{min-height:48px}
   .task-group>summary b{font-size:var(--t4)}
 }
+
+.search-pages{display:flex;align-items:center;gap:8px;padding:10px}
+#list .item[data-target] .hit{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;white-space:normal;overflow-wrap:anywhere}

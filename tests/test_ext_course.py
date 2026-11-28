@@ -1,0 +1,379 @@
+"""可选做课扩展（extensions/course）：试课预览的放行与转发、试课链接、课程库、试课反馈。"""
+import asyncio
+import json
+import os
+import time
+from types import SimpleNamespace as NS
+
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+
+from anzhuo.app import Bridge
+from anzhuo.config import Config
+from anzhuo.extensions.course import course_previews, preview_allowed
+from anzhuo.report import Turn
+from anzhuo.sessions import Session
+from anzhuo.web import hash_password
+
+
+def test_preview_allowed():
+    ok = [("GET", "/studio-preview.html"), ("GET", "/engine/x.js"), ("GET", "/workspace/_drafts/a/course.json"),
+          ("POST", "/api/lesson-preview/check"), ("GET", "/api/drafts"), ("GET", "/assets/a.css"),
+          ("GET", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/courses/topics/example/a/index.html"),
+          ("GET", "/api/course-text/status"), ("POST", "/api/course-text/replace"), ("GET", "/studio-text-edit.js")]
+    bad = [("GET", "/teacher.html"), ("GET", "/"), ("GET", "/api/teacher/classes"), ("GET", "/api/students"),
+           ("GET", "/api/draftsx"), ("GET", "/ws/teacher"), ("POST", "/engine/x.js"), ("GET", "/../etc/passwd"),
+           ("GET", "/library.html"), ("POST", "/api/login"), ("GET", "/student.html"),
+           ("POST", "/workspace/_drafts/a/fragments/section-2.html"), ("GET", "/workspace/../teacher.html"),
+           ("POST", "/api/course-textx"), ("POST", "/api/course-text")]
+    assert all(preview_allowed(m, p, allow_text_edit=True) for m, p in ok)
+    assert not preview_allowed("POST", "/api/course-text/replace")
+    assert not preview_allowed("PUT", "/api/lesson-preview/check")
+    assert not preview_allowed("GET", "/api/teacher/answers")
+    assert not preview_allowed("GET", "/private.json")
+    assert not any(preview_allowed(m, p) for m, p in bad)
+
+
+def test_course_previews(tmp_path):
+    lesson = tmp_path / "_drafts" / "l01"
+    (lesson / "fragments").mkdir(parents=True)
+    (lesson / "course.json").write_text("{}")
+    files = [str(lesson / "fragments" / "s1.html"), str(lesson / "course.json"), "/elsewhere/a.py"]
+    got = course_previews(files, str(tmp_path))
+    assert got == [("l01", "/studio-preview.html?course=/workspace/_drafts/l01/course.json")]
+    assert course_previews(files, "") == []
+
+
+def _course(root, rel, title="", vis="hidden", t=None):
+    d = root / rel
+    (d / "fragments").mkdir(parents=True, exist_ok=True)
+    (d / "course.json").write_text(json.dumps({"title": title or rel.split("/")[-1].upper(), "catalog": {"visibility": vis}}))
+    if t is not None:
+        os.utime(d / "course.json", (t, t))
+    return d
+
+
+def _bridge(tmp_path, upstream="http://127.0.0.1:9", **ext):
+    root = tmp_path / "root"
+    root.mkdir(exist_ok=True)
+    conf = {"course": {"root": str(root), "upstream": upstream, "enabled": True, **ext}}
+    b = Bridge(Config(client_id="t", allowed_user_ids=["me"], scratch_root=str(tmp_path / "scratch"), ext=conf),
+               NS(secret="x"), tmp_path / "data")
+    b.web.base = "http://x.example"
+    b.web.accounts = {"admin": {"role": "admin", "root": "", "hash": hash_password("demo-admin-test", iters=1000)},
+                      "user": {"role": "user", "root": str(tmp_path / "rw"), "share": 0.2, "hash": hash_password("demo-guest-test", iters=1000)}}
+    b.sent, b.new = [], []
+
+    async def message(cmd, inc, routed=False):
+        b.sent.append((cmd.num, cmd.text, list(inc.local_images), inc.via))
+
+    async def new(tokens, text, inc, note="", kind=None, model=None, effort=None, **k):
+        b.new.append((tokens, text, kind))
+        s = b.registry.add(Session(num=b.registry.reserve_num(), name="新", cwd=tokens[0] if tokens else "", model=model))
+        return s
+
+    b.message, b.new_session = message, new
+    return b, root
+
+
+async def _login(b, name="admin", pw="demo-admin-test"):
+    c = TestClient(TestServer(b.web.app()))
+    await c.start_server()
+    r = await c.post("/_x/login", data={"username": name, "password": pw}, allow_redirects=False)
+    assert r.status == 302, await r.text()
+    return c
+
+
+def test_loaded_only_when_configured(tmp_path):
+    b, _ = _bridge(tmp_path)
+    assert [e.name for e in b.exts] == ["course"]
+    off = Bridge(Config(client_id="t", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s2"),
+                        ext={"course": {"root": str(tmp_path), "enabled": False}}), NS(secret="x"), tmp_path / "d2")
+    none = Bridge(Config(client_id="t", allowed_user_ids=["me"], scratch_root=str(tmp_path / "s3")), NS(secret="x"), tmp_path / "d3")
+    assert off.exts == [] and none.exts == []
+
+
+def test_disabled_course_routes_and_invalid_upstreams(tmp_path):
+    async def go():
+        b, _ = _bridge(tmp_path, enabled=False)
+        c = await _login(b)
+        try:
+            assert "/ext/course/static/course.js" not in await (await c.get("/_x/")).text()
+            for path in ("/studio-preview.html", "/_x/ext/course/static/feedback.js", "/_x/ext/course/api/course"):
+                assert (await c.get(path)).status == 404
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+    for url in ("https://example.com:8000", "http://192.0.2.1:8000", "http://127.0.0.1:8000/path"):
+        b, _ = _bridge(tmp_path, upstream=url)
+        assert not b.exts
+
+
+def test_course_list_stages(tmp_path):
+    """侧栏“课”：草稿和已上架的都列，标出走到哪了；发布后又改过的标出来。"""
+    b, root = _bridge(tmp_path)
+    now = time.time()
+    _course(root, "_drafts/a", t=now - 10)
+    _course(root, "topics/example/b", vis="published", t=now - 100)
+    _course(root, "topics/example/c", vis="published", t=now - 5000)
+    _course(root, "topics/other/d", t=now - 9000)
+    (root / "_published.json").write_text(json.dumps({"courses": {"b": {"since": {"version": now - 4000}},
+                                                                  "c": {"since": {"version": now - 4000}}}}))
+    c = b.exts[0]
+    got = {d["dir"]: (d["stage"], d["dirty"], d["rel"]) for d in c.drafts()}
+    assert [d["dir"] for d in c.drafts()] == ["a", "b", "c", "d"]
+    assert got == {"a": ("draft", False, "_drafts/a"), "b": ("published", True, "topics/example/b"),
+                   "c": ("published", False, "topics/example/c"), "d": ("hidden", False, "topics/other/d")}
+    assert "/workspace/topics/example/b/course.json" in c.drafts()[1]["url"].replace("%2F", "/")
+
+
+def test_moved_course_link(tmp_path):
+    """早先记下的草稿试课链接：课上架挪进 topics 后自动跳到新位置；还在草稿里的不动。"""
+    b, root = _bridge(tmp_path)
+    _course(root, "topics/data/c1")
+    _course(root, "_drafts/c2")
+    c = b.exts[0]
+    assert c._moved_course("/workspace/_drafts/c1/course.json") == "/workspace/topics/data/c1/course.json"
+    assert c._moved_course("/workspace/_drafts/c2/course.json") == ""
+    assert c._moved_course("/workspace/_drafts/none/course.json") == ""
+
+
+def test_proxy_links_and_pages(tmp_path):
+    """改到课件 → 记录里有试课链接（报告、过程页、历史页、对话框都有）；试课页经远窗转发，插反馈脚本。"""
+    seen = {}
+
+    async def upstream(request):
+        seen.setdefault("xff", {})[request.path] = request.headers.get("X-Forwarded-For")
+        seen.setdefault("origin", {})[request.path] = request.headers.get("Origin")
+        seen["cookie"] = request.headers.get("Cookie")
+        seen["authorization"] = request.headers.get("Authorization")
+        seen["path"] = request.path_qs
+        return web.Response(text="PREVIEW", content_type="text/html")
+
+    async def go():
+        up_app = web.Application()
+        up_app.router.add_route("*", "/{tail:.*}", upstream)
+        up = TestServer(up_app)
+        await up.start_server()
+        b, root = _bridge(tmp_path, f"http://127.0.0.1:{up.port}", allow_text_edit=True)
+        lesson = _course(root, "_drafts/l9", "示例课程")
+        s = b.registry.add(Session(num=b.registry.reserve_num(), name="做课", cwd=str(root)))
+        t = Turn(started=time.time() - 60, ended=time.time(), request="封面改大", final_text="改好了",
+                 changed_files=[str(lesson / "fragments" / "s1.html")])
+        tid = b.web.save_turn(s.label, t, s.cwd, "做完了")
+        links = b.web.links_of(b.web._turn(tid))
+        assert links == [{"label": "试课", "url": "/studio-preview.html?course=/workspace/_drafts/l9/course.json",
+                          "title": "示例课程", "icon": "play", "key": "l9", "ext": "course"}]
+        assert b.exts[0].course_session("l9", "示例课程") is s          # 发过这门课试课链接的对话
+        c = await _login(b)
+        try:
+            assert "试课：示例课程" in await (await c.get(f"/_x/t/{tid}")).text()
+            idx = await (await c.get("/_x/history")).text()
+            assert "最近的课" in idx and "/workspace/_drafts/l9/course.json" in idx
+            d = await (await c.get("/_x/api/sessions")).json()
+            assert d["ext"]["course"]["drafts"][0]["title"] == "示例课程" and d["ext"]["course"]["courses"][0]["num"] == s.num
+            page = await (await c.get("/_x/")).text()
+            assert '<script src="/_x/ext/course/static/course.js"></script></body>' in page
+            assert "反馈这一屏" in await (await c.get("/_x/ext/course/static/feedback.js")).text()
+            assert (await c.get("/_x/ext/course/static/vendor/modern-screenshot.js")).status == 200
+            assert (await c.get("/_x/ext/course/static/nope.js")).status == 404
+            r = await c.get("/studio-preview.html?course=/workspace/a/course.json")
+            assert await r.text() == 'PREVIEW<script src="/_x/ext/course/static/feedback.js"></script>'
+            assert seen["cookie"] is None and seen["path"].startswith("/studio-preview")
+            await c.get("/workspace/a/course.json", headers={"X-Forwarded-For": "1.2.3.4", "Authorization": "Bearer test"})
+            assert (await c.get("/api/teacher/answers")).status == 403
+            assert (await c.get("/private.json")).status == 403
+            assert (await c.put("/api/lesson-preview/check")).status == 403
+            assert seen["xff"]["/workspace/a/course.json"] is None          # 课件当本机直连
+            assert seen["authorization"] is None
+            assert (await c.post("/api/course-text/replace", json={}, headers={"Origin": "https://other.example"})).status == 403
+            assert (await c.post("/api/course-text/replace", json={}, headers={"X-Forwarded-For": "1.2.3.4", "Origin": "http://x.example"})).status == 200
+            await c.post("/api/lesson-preview/check", json={}, headers={"Origin": "http://x.example"})
+            assert seen["xff"]["/api/course-text/replace"] is None and seen["origin"]["/api/course-text/replace"] is None  # 改字当本机页面
+            assert seen["origin"]["/api/lesson-preview/check"] == "http://x.example"   # 别的接口的 Origin 照旧带着
+            assert (await c.get("/teacher.html")).status == 403
+            assert (await c.get("/api/teacher/classes")).status == 403
+            await up.close()
+            assert (await c.get("/studio-preview.html")).status == 502      # 本机预览没开
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
+def test_report_link_and_old_records(tmp_path):
+    """钉钉、通知里的链接写“试课：课名”；2026-11-08 以前的记录（previews）照样认。"""
+    b, root = _bridge(tmp_path)
+    _course(root, "_drafts/l1", "数据从哪来")
+    old = {"id": "3-1", "previews": [["l1", "/studio-preview.html?course=x"]]}
+    assert b.web.links_of(old) == [{"label": "试课", "url": "/studio-preview.html?course=x", "title": "数据从哪来",
+                                    "icon": "play", "key": "l1", "ext": "course"}]
+    s = b.registry.add(Session(num=b.registry.reserve_num(), name="做课", cwd=str(root)))
+    t = Turn(started=time.time() - 5, ended=time.time(), request="改", final_text="好了",
+             changed_files=[str(root / "_drafts" / "l1" / "course.json")])
+    b.web.enabled_ok = True
+    said = []
+
+    async def say(title, text, board=True):
+        said.append(text)
+    b.say = say
+    b.web.watching = lambda n: False
+
+    async def no_push(*a, **k):
+        return 0
+    b.web.notify = no_push
+    asyncio.run(b._turn_done(s, t))
+    assert t.links[1][0] == "试课：数据从哪来"
+
+
+def test_feedback_follows_recent_manual_work(tmp_path):
+    """同名对话里，反馈跟着你最近亲手在用的那个走；被试课反馈喂得再新的那个不算“最近在用”。"""
+    b, root = _bridge(tmp_path)
+    lesson = _course(root, "_drafts/c1", "示例课程")
+    now = time.time()
+    old = b.registry.add(Session(num=b.registry.reserve_num(), name="做课：示例课程", cwd=str(root), updated=now))
+    new = b.registry.add(Session(num=b.registry.reserve_num(), name="做课：示例课程", cwd=str(root), updated=now - 60))
+    link = Turn(started=now - 3600, ended=now - 3500, request="封面改大", final_text="好了",
+                changed_files=[str(lesson / "fragments" / "s1.html")])
+    b.web.save_turn(old.label, link, old.cwd, "做完了")          # 老对话发过这门课的试课链接
+    b.web.save_turn(old.label, Turn(started=now - 20, ended=now - 10, request="（试课反馈）标题太小",
+                                    final_text="改好了"), old.cwd, "做完了")   # 最近只收到反馈
+    b.web.save_turn(new.label, Turn(started=now - 400, ended=now - 300, request="参考图留 9 幅",
+                                    final_text="好了"), new.cwd, "做完了")     # 你 5 分钟前亲手改过
+    assert b.exts[0].course_session("c1", "示例课程") is new
+
+
+def test_feedback(tmp_path):
+    """试课页反馈：带上课、节、屏，交给正在做这门课的对话；没有就在课程根新开；记下反馈的那一屏。"""
+    async def go():
+        b, root = _bridge(tmp_path)
+        _course(root, "_drafts/c1", "示例课程")
+        s6 = b.registry.add(Session(num=b.registry.reserve_num(), name="做课：示例课程 数据工程师", cwd=str(root)))
+        b.registry.add(Session(num=b.registry.reserve_num(), name="清理下载", cwd=str(tmp_path)))
+        c = await _login(b)
+        try:
+            png = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG").decode()
+            post = lambda body: c.post("/_x/ext/course/api/feedback", json=body)
+            r = await (await post({"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
+                                   "section_title": "数据从哪来", "screen": 2, "text": "标题太小", "images": [png]})).json()
+            assert r["ok"] and r["num"] == s6.num
+            num, text, imgs, via = b.sent[0]
+            assert num == s6.num and "《示例课程》第 2 节「数据从哪来」第 3 屏" in text and "标题太小" in text and len(imgs) == 1
+            assert via == "feedback" and s6.ext["course"]["feedback"]["section"] == "s2"
+            t = await (await c.get(f"/_x/api/thread/{s6.num}")).json()
+            assert t["ext"]["course"]["feedback"]["screen"] == 2      # 改好后回复里的试课按钮跳回这一屏
+            await post({"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
+                        "section_title": "数据从哪来", "screen": 2, "step": 2, "steps": 4, "text": "字太小"})
+            assert "第 3 屏的第 2 步（共 4 步）" in b.sent[1][1]
+            await post({"course": "/workspace/_drafts/c1/course.json", "section": "s2", "section_no": 2,
+                        "section_title": "数据从哪来", "screen": 0, "step": 0, "steps": 5, "step_name": "封面", "text": "y"})
+            assert "第 1 屏的封面（共 5 步）" in b.sent[2][1]
+            st = await (await c.get("/_x/ext/course/api/course?course=/workspace/_drafts/c1/course.json")).json()
+            assert st["num"] == s6.num and st["state"] == "idle"
+            s6.cwd = str(tmp_path / "别处")          # 没有在做这门课的对话 → 在课程根新开
+            r = await (await post({"course": "/workspace/_drafts/c1/course.json", "text": "x"})).json()
+            assert b.new and b.new[0][0] == [str(root)] and b.new[0][2] == "dev" and r["ok"]
+            assert b.registry.get(r["num"]).ext["course"]["feedback"]["course"] == "/workspace/_drafts/c1/course.json"
+            assert (await post({"course": "/etc/passwd", "text": "x"})).status == 400
+            # 新对话“接着做某门课”：在课程根开，开场白说明是哪门课
+            await c.post("/_x/api/send", json={"text": "封面改大", "course": "c1"})
+            assert b.new[-1] == ([str(root)], "（这件事是关于课程《示例课程》，目录 _drafts/c1/）\n封面改大", "dev")
+        finally:
+            await c.close()
+
+    asyncio.run(go())
+
+
+def test_restricted_account_sees_nothing(tmp_path):
+    """受限账号：拿不到课、用不了扩展的地址、主页面不加载扩展脚本、试课预览也不转。"""
+    async def go():
+        b, root = _bridge(tmp_path)
+        _course(root, "_drafts/c1")
+        cu = await _login(b, "user", "demo-guest-test")
+        try:
+            assert (await (await cu.get("/_x/api/sessions")).json())["ext"] == {}
+            assert "ext/course" not in await (await cu.get("/_x/")).text()
+            for path in ("/_x/ext/course/api/course", "/_x/ext/course/static/course.js", "/studio-preview.html"):
+                assert (await cu.get(path)).status == 403, path
+            assert (await cu.post("/_x/ext/course/api/feedback", json={})).status == 403
+        finally:
+            await cu.close()
+
+    asyncio.run(go())
+
+
+def test_old_feedback_moves_into_ext(tmp_path):
+    """以前存在对话 feedback 字段里的“反馈的那一屏”，加载扩展时挪进扩展数据；接力的新对话也带着。"""
+    data = tmp_path / "data"
+    data.mkdir()
+    spot = {"course": "/workspace/_drafts/c1/course.json", "section": "s1", "screen": 0, "t": 1}
+    (data / "sessions.json").write_text(json.dumps({"next_num": 2, "sessions": {"1": {"num": 1, "name": "做课", "cwd": "/x", "feedback": spot}}}))
+    b, _ = _bridge(tmp_path)
+    assert b.registry.get(1).ext == {"course": {"feedback": spot}}
+    s2 = asyncio.run(b.relays.open(b.registry.get(1), "交接"))
+    assert s2.ext == {"course": {"feedback": spot}} and s2.ext is not b.registry.get(1).ext
+
+
+def test_feedback_reuses_separate_model_conversations(tmp_path):
+    from anzhuo.engines import MODELS
+    async def go():
+        b, root = _bridge(tmp_path)
+        _course(root, "_drafts/c1", "示例课程")
+        opus = b.registry.add(Session(num=b.registry.reserve_num(), name="示例课程", cwd=str(root), model=MODELS['opus']))
+        c = await _login(b)
+        try:
+            body = {"course": "/workspace/_drafts/c1/course.json", "text": "改标题", "model": "sonnet"}
+            async def post(model):
+                return await c.post('/_x/ext/course/api/feedback', json={**body, "model": model})
+            b.runner.turns[opus.num] = NS(started=0, plan=[], steps=[])
+            first = await (await post('sonnet')).json()
+            assert first['ok'] and first['num'] != opus.num
+            sonnet = b.registry.get(first['num'])
+            assert sonnet.model == MODELS['sonnet']
+            assert (await (await post('opus')).json())['num'] == opus.num
+            assert (await (await post('sonnet')).json())['num'] == sonnet.num
+            assert len(b.new) == 1 and opus.model == MODELS['opus']
+            assert (await post('bad')).status == 400
+            status = await (await c.get('/_x/ext/course/api/course', params={"course": body['course'], "model": "sonnet"})).json()
+            assert status['num'] == sonnet.num and status['targets'] == {"opus": opus.num, "sonnet": sonnet.num}
+            assert b.runner.turns.keys() == {opus.num}
+            assert b.sent[-1][0] == sonnet.num
+            assert "保留另一条对话的改动" in b.sent[-1][1]
+            b.runner.turns[sonnet.num] = b.runner.turns.pop(opus.num)
+            assert (await (await post('opus')).json())['num'] == opus.num
+            assert b.sent[-1][0] == opus.num
+            assert len(b.new) == 1
+            b.runner.turns.clear()
+        finally:
+            await c.close()
+    asyncio.run(go())
+
+
+def test_feedback_opens_new_when_reused_conversation_too_long(tmp_path):
+    """复用的反馈对话太长（FEEDBACK_MAX_CONTEXT）：空闲时下一批反馈新开、型号照旧、告诉它旧对话编号；正在做时照旧排在它后面。"""
+    from anzhuo.engines import MODELS
+    from anzhuo.extensions.course import FEEDBACK_MAX_CONTEXT
+
+    async def go():
+        b, root = _bridge(tmp_path)
+        _course(root, "_drafts/c1", "示例课程")
+        course = "/workspace/_drafts/c1/course.json"
+        old = b.registry.add(Session(num=b.registry.reserve_num(), name="示例课程", cwd=str(root), model=MODELS["opus"],
+                                     context_tokens=FEEDBACK_MAX_CONTEXT + 1, ext={"course": {"feedback": {"course": course}}}))
+        c = await _login(b)
+        try:
+            post = lambda: c.post("/_x/ext/course/api/feedback", json={"course": course, "text": "标题太小"})
+            b.runner.turns[old.num] = NS(started=0, plan=[], steps=[])     # 正在做：不换，排在它后面
+            assert (await (await post()).json())["num"] == old.num and not b.new
+            b.runner.turns.clear()
+            r = await (await post()).json()                                  # 空闲：新开
+            assert r["ok"] and r["num"] != old.num and len(b.new) == 1
+            new = b.registry.get(r["num"])
+            assert new.model == MODELS["opus"] and f"#{old.num}" in b.new[0][1]
+            assert new.ext["course"]["feedback"]["course"] == course
+            assert (await (await post()).json())["num"] == new.num             # 之后的反馈交给新的
+            old.context_tokens = 1000
+        finally:
+            await c.close()
+    asyncio.run(go())

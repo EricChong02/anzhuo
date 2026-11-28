@@ -52,7 +52,7 @@ MODELS_SEEN: dict[str, str] = {}   # Codex 能用的型号 → 显示名（启�
 
 
 async def probe_models() -> None:
-    """问 Codex 现在能用哪些型号（Sol / Terra / Luna / Astra 各代），网页菜单、总管选型号用。不花额度。"""
+    """问 Codex 现在能用哪些型号（Sol / Terra / Luna / Astra 各代），网页菜单用。不花额度。"""
     c = CodexConn(str(Path.home()), lambda m, p: None)
     try:
         await c.start()
@@ -163,8 +163,17 @@ class CodexConn:
                 if "id" in msg and method:   # Codex 反过来问：另开一路处理（可能要等你点头），不挡住后面的消息
                     self._spawn(self._answer(msg["id"], method, params))
                     continue
+                # app-server 也会推送子线程的正文和结束事件。它们没有结束主对话。
+                thread_id = params.get("threadId")
+                if self.thread_id and thread_id and thread_id != self.thread_id:
+                    continue
+                turn = params.get("turn") or {}
+                event_turn_id = params.get("turnId") or turn.get("id")
+                if self.turn_id and event_turn_id and event_turn_id != self.turn_id:
+                    continue
+                if method == "turn/started" and event_turn_id:
+                    self.turn_id = event_turn_id
                 if method == "turn/completed":
-                    turn = params.get("turn") or {}
                     self.turn_status = turn.get("status") or ""
                     self.turn_error = str((turn.get("error") or {}).get("message") or "") if isinstance(turn.get("error"), dict) else str(turn.get("error") or "")
                 if method:
@@ -235,6 +244,7 @@ class CodexConn:
             params["effort"] = effort
         if model:   # 指定了型号（Sol / Terra / Luna …）：这一轮起用它；不指定用 Codex 自己配置的
             params["model"] = model
+        self.turn_id = ""
         r = await self.request("turn/start", params)
         self.turn_id = (r.get("turn") or {}).get("id") or ""
         return self.turn_id

@@ -32,6 +32,7 @@ class Turn:
     images: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)  # 交给你的文件（PDF、文档等，原样）
     final_text: str = ""
+    original_text: str = ""  # 模型原始完整答案；翻译只能修改显示版本
     is_error: bool = False
     error: str = ""
     interrupted: bool = False
@@ -53,6 +54,17 @@ class Turn:
 
 EFFORT_CN = {"low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高"}
 LIMIT_CN = {"five_hour": "5 小时", "seven_day": "本周", "seven_day_fable": "本周 Fable", "seven_day_opus": "本周 Opus", "seven_day_sonnet": "本周 Sonnet"}
+
+
+def split_updates(process: list[dict]) -> tuple[list[str], list[dict]]:
+    """主对话发给用户的正文留在聊天区，子代理回报、命令和思考仍放进过程。"""
+    updates, steps = [], []
+    for entry in process:
+        if entry["k"] == "say" and not entry.get("sub"):
+            updates.append(entry["text"])
+        else:
+            steps.append(entry)
+    return updates, steps
 
 
 def brief(text: str, limit: int = 20) -> str:
@@ -233,4 +245,4 @@ def live_agents(turn: Turn) -> list[dict]:
     return [{"name": a["name"], "kind": a.get("kind", "助手"), "status": a["status"],
              "model": model_name(a.get("model", "")), "model_source": a.get("model_source", ""),
              "last": a.get("last", ""), "secs": max(0, int((a.get("t1") or now) - a["t0"]))}
-            for a in turn.agents.values() if a.get("status") == "running"]
+            for a in turn.agents.values() if a.get("status") == "running" or a.get('job_id')]

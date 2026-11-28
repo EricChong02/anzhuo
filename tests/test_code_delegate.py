@@ -15,6 +15,7 @@ def args(**kw):
 
 class Conn:
     mode = 'ok'
+    usage_total = 0
     instances = []
     def __init__(self, cwd, event, approve):
         self.cwd, self.event = Path(cwd), event
@@ -29,6 +30,8 @@ class Conn:
         (self.cwd / ('outside.py' if self.mode == 'outside' else 'stats.py')).write_text('def total(xs): return sum(xs)\n')
         (self.cwd / 'test_stats.py').write_text('from stats import total\ndef test_total(): assert total([1, 2]) == 3\n')
         self.event('item/completed', {'item': {'type': 'agentMessage', 'text': '已实现；需要父任务核验'}})
+        type(self).usage_total += 100
+        self.event('thread/tokenUsage/updated', {'tokenUsage':{'total':{'totalTokens':self.usage_total}}})
         self.turn_status = 'completed'
         self.done.set()
     async def close(self): self.closed = True
@@ -50,6 +53,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(d, 'rate_limits', limits)
     monkeypatch.setattr(d, 'WorkerConn', Conn)
     monkeypatch.setattr(Conn, 'mode', 'ok')
+    monkeypatch.setattr(Conn, 'usage_total', 0)
     return source, d.CodeDelegator(tmp_path / 'jobs')
 
 
@@ -63,10 +67,11 @@ def test_patch_isolated_and_bounded_review(setup):
         assert 'def total' in Path(row['patch']).read_text()
         assert set(row['files']) == {'stats.py', 'test_stats.py'}
         await d.git(source, 'apply', '--check', row['patch'])
-        for i in range(3):
+        for i in range(1):
             row = await delegator.run(cwd=str(source), parent_num=1, args=args(job_id=row['job_id']), progress=lambda *a: None)
             assert row['state'] == 'completed' and row['rounds'] == i + 2
-        with pytest.raises(ValueError, match='三轮'):
+        assert [a['tokens']['totalTokens'] for a in row['attempts']] == [100, 100]
+        with pytest.raises(ValueError, match='一次'):
             await delegator.run(cwd=str(source), parent_num=1, args=args(job_id=row['job_id']), progress=lambda *a: None)
         with pytest.raises(ValueError, match='其他对话'):
             await delegator.run(cwd=str(source), parent_num=2, args=args(job_id=row['job_id']), progress=lambda *a: None)
@@ -169,4 +174,15 @@ def test_snapshot_keeps_tracked_ignored_file(setup):
         await delegator.snapshot(source, target)
         tracked = (await d.git(target, 'ls-files')).decode()
         assert 'secret.txt' in tracked
+    asyncio.run(go())
+
+
+def test_accepted_code_task_cannot_be_reworked(setup):
+    source, delegator = setup
+    async def go():
+        row = await delegator.run(cwd=str(source), parent_num=1, args=args(), progress=lambda *a: None)
+        row['accepted'] = True
+        delegator.save(row)
+        with pytest.raises(ValueError):
+            await delegator.run(cwd=str(source), parent_num=1, args=args(job_id=row['job_id']), progress=lambda *a: None)
     asyncio.run(go())

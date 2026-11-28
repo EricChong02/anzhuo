@@ -34,9 +34,15 @@ def _no_classify(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_deepseek_key(monkeypatch):
-    """测试里不读钥匙串、不真的连 DeepSeek（翻译、任务分组、判断档位都会退回 Haiku 那条路）。"""
+    """测试里不读钥匙串、不真的连 DeepSeek（辅助步骤失败时保留原文或沿用本地规则）。"""
     from anzhuo import deepseek_api
     monkeypatch.setattr(deepseek_api, "key", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_helper_usage(tmp_path, monkeypatch):
+    from anzhuo import helper_usage
+    monkeypatch.setattr(helper_usage, 'PATH', tmp_path / 'helper_usage.jsonl')
 
 
 @pytest.fixture(autouse=True)

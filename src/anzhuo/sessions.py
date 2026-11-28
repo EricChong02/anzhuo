@@ -42,7 +42,7 @@ class Session:
     model: str | None = None  # None = 用 ~/.claude/settings.json 里的默认
     effort: str | None = None
     context_pct: float | None = None
-    context_tokens: int | None = None  # 上下文多少 token（每轮都要把这些重读一遍，长了就提示接力）
+    context_tokens: int | None = None  # 上下文多少 token（右上角“上下文”小窗里显示）
     hidden: bool = False  # 你发“删 N”收起的；聊天记录还在，发“#N …”就回来
     unsent: str = ""  # 上一句根本没能开始（比如文件夹打不开、启动超时），下一句带上它，免得 Claude 不知道要做什么
     seen: float = 0.0  # 你最后一次在网页里看这个对话的时间；之后又做完一轮就算“没看的回复”
@@ -76,15 +76,11 @@ class Session:
     root: str = ""  # 受限账号的对话：只能在这个文件夹里干活（空 = 不限，admin 的对话）
     codex_tokens: int = 0  # Codex 这个会话累计用过多少 token（算每轮用了多少）
     claude_usage: dict = field(default_factory=dict)  # Claude 报的这个会话累计金额和各模型 token（接着上次的会话也累计），每轮记差值
-    relay_suggested: bool = False  # 已在空闲时建议过接力，之后进行中只显示禁用按钮
+    relay_suggested: bool = False  # 不再使用（2026-11-20 撤掉主动接力提示）；留着只为读旧的 sessions.json
     relay_from: int = 0  # 接力：从哪个对话接过来的（编号）
     relay_to: int = 0  # 接力：已经换到哪个新对话
     relay_pending: dict = field(default_factory=dict)  # 接力前尚待回答的问题及原文
     relay_note: str = ""  # 接力过来的交接说明（第一句话前给你看；随第一句话交给它）
-    role: str = ""  # router = 总管（super_agent 打开时才有）；空 = 普通对话
-    boss: int = 0  # 总管派出来的：总管的编号。它做完总管派的活，先回报给总管
-    ticket: str = ""  # 总管派出来的：最近一次汇报的状态（ready / waiting / blocked / failed / dropped / asked / stopped / error）
-    notes: list[str] = field(default_factory=list)  # 总管：上次开口后发生的事，下次开口前一起看
 
     @property
     def label(self) -> str:
@@ -105,6 +101,12 @@ class Registry:
         raw = json.loads(self.path.read_text())
         known = set(Session.__dataclass_fields__)
         self.sessions = {int(k): Session(**{f: x for f, x in v.items() if f in known}) for k, v in raw.get("sessions", {}).items()}
+        for k, v in raw.get("sessions", {}).items():
+            if v.get("role") == "router":   # 已移除的“总管”对话（2026-11-20）：收起来，不再置顶
+                self.sessions[int(k)].hidden, self.sessions[int(k)].pinned = True, False
+        for session in self.sessions.values():
+            if session.engine == "codex" and not session.model:
+                session.model = engines.CODEX.DEFAULT_MODEL
         self.current = raw.get("current")
         self.next_num = raw.get("next_num", max(self.sessions, default=0) + 1)
 
@@ -150,6 +152,7 @@ class Registry:
 
 @dataclass
 class Job:
+    model_override: str = field(default="", kw_only=True)
     schedule_id: str = field(default="", kw_only=True)
     schedule_run_id: str = field(default="", kw_only=True)
     text: str
@@ -174,8 +177,6 @@ class Runner:
         self.on_done = on_done
         self.on_start = on_start  # 开始干活时（发进度卡用）
         self.sem = asyncio.Semaphore(max_parallel)
-        self.spare = asyncio.Semaphore(1)   # 预留给你接着说话的那一个名额（新开的活用不了）
-        self.use_spare = False   # 总管打开时才用预留名额
         self.queues: dict[int, asyncio.Queue[Job]] = {}
         self.workers: dict[int, asyncio.Task] = {}
         self.live: dict[int, Any] = {}  # 正在跑的这一轮的连接（Claude 客户端 / Codex / ACP 连接；插话、停下用），引擎放、引擎拿
@@ -189,7 +190,7 @@ class Runner:
         self.limits: dict[str, tuple[float, str | None]] = {}  # 额度：类型 → (已用比例, 何时重置)
         self._usage_at = 0.0
         self.on_usage: Callable[[Session, Turn], None] | None = None  # 每轮做完记一笔消耗（usage.py）
-        self.role = None   # 特殊角色（总管）的额外工具和约定：role(session) → {"tools", "append", "disallowed", "own_slot", "on_stop"} 或 None
+        self.role = None   # 特殊角色的额外工具和约定：role(session) → {"tools", "append", "disallowed", "on_stop"} 或 None
         self.waiting: set[int] = set()   # 已经从队列里取出、在等并行名额的对话（也算在忙）
         self.dropped: set[int] = set()   # 等名额时被叫停的：拿到名额也不做了
         self.finishing: set[int] = set()   # 这一轮刚做完、结果还在处理的（也算在忙）
@@ -236,16 +237,10 @@ class Runner:
         return task
 
     @contextlib.asynccontextmanager
-    async def _slot(self, own: bool, human: bool):
-        """拿一个并行名额。own：自己有名额（总管）；human：你接着跟已有对话说话，名额满了可以用预留的那一个。"""
-        if own:
+    async def _slot(self):
+        """拿一个并行名额。"""
+        async with self.sem:
             yield
-        elif human and self.use_spare and self.sem.locked() and not self.spare.locked():
-            async with self.spare:
-                yield
-        else:
-            async with self.sem:
-                yield
 
     def busy(self, num: int) -> bool:
         return num in self.turns or num in self.waiting or num in self.finishing or not self.queues.get(num, asyncio.Queue()).empty()
@@ -254,7 +249,7 @@ class Runner:
         """这个对话正在做：直接插话给它（返回 -1），它手上这一步做完就看到；否则排队，返回前面还排着几件。"""
         turn = self.turns.get(s.num)
         # 正在压缩的那一轮不插话（插进去可能被压缩吞掉），排到压完之后；能不能插、怎么插由引擎定
-        if (turn and turn.accepting and not turn.interrupted and job.text != COMPACT
+        if (not job.model_override and turn and turn.accepting and not turn.interrupted and job.text != COMPACT
                 and turn.request != _request_title(Job(text=COMPACT))
                 and (steer := engines.get(s.engine).steer(self, s, turn, job)) is not None):
             turn.injected += 1
@@ -264,7 +259,7 @@ class Runner:
         q = self.queues.setdefault(s.num, asyncio.Queue())
         ahead = q.qsize() + (1 if s.num in self.turns else 0)
         last = q._queue[-1] if q.qsize() else None  # noqa: SLF001
-        if last and last.text != COMPACT and job.text != COMPACT and last.via == job.via:
+        if last and last.text != COMPACT and job.text != COMPACT and last.via == job.via and last.model_override == job.model_override:
             # 前一句还排着没开工，你又补了一句：并成一件交给它，免得它把几句话分成几轮一句句答
             last.parts = last.parts or [last.text]
             last.parts.append(job.text)
@@ -370,14 +365,10 @@ class Runner:
                 continue
             s.status = "queued"
             self.registry.save()
-            # 总管有自己的名额：派出去的对话占满并行数时，它照样能听你说话、收回报
-            own = bool(((self.role(s) if self.role else None) or {}).get("own_slot"))
-            # 你自己接着跟已有对话说的话：名额满了也能用预留的那一个，新开的活挡不住你
-            human = job.via in ("web", "dingtalk") and bool(s.claude_id or s.codex_id)
             async with contextlib.AsyncExitStack() as slot:
                 self.waiting.add(num)
                 try:   # 等名额时被取消（关机、重启）也要把“在等”清掉，不然这个对话一直算在忙
-                    await slot.enter_async_context(self._slot(own, human))
+                    await slot.enter_async_context(self._slot())
                 except BaseException:
                     self.dropped.discard(num)
                     raise
@@ -389,7 +380,6 @@ class Runner:
                     self.registry.save()
                     continue
                 turn = Turn(started=time.time(), request=_request_title(job), said=job.text[:SAID_MAX], via=job.via, last_at=time.time(), schedule_id=job.schedule_id, schedule_run_id=job.schedule_run_id)
-                turn.sa_text = job.text   # 这一轮收到的整句话（总管的对话退回时要原样交回去）
                 self.turns[num] = turn
                 s.status = "running"
                 self.registry.save()
@@ -473,6 +463,8 @@ class Runner:
     async def _auto_title(self, s: Session, asked: str, answer: str) -> None:
         """头一轮做完，按“你要做的事 + 它的回复”起个短名字（原来是你第一句话的开头，长、看不出在做什么）。"""
         from .naming import short_title
+        if s.root or engines.DEEPSEEK.refuses(self.cfg, [s.cwd, *s.add_dirs]):
+            return  # 受限账号和禁区资料不因辅助起名而发给 DeepSeek
         if (t := await short_title(asked, answer)) and not s.renamed:
             s.name, s.titled = t, True
             self.registry.save()
@@ -492,8 +484,11 @@ class Runner:
             return
         self._usage_at = time.time()
         try:
+            env = os.environ.copy()
+            # 服务令牌只让 /usage 返回会话统计。本机登录才会返回订阅额度。
+            env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
             proc = await asyncio.create_subprocess_exec(
-                str(_cli_path()), "-p", "/usage", cwd=str(Path.home()),
+                str(_cli_path()), "-p", "/usage", cwd=str(Path.home()), env=env,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             out, _ = await asyncio.wait_for(proc.communicate(), 60)
             if got := parse_usage(out.decode(errors="replace")):
@@ -502,7 +497,7 @@ class Runner:
             log.debug("查额度失败", exc_info=True)
 
     async def _delegate_code(self, s: Session, turn: Turn, args: dict) -> dict:
-        if s.root or engines.get(s.engine) is not engines.CLAUDE or turn.interrupted:
+        if s.root or s.engine not in ('claude', 'deepseek') or turn.interrupted:
             return {'state': 'skipped', 'error': '当前对话不能委派代码'}
         from .code_delegate import CodeDelegator
         if not hasattr(self, 'code_delegate'):
@@ -511,13 +506,13 @@ class Runner:
         def progress(job_id, state, text):
             turn.last_at = time.time()
             agent = turn.agents.setdefault('code:' + job_id,
-                {'name': 'GPT 代码助手', 'kind': 'agent', 'model': 'GPT-6.1 Sol', 'model_source': 'configured', 't0': time.time(), 't1': 0})
+                {'name': 'GPT 代码助手', 'kind': '助手', 'model': 'gpt-6.1-sol', 'model_source': 'configured', 't0': time.time(), 't1': 0})
             agent.update(status='running' if state in ('queued', 'running') else state, last=text)
             if state not in ('queued', 'running'):
                 agent['t1'] = time.time()
             turn.timeline.append({'t': time.time(), 'kind': 'do', 'text': text, 'detail': job_id})
 
-        task = asyncio.create_task(self.code_delegate.run(cwd=s.cwd, parent_num=s.num, args=args, progress=progress))
+        task = asyncio.create_task(self.code_delegate.run(cwd=s.cwd, parent_num=s.num, args={**args, '_parent_turn': f'{s.num}-{int(turn.started)}'}, progress=progress))
         # 与生图共用父任务的取消和异常结束回收机制。
         tasks = self.image_tasks.setdefault(s.num, set())
         tasks.add(task)

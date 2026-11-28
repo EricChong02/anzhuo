@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import engines, split, thread
-from .config import Config
 from .sessions import Job
 
 if TYPE_CHECKING:
@@ -28,31 +27,11 @@ RELAY = """这个对话太长了，要换到一个新对话接着做。请写一
 长短看任务：简单的几百字就够；复杂的把约束、决定、证据和文件路径写全，宁可长一点，也别让新对话重新查找、重新试错。
 只回复交接说明本身，用 Markdown；不要调用任何工具，不要再做别的事。"""
 
-CACHE_TTL = 3300       # Claude 的提示缓存约 1 小时过期，留 5 分钟余量
-COMPACT_AT = 70        # 上下文用到七成：活没做完就先压缩，不急着接力
-
-
-def relay_hint(s, busy: bool, relaying: bool, now: float | None = None, cfg=None) -> dict | None:
-    """该不该提示“接力到新对话”。返回 {kind: long/cold/compact, tokens, hours, pct, key}；key 用来记你点过“不用”。
-    门槛见配置 relay_long（上下文太长）、relay_cold（缓存过期又不短）。
-    同一件事接着做大多在读缓存，便宜；接力要另写交接、重建缓存、下一棒还得重新找材料。所以提示只问“这一段做完了吗”：
-    - long：上下文到 relay_long，一段做完再接力，没做完就接着说；
-    - compact：上下文用到 COMPACT_AT%，没做完先压缩、做完了再接力（窗口快满，不能再接着拖）；
-    - cold：缓存过期又不短，接着说要整段重写，换件事正好接力。"""
-    if relaying:
-        return {"kind": "running"}
-    long_at, cold_at = getattr(cfg, "relay_long", Config.relay_long), getattr(cfg, "relay_cold", Config.relay_cold)
-    tk = s.context_tokens or 0
-    if busy or s.relay_to or not (s.claude_id or s.codex_id) or tk < cold_at:
-        return None
-    idle = (now or time.time()) - s.updated
-    if engines.get(s.engine).cache_hint and idle > CACHE_TTL:
-        return {"kind": "cold", "tokens": tk, "hours": round(idle / 3600, 1), "key": f"cold{int(s.updated)}"}
-    if (pct := s.context_pct or 0) >= COMPACT_AT:
-        return {"kind": "compact", "tokens": tk, "pct": round(pct), "key": f"compact{int(pct) // 10}"}
-    if tk >= long_at:
-        return {"kind": "long", "tokens": tk, "key": f"long{tk // 100_000}"}
-    return None
+def relay_hint(relaying: bool) -> dict | None:
+    """输入框上方的接力状态条：只在正在写交接说明时显示。
+    不再按上下文长度、缓存过期、窗口七成主动提示接力或压缩（2026-11-20 撤掉）：按 11-07～11-20 的每次调用核算，
+    51 次接力合计只省约 3%，提前压缩约 1%，不值得为此打断。接力、压缩都留在右上角“上下文”小窗里手动点。"""
+    return {"kind": "running"} if relaying else None
 
 
 def display_items(items):
@@ -98,7 +77,7 @@ def _cut(text: str, n: int) -> str:
 
 
 def _said(text: str) -> str:
-    """记录里你说的话：去掉接力前言、总管转话时附的说明。"""
+    """记录里你说的话：去掉接力前言、旧版总管转话时附的说明。"""
     if text.startswith("（这是接力的新对话") and "用户这次说：\n\n" in text:
         text = text.split("用户这次说：\n\n", 1)[1]
     return re.sub(r"\n\n（经.{1,20}?转来。.*$", "", text, flags=re.S).strip()
@@ -168,7 +147,7 @@ def handoff(s, records: list[dict], git: str = "", path: str = "", said_max: int
 class Relays:
     """接力：把一个对话换到新对话接着做。普通接力让原对话写交接说明；换家（Claude ↔ GPT）、换型号也走这里；
     原对话额度用完了写不了，就由远窗按记录拼交接材料（handoff）。新对话开好后发事件 relayed(旧, 新)，
-    总管据此把“谁派的活”交接过去。"""
+    """
 
     def __init__(self, bridge: "Bridge"):
         self.b = bridge
@@ -181,7 +160,7 @@ class Relays:
         return s.limit_until > time.time() or self.b.quota_levels.get(fam) == "撞线"
 
     def targets(self, s) -> list[dict]:
-        """除了原样接力，还能换到哪（网页按钮、总管用）：[{to, label, level}]。没装、受限账号不能用、文件夹不许发、
+        """除了原样接力，还能换到哪（网页按钮用）：[{to, label, level}]。没装、受限账号不能用、文件夹不许发、
         那家也撞线了的不列；原对话撞线时同一家的也不列（换了也接不上）。DeepSeek 不列：接复杂的活不如这两家（质量优先）。"""
         cur = pick_of(s)
         fam = split.family(cur or "sonnet")
@@ -210,12 +189,10 @@ class Relays:
             return f"现在换不了 {pick_label(to)}（没装、不能用，或那家额度也用完了）。"
         if not to and self.capped(s):
             return "额度用完了，同一家接力也接不上：换别家接着做，或等恢复。"
-        if not to and not s.relay_suggested and not relay_hint(s, False, False, cfg=self.b.cfg):
-            return "这个对话暂时没有接力建议。"
         return ""
 
     async def start(self, num: int, via: str = "web", to: str = "", go: bool = False, wait_idle: float = 0) -> str:
-        """to = 换到哪（pick：sonnet / gpt …，空 = 原样）；go = 开好新对话就替你说“继续”（换家接着做、总管派的活）。
+        """to = 换到哪（pick：sonnet / gpt …，空 = 原样）；go = 开好新对话就替你说“继续”（换家接着做）。
         原对话额度用完了就不让它写，远窗直接拼交接材料、马上开新对话。
         wait_idle = 最多等几秒让这一轮收完尾（一轮刚做完、报告还没发完时也算在忙）。"""
         for _ in range(int(wait_idle * 2)):
@@ -287,7 +264,7 @@ class Relays:
                            what="远窗按那边的记录整理的交接材料（那边额度用完了，没法自己写）" if mechanical else "那边写的交接说明")
         s = Session(num=self.b.registry.reserve_num(), name=p.name, cwd=p.cwd, add_dirs=list(p.add_dirs),
                     owner=p.owner, root=p.root, engine=engine, model=model, effort=effort, pinned=p.pinned, ext=copy.deepcopy(p.ext),
-                    task_group=p.task_group, task_group_manual=p.task_group_manual, boss=p.boss,
+                    task_group=p.task_group, task_group_manual=p.task_group_manual,
                     renamed=True, titled=True, worked=p.worked, seen=now, updated=now, relay_from=p.num, relay_note=note,
                     unsent=f"{head}{TAIL}\n\n{note}\n\n---\n用户这次说：")
         pending = p.relay_pending or {}
@@ -298,6 +275,6 @@ class Relays:
             s.unsent = s.unsent.replace("\n\n---\n用户这次说：", f"\n\n接力前最后一条答复（用户可能直接选择其中的选项）：\n{question}\n\n---\n用户这次说：")
         self.b.registry.add(s)
         p.relay_to = s.num
-        await self.b.events.emit("relayed", p, s)   # 总管：把“谁派的活”、总管身份交接过去
+        await self.b.events.emit("relayed", p, s)
         self.b.registry.save()
         return s

@@ -1,7 +1,7 @@
 """网页里的“设置”：把 config.toml 里常改的那些项摆出来改，改完写回 config.toml（保留注释和没列出来的项）。
 
 一张表（FIELDS）说清每一项：叫什么、什么类型、怎么校验、改了能不能马上生效、放在哪组、是不是“高级”、跟着哪个开关显示。
-网页、校验、保存、生效都照这张表来，加一项设置只改这一处。分组按“用户想做什么”排（模型、回复、总管……），不按配置键排；
+网页、校验、保存、生效都照这张表来，加一项设置只改这一处。分组按“用户想做什么”排（模型、回复、文件夹……），不按配置键排；
 平时不用动的调参项（接力线、并发数、搜索范围）归“高级”，默认收起。config.toml 仍是唯一的配置来源；账号在“账号”页管，网页地址、端口、钉钉这些连接类的不在这里改。
 """
 from __future__ import annotations
@@ -92,10 +92,6 @@ FIELDS: list[Field] = [
     Field("reply_language", "回复语言", "回复", "text", "留空不指定", check=_short(20)),
     Field("extra_instructions", "固定要求", "回复", "textarea", "每个对话都会照做，比如“小改动做完直接提交，不用问我”", check=_short(LONG)),
     Field("translate_english", "长段英文译成中文", "回复", "bool", "有 DeepSeek 密钥用它，没有用 Haiku（占你的额度）"),
-    Field("super_agent", "总管", "总管", "bool", "多一个置顶对话：你只跟它说，它替你开对话、派活、汇总", live=False),
-    Field("super_agent_name", "名字", "总管", "text", "留空叫“总管”", check=_short(30), when="super_agent"),
-    Field("super_agent_routing", "例外的分派规则", "总管", "textarea",
-          "平时照“模型分工”选；只有例外才写，一行一条，比如“查资料：kimi”", check=_short(LONG), when="super_agent"),
     Field("folders", "常用文件夹", "文件夹", "folders", "新对话菜单和“新开 短名：…”用它。一行一个：短名 = 路径", check=_folders),
     Field("deepseek_block", "不让 DeepSeek 碰的文件夹", "文件夹", "lines", "一行一个文件夹名（前缀匹配）：在这里面不开 DeepSeek，DeepSeek 对话也读不到"),
     Field("auto_review", "AI 审核危险命令", "安全", "bool", "关着时删文件、git push 这类都等你点“允许”"),
@@ -104,8 +100,6 @@ FIELDS: list[Field] = [
     Field("task_group_rules", "分类规则", "自动", "textarea", "一行一条，比如“同一门课的各小节都归到课程名下”", check=_short(LONG), when="task_grouping"),
     Field("auto_cleanup", "每天自动整理", "自动", "bool", "归档旧记录、清旧临时文件夹，每月一次体检", live=False),
     Field("dingtalk_quiet", "钉钉只发结果", "自动", "bool", "开工、进度这些只在网页里看", when="dingtalk_enabled"),
-    Field("relay_long", "对话多长提醒接力", "高级", "int", "单位 token，默认 120000；越长每句话越贵", rng=(30_000, 1_000_000), adv=True),
-    Field("relay_cold", "隔一小时回来、多长提醒接力", "高级", "int", "缓存过期后整段要重读，单位 token", rng=(10_000, 1_000_000), adv=True),
     Field("max_parallel", "最多同时干活的对话", "高级", "int", "多的排队", live=False, adv=True),
     Field("scratch_root", "临时文件夹放哪", "高级", "text", "没指定文件夹时在这里新建", check=_short(500), adv=True),
     Field("search_roots", "按名字找文件夹的范围", "高级", "lines", "一行一个路径", adv=True),
@@ -259,11 +253,6 @@ def apply(bridge: "Bridge", new: Config) -> None:
     from . import translate, schedules
     translate.enabled = new.translate_english
     schedules.set_timezone(new.timezone)
-    if new.super_agent_name != old.super_agent_name and old.super_agent:
-        from . import superagent
-        if router := superagent.find(bridge):
-            router.name = (new.super_agent_name or superagent.NAME).strip()[:30]
-            bridge.registry.save()
 
 
 def pending(bridge: "Bridge", path: Path) -> list[str]:
