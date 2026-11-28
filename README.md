@@ -86,9 +86,11 @@ uv sync                              # 需要 uv 和 Python 3.13+，见下面“
 .venv/bin/python scripts/demo.py     # 打开 http://127.0.0.1:8799 ，账号 demo，密码 demo
 ```
 
-## 安装（真的接上你的 Claude）
+## 安装（接入自己的 AI）
 
-**需要**：一台 Mac（作者开发验证的平台）或一台 Windows 电脑（本仓库已做 Windows 适配，见下）、[uv](https://docs.astral.sh/uv/)（会自动装好 Python 3.13+）、一个 Claude 订阅或 API 账号。想用 GPT 的话还要装 ChatGPT 桌面版并登录（该功能只在 macOS 验证过）。
+**用 AI 帮你装**：把 [AI 协助安装](docs/AI协助安装.md) 开头那段话交给本机的编程助手。它会先了解你常用的 AI、设备、访问方式和想完成的事，再配置和验证。
+
+手动安装需要 Mac 或 Windows 电脑、[uv](https://docs.astral.sh/uv/) 和你准备使用的 AI 引擎。下方示例以 Claude 为例。只用其他引擎时，跳过 Claude 登录，按 [AI 协助安装](docs/AI协助安装.md) 中对应的引擎配置。
 
 ```bash
 git clone https://github.com/EricChong02/anzhuo.git && cd anzhuo
@@ -151,6 +153,7 @@ scripts/install_launchd.sh
 
 | 想做什么 | 看这里 |
 |---|---|
+| 让本机 AI 帮我安装和配置 | [AI 协助安装](docs/AI协助安装.md) |
 | 从零装好并跑起来 | [安装与首次运行](docs/安装与首次运行.md) |
 | 学会网页和各种操作 | [使用指南](docs/使用指南.md) |
 | 查某个配置项怎么写 | [配置参考](docs/配置参考.md) |

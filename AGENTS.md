@@ -2,6 +2,12 @@
 
 这个仓库是「远窗」：一个 Python（aiohttp + 原生 HTML）写的小程序，让人在手机或网页上给电脑里的 Claude Code / Codex 派活。改代码前先读 `README.md` 和 `docs/架构.md`。
 
+## 帮用户安装或按用途配置
+
+先读 [AI 协助安装](docs/AI协助安装.md)。首次安装时先检查本机，然后集中询问还缺的引擎、设备、访问方式和实际使用目标。使用 CyberScope 的用户自行选择是否启用试课模块。根据回答完成安装、配置和验收，升级已有安装时直接沿用已确认的用法。
+
+## 开发与维护
+
 - 测试：`.venv/bin/pytest -q`（Windows 是 `.venv\Scripts\python.exe -m pytest -q`；`test_checkpoints` 里两个用例依赖 POSIX 权限位 / 符号链接特权，在 Windows 上会失败，属平台限制）。全部是离线测试，不会连 Claude、钉钉或你的钥匙串。
 - 想先看界面：`.venv/bin/python scripts/demo.py`（Windows：`.venv\Scripts\python.exe`），打开 http://127.0.0.1:8799 ，账号密码都是 demo。
 - 网页界面在 `src/anzhuo/static/`：`app.html` 是骨架，脚本和样式在 `static/app/`。脚本按 `webui.APP_JS` 的顺序拼进同一个作用域，样式按 base → theme → admin → list 叠加。每次打开都重新读取：只改界面不用重启，刷新页面即生效；改 Python 才要重启。

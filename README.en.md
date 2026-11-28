@@ -13,6 +13,10 @@ Phone, iPad or any computer — those devices need <b>no proxy and no installed 
 
 > **Heads-up on language.** The UI, prompts and docs are in Simplified Chinese (the author's language). The code is plain Python + a single HTML file, so translating the UI is straightforward — contributions welcome. This page is a short English overview; the full documentation is in Chinese under [`docs/`](docs/).
 
+## Have an AI assistant set it up
+
+Give your local coding assistant the prompt in the [AI-assisted setup guide](docs/AI协助安装.md). It asks about your engines, devices, access needs, and first task before configuring and testing your installation.
+
 ## What it is
 
 AI coding agents often work for ten minutes and then stop on a tiny question: *"A or B?"*, *"may I delete this file?"*. If you are away from your desk, they simply wait.
